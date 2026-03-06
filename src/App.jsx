@@ -755,12 +755,66 @@ function MobileTaskList({ filtered, team, onEdit, attachmentCounts }) {
   );
 }
 
+
+// ─────────────────────────────────────────────
+// Login Screen
+// ─────────────────────────────────────────────
+
+function LoginScreen() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleLogin = async () => {
+    if (!email.trim() || !password.trim()) return;
+    setLoading(true); setError("");
+    const { error: err } = await supabase.auth.signInWithPassword({ email, password });
+    if (err) { setError(err.message); setLoading(false); }
+  };
+
+  return (
+    <div style={{ minHeight: "100dvh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Syne', sans-serif" }}>
+      <style>{\`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap'); *{box-sizing:border-box;margin:0;padding:0} @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}\`}</style>
+      <div style={{ width: "100%", maxWidth: 400 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 40, justifyContent: "center" }}>
+          <div style={{ width: 36, height: 36, borderRadius: 8, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⬡</div>
+          <div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "#e5e5e5", letterSpacing: -0.3 }}>FCG / BR OPS</div>
+            <div style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace", letterSpacing: 1 }}>OPERATIONS BOARD</div>
+          </div>
+        </div>
+        <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: 28, boxShadow: "0 24px 80px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Sign in</div>
+          <div style={{ fontSize: 11.5, color: "#444", fontFamily: "'DM Mono', monospace", marginBottom: 24 }}>Use your work email and password</div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <div>
+              <label style={labelStyle}>Email</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="you@example.com" autoFocus onKeyDown={e => e.key === "Enter" && handleLogin()} style={{ ...inputStyle, fontSize: 15 }} />
+            </div>
+            <div>
+              <label style={labelStyle}>Password</label>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="••••••••" onKeyDown={e => e.key === "Enter" && handleLogin()} style={{ ...inputStyle, fontSize: 15 }} />
+            </div>
+          </div>
+          {error && <div style={{ marginTop: 14, color: "#ef4444", fontSize: 12, fontFamily: "'DM Mono', monospace", background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 6, padding: "10px 12px" }}>⚠ {error}</div>}
+          <button onClick={handleLogin} disabled={loading || !email.trim() || !password.trim()} style={{ marginTop: 20, width: "100%", background: "#F97316", border: "none", borderRadius: 8, padding: "12px 0", color: "#000", fontSize: 14, fontWeight: 700, cursor: loading ? "not-allowed" : "pointer", opacity: email.trim() && password.trim() && !loading ? 1 : 0.4, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
+            {loading ? <><span style={{ display: "inline-block", animation: "spin 0.8s linear infinite" }}>◌</span> Signing in...</> : "Sign In →"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // Main App
 // ─────────────────────────────────────────────
 
 export default function TaskTracker() {
   const isMobile = useIsMobile();
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
   const [tasks, setTasks] = useState([]);
   const [team, setTeam] = useState([]);
   const [attachmentCounts, setAttachmentCounts] = useState({});
@@ -777,6 +831,20 @@ export default function TaskTracker() {
 
   const dragState = useRef({ active: false, task: null, startX: 0, startY: 0, moved: false });
   const [ghostPos, setGhostPos] = useState(null);
+
+  // Auth
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data }) => {
+      setUser(data.session?.user || null);
+      setAuthLoading(false);
+    });
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user || null);
+    });
+    return () => listener.subscription.unsubscribe();
+  }, []);
+
+  const handleSignOut = async () => { await supabase.auth.signOut(); };
   const [ghostTask, setGhostTask] = useState(null);
   const [draggingId, setDraggingId] = useState(null);
   const [overColumn, setOverColumn] = useState(null);
@@ -907,6 +975,9 @@ export default function TaskTracker() {
   };
 
   // ── Mobile layout ──────────────────────────
+  if (authLoading) return <div style={{ minHeight: "100dvh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", color: "#333", fontFamily: "monospace" }}>◌</div>;
+  if (!user) return <LoginScreen />;
+
   if (isMobile) {
     return (
       <>
@@ -979,9 +1050,11 @@ export default function TaskTracker() {
               { id: "tasks", icon: "⊞", label: "Tasks" },
               { id: "digest", icon: "✉", label: "Digest" },
               { id: "settings", icon: "⚙", label: "Settings" },
+              { id: "signout", icon: "⏻", label: "Sign Out" },
             ].map(nav => (
               <button key={nav.id} onClick={() => {
                 if (nav.id === "digest") setDigestOpen(true);
+                else if (nav.id === "signout") handleSignOut();
                 else setPage(nav.id);
               }} style={{ flex: 1, padding: "12px 0 14px", background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
                 <span style={{ fontSize: 18, color: page === nav.id ? "#F97316" : "#444" }}>{nav.icon}</span>
@@ -1067,11 +1140,17 @@ export default function TaskTracker() {
             )}
 
             <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid #1a1a1a" }}>
-              <button onClick={() => setDigestOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "#0a1a12", border: "1px solid #10B98130", color: "#10B981", fontSize: 12, fontWeight: 600, fontFamily: "'Syne', sans-serif" }}
+              <button onClick={() => setDigestOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "#0a1a12", border: "1px solid #10B98130", color: "#10B981", fontSize: 12, fontWeight: 600, fontFamily: "'Syne', sans-serif", marginBottom: 6 }}
                 onMouseEnter={e => e.currentTarget.style.background = "#0d2218"}
                 onMouseLeave={e => e.currentTarget.style.background = "#0a1a12"}
               >
                 <span style={{ fontSize: 14 }}>✉</span> Send Digest
+              </button>
+              <button onClick={handleSignOut} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "none", border: "1px solid #2a2a2a", color: "#444", fontSize: 12, fontFamily: "'Syne', sans-serif" }}
+                onMouseEnter={e => e.currentTarget.style.color = "#e5e5e5"}
+                onMouseLeave={e => e.currentTarget.style.color = "#444"}
+              >
+                <span style={{ fontSize: 13 }}>⏻</span> Sign Out
               </button>
             </div>
           </div>
