@@ -706,42 +706,50 @@ function DigestModal({ tasks, team, onClose }) {
 // Mobile Task List
 // ─────────────────────────────────────────────
 
-function MobileTaskList({ filtered, team, onEdit, attachmentCounts }) {
+function MobileTaskList({ filtered, team, onEdit, onStatusChange, attachmentCounts }) {
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 8, padding: "16px 12px 80px" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "10px 10px 80px" }}>
       {STATUSES.map(status => {
         const colTasks = filtered.filter(t => t.status === status.id);
         if (colTasks.length === 0) return null;
         return (
           <div key={status.id}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 4px", marginBottom: 6 }}>
-              <span style={{ fontSize: 13, color: "#555" }}>{status.icon}</span>
-              <span style={{ fontSize: 11, fontWeight: 700, color: "#666", letterSpacing: 1, fontFamily: "'DM Mono', monospace", textTransform: "uppercase" }}>{status.label}</span>
-              <span style={{ background: "#1a1a1a", color: "#555", borderRadius: 10, padding: "1px 6px", fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{colTasks.length}</span>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 4px", marginBottom: 4, marginTop: 6 }}>
+              <span style={{ fontSize: 11, color: "#555" }}>{status.icon}</span>
+              <span style={{ fontSize: 10, fontWeight: 700, color: "#555", letterSpacing: 1, fontFamily: "'DM Mono', monospace", textTransform: "uppercase" }}>{status.label}</span>
+              <span style={{ background: "#1a1a1a", color: "#444", borderRadius: 10, padding: "1px 5px", fontSize: 9, fontFamily: "'DM Mono', monospace" }}>{colTasks.length}</span>
             </div>
             {colTasks.map(task => {
               const member = getMember(task.assignee, team);
               const isOverdue = task.status !== "done" && task.due && new Date(task.due) < new Date();
               const attachCount = attachmentCounts?.[task.id] || 0;
+              const nextStatus = STATUSES[STATUSES.findIndex(s => s.id === task.status) + 1];
               return (
-                <div key={task.id} onClick={() => onEdit(task)} style={{ background: "#161616", border: "1px solid #262626", borderRadius: 10, padding: "14px", marginBottom: 8, cursor: "pointer" }}>
-                  <div style={{ display: "flex", gap: 6, marginBottom: 8, alignItems: "center" }}>
-                    <CompanyBadge companyId={task.company} small />
-                    <PriorityDot priorityId={task.priority} />
-                  </div>
-                  <div style={{ fontSize: 15, color: "#e5e5e5", fontWeight: 500, lineHeight: 1.4, marginBottom: 10, fontFamily: "'Syne', sans-serif" }}>{task.title}</div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      <Avatar member={member} size={26} />
-                      <span style={{ fontSize: 12, color: "#555", fontFamily: "'Syne', sans-serif" }}>{member.name}</span>
-                      {attachCount > 0 && <span style={{ fontSize: 11, color: "#444", fontFamily: "'DM Mono', monospace" }}>📎{attachCount}</span>}
+                <div key={task.id} style={{ background: "#161616", border: "1px solid #222", borderRadius: 8, padding: "10px 12px", marginBottom: 4, display: "flex", alignItems: "center", gap: 10 }}>
+                  {/* Left: tap to edit */}
+                  <div onClick={() => onEdit(task)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
+                    <div style={{ display: "flex", gap: 5, marginBottom: 5, alignItems: "center" }}>
+                      <CompanyBadge companyId={task.company} small />
+                      <PriorityDot priorityId={task.priority} />
+                      {isOverdue && <span style={{ fontSize: 9, color: "#EF4444", fontFamily: "'DM Mono', monospace" }}>OVERDUE</span>}
                     </div>
-                    {task.due && (
-                      <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: isOverdue ? "#EF4444" : "#555" }}>
-                        {isOverdue ? "⚠ " : ""}{new Date(task.due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-                      </span>
-                    )}
+                    <div style={{ fontSize: 13, color: "#e5e5e5", fontWeight: 500, lineHeight: 1.3, marginBottom: 5, fontFamily: "'Syne', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <Avatar member={member} size={18} />
+                      <span style={{ fontSize: 10, color: "#555", fontFamily: "'Syne', sans-serif" }}>{member.name}</span>
+                      {task.due && <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: isOverdue ? "#EF4444" : "#444" }}>{new Date(task.due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
+                      {attachCount > 0 && <span style={{ fontSize: 10, color: "#444" }}>📎{attachCount}</span>}
+                    </div>
                   </div>
+                  {/* Right: advance status button */}
+                  {nextStatus && (
+                    <button onClick={() => onStatusChange(task, nextStatus.id)} style={{ background: "#1e1e1e", border: "1px solid #2a2a2a", borderRadius: 6, padding: "6px 8px", cursor: "pointer", color: "#555", fontSize: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                      {nextStatus.icon}
+                    </button>
+                  )}
+                  {task.status === "done" && (
+                    <span style={{ fontSize: 14, color: "#10B981", flexShrink: 0 }}>✓</span>
+                  )}
                 </div>
               );
             })}
@@ -749,7 +757,7 @@ function MobileTaskList({ filtered, team, onEdit, attachmentCounts }) {
         );
       })}
       {filtered.length === 0 && (
-        <div style={{ textAlign: "center", padding: 60, color: "#333", fontFamily: "'DM Mono', monospace", fontSize: 12 }}>No tasks found</div>
+        <div style={{ textAlign: "center", padding: 40, color: "#333", fontFamily: "'DM Mono', monospace", fontSize: 11 }}>No tasks found</div>
       )}
     </div>
   );
@@ -993,7 +1001,7 @@ export default function TaskTracker() {
         <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: "#0a0a0a", fontFamily: "'Syne', sans-serif" }}>
 
           {/* Mobile Header */}
-          <div style={{ display: "flex", alignItems: "center", padding: "12px 16px", borderBottom: "1px solid #1a1a1a", background: "#0d0d0d", gap: 12, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", padding: "7px 12px", borderBottom: "1px solid #1a1a1a", background: "#0d0d0d", gap: 10, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
               <div style={{ width: 26, height: 26, borderRadius: 6, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>⬡</div>
               <div>
@@ -1024,8 +1032,8 @@ export default function TaskTracker() {
               { label: "Overdue", val: stats.overdue, color: "#EF4444" },
               { label: "Done", val: stats.done, color: "#10B981" },
             ].map((s, i) => (
-              <div key={i} style={{ flex: 1, padding: "8px 0", display: "flex", flexDirection: "column", alignItems: "center", borderRight: i < 3 ? "1px solid #1a1a1a" : "none" }}>
-                <span style={{ fontSize: 18, fontWeight: 800, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.val}</span>
+              <div key={i} style={{ flex: 1, padding: "5px 0", display: "flex", flexDirection: "column", alignItems: "center", borderRight: i < 3 ? "1px solid #1a1a1a" : "none" }}>
+                <span style={{ fontSize: 15, fontWeight: 800, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.val}</span>
                 <span style={{ fontSize: 9, color: "#333", fontFamily: "'DM Mono', monospace", letterSpacing: 0.5 }}>{s.label.toUpperCase()}</span>
               </div>
             ))}
@@ -1040,7 +1048,7 @@ export default function TaskTracker() {
                 <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Loading...
               </div>
             ) : (
-              <MobileTaskList filtered={filtered} team={team} onEdit={openEdit} attachmentCounts={attachmentCounts} />
+              <MobileTaskList filtered={filtered} team={team} onEdit={openEdit} attachmentCounts={attachmentCounts} onStatusChange={async (task, newStatus) => { setTasks(ts => ts.map(t => t.id === task.id ? {...t, status: newStatus} : t)); await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id); }} />
             )}
           </div>
 
