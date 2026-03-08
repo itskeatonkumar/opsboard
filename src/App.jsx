@@ -193,6 +193,7 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team }) {
   const [attachments, setAttachments] = useState([]);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef();
+  const cameraRef = useRef();
   const set = (k, v) => setForm(f => ({ ...f, [k]: v }));
 
   // Load attachments for existing task
@@ -284,6 +285,13 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team }) {
             <label style={labelStyle}>Notes</label>
             <textarea value={form.description} onChange={e => set("description", e.target.value)} placeholder="Any context..." style={{ ...inputStyle, minHeight: 70, resize: "vertical", fontSize: 14 }} />
           </div>
+          <div>
+            <label style={labelStyle}>Project</label>
+            <input value={form.project || ""} onChange={e => set("project", e.target.value)} placeholder="e.g. Belmont, Walmart Reno, LongHorn..." style={{ ...inputStyle, fontSize: 14 }} list="project-suggestions" />
+            <datalist id="project-suggestions">
+              {[...new Set(allProjects)].filter(Boolean).map(p => <option key={p} value={p} />)}
+            </datalist>
+          </div>
 
           {/* Attachments */}
           <div>
@@ -300,9 +308,15 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team }) {
             ) : (
               <>
                 <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" onChange={handleFileUpload} style={{ display: "none" }} />
-                <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ width: "100%", padding: "10px 0", background: "#0e0e0e", border: "1px dashed #2a2a2a", borderRadius: 6, color: uploading ? "#555" : "#888", cursor: uploading ? "not-allowed" : "pointer", fontSize: 12, fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                  {uploading ? <><span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Uploading...</> : "📎  Attach files or photos"}
-                </button>
+                <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: "none" }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ flex: 1, padding: "10px 0", background: "#0e0e0e", border: "1px dashed #2a2a2a", borderRadius: 6, color: uploading ? "#555" : "#888", cursor: uploading ? "not-allowed" : "pointer", fontSize: 12, fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                    {uploading ? <><span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Uploading...</> : "📎 Files"}
+                  </button>
+                  <button onClick={() => cameraRef.current?.click()} disabled={uploading} style={{ padding: "10px 16px", background: "#0e0e0e", border: "1px dashed #2a2a2a", borderRadius: 6, color: uploading ? "#555" : "#888", cursor: uploading ? "not-allowed" : "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    📷
+                  </button>
+                </div>
               </>
             )}
           </div>
@@ -869,6 +883,117 @@ function MobileKanban({ filtered, team, onEdit, onStatusChange, attachmentCounts
 }
 
 
+
+// ─────────────────────────────────────────────
+// Dashboard
+// ─────────────────────────────────────────────
+
+function DashboardPage({ tasks, team }) {
+  const today = new Date(); today.setHours(0,0,0,0);
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+  const sevenDays = new Date(today); sevenDays.setDate(sevenDays.getDate() + 7);
+
+  const open = tasks.filter(t => t.status !== "done");
+  const overdue = tasks.filter(t => t.status !== "done" && t.due && new Date(t.due+"T12:00:00") < today);
+  const dueToday = tasks.filter(t => t.status !== "done" && t.due && new Date(t.due+"T12:00:00") >= today && new Date(t.due+"T12:00:00") < tomorrow);
+  const dueWeek = tasks.filter(t => t.status !== "done" && t.due && new Date(t.due+"T12:00:00") >= tomorrow && new Date(t.due+"T12:00:00") < sevenDays);
+  const done = tasks.filter(t => t.status === "done");
+
+  const byPerson = team.map(m => ({
+    ...m,
+    total: tasks.filter(t => t.assignee === m.id).length,
+    open: tasks.filter(t => t.assignee === m.id && t.status !== "done").length,
+    overdue: tasks.filter(t => t.assignee === m.id && t.status !== "done" && t.due && new Date(t.due+"T12:00:00") < today).length,
+    done: tasks.filter(t => t.assignee === m.id && t.status === "done").length,
+  })).filter(m => m.total > 0).sort((a,b) => b.open - a.open);
+
+  const projects = [...new Set(tasks.map(t => t.project).filter(Boolean))];
+  const byProject = projects.map(p => ({
+    name: p,
+    total: tasks.filter(t => t.project === p).length,
+    open: tasks.filter(t => t.project === p && t.status !== "done").length,
+    done: tasks.filter(t => t.project === p && t.status === "done").length,
+    overdue: tasks.filter(t => t.project === p && t.status !== "done" && t.due && new Date(t.due+"T12:00:00") < today).length,
+  })).sort((a,b) => b.open - a.open);
+
+  const statCard = (label, val, color, sub) => (
+    <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "16px 18px", flex: 1, minWidth: 100 }}>
+      <div style={{ fontSize: 28, fontWeight: 800, color, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{val}</div>
+      <div style={{ fontSize: 10, color: "#555", fontFamily: "'DM Mono', monospace", letterSpacing: 0.8, marginTop: 5, textTransform: "uppercase" }}>{label}</div>
+      {sub && <div style={{ fontSize: 10, color: "#333", fontFamily: "'DM Mono', monospace", marginTop: 2 }}>{sub}</div>}
+    </div>
+  );
+
+  const maxOpen = Math.max(...byPerson.map(m => m.open), 1);
+
+  return (
+    <div style={{ padding: "20px 20px 80px", overflowY: "auto", height: "100%", fontFamily: "'Syne', sans-serif" }}>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "#e5e5e5", marginBottom: 16 }}>Overview</div>
+
+      {/* Stat cards */}
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
+        {statCard("Total Open", open.length, "#e5e5e5")}
+        {statCard("Overdue", overdue.length, "#EF4444")}
+        {statCard("Due Today", dueToday.length, "#F59E0B")}
+        {statCard("This Week", dueWeek.length, "#3B82F6")}
+        {statCard("Completed", done.length, "#10B981")}
+      </div>
+
+      {/* Overdue alert */}
+      {overdue.length > 0 && (
+        <div style={{ background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 8, padding: "12px 16px", marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", fontFamily: "'DM Mono', monospace", marginBottom: 8 }}>⚠ OVERDUE TASKS</div>
+          {overdue.slice(0, 5).map(t => (
+            <div key={t.id} style={{ fontSize: 12, color: "#e5e5e5", padding: "4px 0", borderBottom: "1px solid #1e1e1e", display: "flex", justifyContent: "space-between" }}>
+              <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{t.title}</span>
+              <span style={{ color: "#ef4444", fontSize: 10, fontFamily: "'DM Mono', monospace", flexShrink: 0, marginLeft: 8 }}>{new Date(t.due+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
+            </div>
+          ))}
+          {overdue.length > 5 && <div style={{ fontSize: 10, color: "#555", marginTop: 6, fontFamily: "'DM Mono', monospace" }}>+{overdue.length - 5} more</div>}
+        </div>
+      )}
+
+      {/* Workload by person */}
+      {byPerson.length > 0 && (
+        <div style={{ marginBottom: 20 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#555", fontFamily: "'DM Mono', monospace", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>Workload by Person</div>
+          {byPerson.map(m => (
+            <div key={m.id} style={{ marginBottom: 10 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+                <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color || "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#000", flexShrink: 0 }}>{m.initials || m.name[0]}</div>
+                <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{m.name}</span>
+                <span style={{ fontSize: 10, color: "#555", fontFamily: "'DM Mono', monospace" }}>{m.open} open{m.overdue > 0 ? ` · ${m.overdue} overdue` : ""}</span>
+              </div>
+              <div style={{ background: "#1a1a1a", borderRadius: 3, height: 5, overflow: "hidden" }}>
+                <div style={{ height: "100%", borderRadius: 3, background: m.overdue > 0 ? "#EF4444" : (m.color || "#F97316"), width: `${(m.open / maxOpen) * 100}%`, transition: "width 0.3s" }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* By project */}
+      {byProject.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "#555", fontFamily: "'DM Mono', monospace", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>By Project</div>
+          {byProject.map(p => (
+            <div key={p.name} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+              <div>
+                <div style={{ fontSize: 12, color: "#e5e5e5", marginBottom: 2 }}>{p.name}</div>
+                <div style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace" }}>{p.total} total · {p.done} done</div>
+              </div>
+              <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                {p.overdue > 0 && <span style={{ background: "#1a0a0a", color: "#ef4444", borderRadius: 5, padding: "2px 7px", fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{p.overdue} overdue</span>}
+                <span style={{ background: "#1a1a1a", color: "#555", borderRadius: 5, padding: "2px 7px", fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{p.open} open</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // Login Screen
 // ─────────────────────────────────────────────
@@ -934,6 +1059,8 @@ export default function TaskTracker() {
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState("tasks");
   const [activeCompany, setActiveCompany] = useState("all");
+  const [activeProject, setActiveProject] = useState("all");
+  const [myTasksOnly, setMyTasksOnly] = useState(false);
   const [editTask, setEditTask] = useState(null);
   const [isNew, setIsNew] = useState(false);
   const [search, setSearch] = useState("");
@@ -1005,15 +1132,25 @@ export default function TaskTracker() {
     return () => supabase.removeChannel(channel);
   }, []);
 
+  const currentMember = team.find(m => m.email && user?.email && m.email.toLowerCase() === user.email.toLowerCase());
+
+  const allProjects = tasks.map(t => t.project).filter(Boolean);
+
   const filtered = tasks.filter(t => {
     const matchCo = activeCompany === "all" || t.company === activeCompany;
     const matchSearch = !search || t.title.toLowerCase().includes(search.toLowerCase());
-    return matchCo && matchSearch;
+    const matchProject = activeProject === "all" || t.project === activeProject;
+    const matchMine = !myTasksOnly || t.assignee === currentMember?.id;
+    return matchCo && matchSearch && matchProject && matchMine;
   });
+
+  const today = new Date(); today.setHours(0,0,0,0);
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
 
   const stats = {
     total: filtered.length,
-    overdue: filtered.filter(t => t.status !== "done" && t.due && new Date(t.due) < new Date()).length,
+    overdue: filtered.filter(t => t.status !== "done" && t.due && new Date(t.due+"T12:00:00") < today).length,
+    dueToday: filtered.filter(t => t.status !== "done" && t.due && new Date(t.due+"T12:00:00") >= today && new Date(t.due+"T12:00:00") < tomorrow).length,
     done: filtered.filter(t => t.status === "done").length,
     inprogress: filtered.filter(t => t.status === "inprogress").length,
   };
@@ -1129,6 +1266,18 @@ export default function TaskTracker() {
             })}
           </div>
 
+          {/* My Tasks toggle + Project filter */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderBottom: "1px solid #1a1a1a", overflowX: "auto", flexShrink: 0 }}>
+            <button onClick={() => setMyTasksOnly(m => !m)} style={{ padding: "4px 10px", borderRadius: 20, border: myTasksOnly ? "1px solid #F97316" : "1px solid #2a2a2a", background: myTasksOnly ? "#F9731615" : "#111", color: myTasksOnly ? "#F97316" : "#555", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
+              👤 Mine
+            </button>
+            {[...new Set(tasks.map(t => t.project).filter(Boolean))].map(p => (
+              <button key={p} onClick={() => setActiveProject(ap => ap === p ? "all" : p)} style={{ padding: "4px 10px", borderRadius: 20, border: activeProject === p ? "1px solid #8B5CF6" : "1px solid #2a2a2a", background: activeProject === p ? "#8B5CF615" : "#111", color: activeProject === p ? "#8B5CF6" : "#555", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
+                {p}
+              </button>
+            ))}
+          </div>
+
           {/* Stats strip */}
           <div style={{ display: "flex", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
             {[
@@ -1144,10 +1293,20 @@ export default function TaskTracker() {
             ))}
           </div>
 
+          {/* Overdue / Due Today banner */}
+          {(stats.overdue > 0 || stats.dueToday > 0) && page === "tasks" && (
+            <div style={{ display: "flex", gap: 0, flexShrink: 0 }}>
+              {stats.overdue > 0 && <div style={{ flex: 1, background: "#1a0808", borderBottom: "1px solid #3a1010", padding: "5px 12px", fontSize: 10, color: "#ef4444", fontFamily: "'DM Mono', monospace", textAlign: "center" }}>⚠ {stats.overdue} OVERDUE</div>}
+              {stats.dueToday > 0 && <div style={{ flex: 1, background: "#1a1208", borderBottom: "1px solid #3a2a10", padding: "5px 12px", fontSize: 10, color: "#F59E0B", fontFamily: "'DM Mono', monospace", textAlign: "center" }}>📅 {stats.dueToday} DUE TODAY</div>}
+            </div>
+          )}
+
           {/* Content */}
           <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             {page === "settings" ? (
               <SettingsPage team={team} onTeamChange={setTeam} />
+            ) : page === "dashboard" ? (
+              <DashboardPage tasks={tasks} team={team} />
             ) : loading ? (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#333", fontFamily: "'DM Mono', monospace", fontSize: 12, gap: 10 }}>
                 <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Loading...
@@ -1161,6 +1320,7 @@ export default function TaskTracker() {
           <div style={{ display: "flex", borderTop: "1px solid #1a1a1a", background: "#0d0d0d", flexShrink: 0 }}>
             {[
               { id: "tasks", icon: "⊞", label: "Tasks" },
+              { id: "dashboard", icon: "◈", label: "Stats" },
               { id: "digest", icon: "✉", label: "Digest" },
               { id: "settings", icon: "⚙", label: "Settings" },
               { id: "signout", icon: "⏻", label: "Sign Out" },
