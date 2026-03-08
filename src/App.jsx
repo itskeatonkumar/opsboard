@@ -241,7 +241,7 @@ function TaskCard({ task, onEdit, onMouseDownDrag, isDragging, team, attachmentC
 // Task Modal
 // ─────────────────────────────────────────────
 
-function TaskModal({ task, onClose, onSave, onDelete, isNew, team }) {
+function TaskModal({ task, onClose, onSave, onDelete, isNew, team, allProjects = [] }) {
   const isMobile = useIsMobile();
   const [form, setForm] = useState(task && task.id ? { ...task } : {
     title: "", company: "fcg", assignee: team[0]?.id || "keaton",
@@ -3067,7 +3067,7 @@ function AppInner() {
             ))}
           </div>
 
-          {editTask !== null && <TaskModal task={editTask} isNew={isNew} onClose={closeModal} onSave={handleSave} onDelete={handleDelete} team={team} />}
+          {editTask !== null && <TaskModal task={editTask} isNew={isNew} onClose={closeModal} onSave={handleSave} onDelete={handleDelete} team={team} allProjects={allProjects} />}
           {aiOpen && <AIModal onClose={() => setAiOpen(false)} onAdd={handleAiAdd} team={team} />}
           {digestOpen && <DigestModal tasks={tasks} team={team} onClose={() => setDigestOpen(false)} />}
         </div>
@@ -3293,7 +3293,7 @@ function AppInner() {
         </div>
       </div>
 
-      {editTask !== null && <TaskModal task={editTask} isNew={isNew} onClose={closeModal} onSave={handleSave} onDelete={handleDelete} team={team} />}
+      {editTask !== null && <TaskModal task={editTask} isNew={isNew} onClose={closeModal} onSave={handleSave} onDelete={handleDelete} team={team} allProjects={allProjects} />}
       {aiOpen && <AIModal onClose={() => setAiOpen(false)} onAdd={handleAiAdd} team={team} />}
       {digestOpen && <DigestModal tasks={tasks} team={team} onClose={() => setDigestOpen(false)} />}
     </>
