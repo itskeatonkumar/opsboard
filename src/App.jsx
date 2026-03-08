@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback, useContext } from "react";
 import { createClient } from "@supabase/supabase-js";
 
 const supabase = createClient(
@@ -31,6 +31,32 @@ const TEAM_COLORS = [
   "#F97316","#3B82F6","#10B981","#8B5CF6","#EC4899",
   "#EF4444","#F59E0B","#06B6D4","#84CC16","#6366F1"
 ];
+
+
+// ── Theme Context ──────────────────────────────────────
+const ThemeContext = React.createContext({ dark: true, toggle: () => {} });
+function useTheme() { return React.useContext(ThemeContext); }
+
+function ThemeProvider({ children }) {
+  const [dark, setDark] = useState(() => {
+    try { const s = localStorage.getItem("theme"); return s ? s === "dark" : true; } catch { return true; }
+  });
+  const toggle = () => setDark(d => { const n = !d; try { localStorage.setItem("theme", n?"dark":"light"); } catch{} return n; });
+  const t = dark ? {
+    bg:"#0a0a0a", bg2:"#0d0d0d", bg3:"#111", bg4:"#151515", bg5:"#1a1a1a",
+    border:"#1a1a1a", border2:"#2a2a2a", border3:"#252525",
+    text:"#e5e5e5", text2:"#888", text3:"#555", text4:"#444", text5:"#333",
+    input:"#0e0e0e", inputBorder:"#252525", inputText:"#e0e0e0",
+    label:"#555", accent:"#F97316",
+  } : {
+    bg:"#f4f4f5", bg2:"#ffffff", bg3:"#ffffff", bg4:"#f9f9f9", bg5:"#f0f0f0",
+    border:"#e4e4e7", border2:"#d4d4d8", border3:"#e0e0e0",
+    text:"#18181b", text2:"#52525b", text3:"#71717a", text4:"#a1a1aa", text5:"#d4d4d8",
+    input:"#ffffff", inputBorder:"#d4d4d8", inputText:"#18181b",
+    label:"#71717a", accent:"#F97316",
+  };
+  return <ThemeContext.Provider value={{ dark, toggle, t }}>{children}</ThemeContext.Provider>;
+}
 
 const getCompany  = (id) => COMPANIES.find(c => c.id === id) || COMPANIES[1];
 const getMember   = (id, team) => (team || []).find(t => t.id === id) || { id, name: id, initials: (id||"?")[0]?.toUpperCase(), color: "#555" };
@@ -1506,86 +1532,745 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
   );
 }
 
-// ── Financials Tab ─────────────────────────────────────
-function FinancialsTab({ project, cos }) {
-  const [receipts, setReceipts] = useState([]);
+
+// ── Subcontracts ───────────────────────────────────────
+const SUB_STATUSES = ["active","complete","terminated","on_hold"];
+
+function SubcontractModal({ sub, projectId, onSave, onClose }) {
+  const { t } = useTheme();
+  const isNew = !sub?.id;
+  const [form, setForm] = useState({
+    sub_name:"", scope:"", contract_amount:"", start_date:"", end_date:"",
+    status:"active", percent_complete:"0", billed_to_date:"0", paid_to_date:"0",
+    retainage_pct:"10", file_url:"", file_name:"", notes:"",
+    ...(sub||{}), project_id: projectId
+  });
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const fileRef = useRef();
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const dynInput = { ...inputStyle, background: t.input, borderColor: t.inputBorder, color: t.inputText };
+  const dynLabel = { ...labelStyle, color: t.label };
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    const ext = file.name.split('.').pop();
+    const path = `subcontracts/${projectId}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("attachments").upload(path, file, { upsert: true });
+    if (error) { setUploading(false); alert("Upload failed: " + error.message); return; }
+    const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+    set("file_url", urlData.publicUrl);
+    set("file_name", file.name);
+    setUploading(false);
+
+    // Extract from PDF/image via Claude
+    if (file.type === "application/pdf" || file.type.startsWith("image/")) {
+      setExtracting(true);
+      try {
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const base64 = e.target.result.split(",")[1];
+          const isImg = file.type.startsWith("image/");
+          const msgContent = isImg
+            ? [{ type:"image", source:{ type:"base64", media_type:file.type, data:base64 }},
+               { type:"text", text:"Extract subcontract data from this document." }]
+            : [{ type:"document", source:{ type:"base64", media_type:"application/pdf", data:base64 }},
+               { type:"text", text:"Extract subcontract data from this document." }];
+          const res = await fetch("/api/claude", {
+            method:"POST", headers:{"Content-Type":"application/json"},
+            body: JSON.stringify({
+              model:"claude-sonnet-4-20250514", max_tokens:400,
+              system:`Extract subcontract data. Return ONLY valid JSON, no markdown. Format: {"sub_name":"string","scope":"string","contract_amount":number_or_null,"start_date":"YYYY-MM-DD_or_null","end_date":"YYYY-MM-DD_or_null","retainage_pct":number_default_10}`,
+              messages:[{ role:"user", content: msgContent }]
+            })
+          });
+          const json = await res.json();
+          const text = json?.content?.find(b=>b.type==="text")?.text || "";
+          try {
+            const ex = JSON.parse(text.replace(/```json|```/g,"").trim());
+            setForm(f => ({
+              ...f,
+              sub_name: ex.sub_name || f.sub_name,
+              scope: ex.scope || f.scope,
+              contract_amount: ex.contract_amount != null ? String(ex.contract_amount) : f.contract_amount,
+              start_date: ex.start_date || f.start_date,
+              end_date: ex.end_date || f.end_date,
+              retainage_pct: ex.retainage_pct != null ? String(ex.retainage_pct) : f.retainage_pct,
+            }));
+          } catch(e) {}
+          setExtracting(false);
+        };
+        reader.readAsDataURL(file);
+      } catch(e) { setExtracting(false); }
+    }
+  };
+
+  const handleSave = async () => {
+    if (!form.sub_name.trim()) return;
+    setSaving(true);
+    const payload = {
+      ...form,
+      contract_amount: form.contract_amount ? Number(form.contract_amount) : null,
+      percent_complete: form.percent_complete ? Number(form.percent_complete) : 0,
+      billed_to_date: form.billed_to_date ? Number(form.billed_to_date) : 0,
+      paid_to_date: form.paid_to_date ? Number(form.paid_to_date) : 0,
+      retainage_pct: form.retainage_pct ? Number(form.retainage_pct) : 10,
+    };
+    delete payload.id; delete payload.created_at;
+    if (isNew) {
+      const { data } = await supabase.from("subcontracts").insert([payload]).select().single();
+      if (data) onSave(data, true);
+    } else {
+      await supabase.from("subcontracts").update(payload).eq("id", sub.id);
+      onSave({...sub,...payload}, false);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew ? "New Subcontract / PO" : "Edit Subcontract"} onClose={onClose} width={600}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        {/* Upload zone */}
+        <div onClick={()=>fileRef.current?.click()}
+          style={{ border:`2px dashed ${t.border2}`, borderRadius:10, padding:"16px 20px", textAlign:"center", cursor:"pointer", background:t.bg4, transition:"border-color 0.15s" }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="#F97316"}
+          onMouseLeave={e=>e.currentTarget.style.borderColor=t.border2}
+          onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#F97316"}}
+          onDragLeave={e=>e.currentTarget.style.borderColor=t.border2}
+          onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)handleFile(f);}}>
+          <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{ display:"none" }} onChange={e=>handleFile(e.target.files[0])} />
+          {form.file_name ? (
+            <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+              <span style={{ fontSize:22 }}>📄</span>
+              <div style={{ textAlign:"left" }}>
+                <div style={{ fontSize:12, color:t.text }}>{form.file_name}</div>
+                {extracting && <div style={{ fontSize:11, color:"#F97316", marginTop:3 }}>⚡ Extracting contract data...</div>}
+                {!extracting && <div style={{ fontSize:11, color:t.text3, marginTop:3 }}>Click to replace</div>}
+              </div>
+            </div>
+          ) : uploading ? (
+            <div style={{ fontSize:12, color:"#F97316" }}>Uploading...</div>
+          ) : (
+            <>
+              <div style={{ fontSize:24, marginBottom:6 }}>📎</div>
+              <div style={{ fontSize:13, color:t.text2 }}>Upload subcontract PDF or image</div>
+              <div style={{ fontSize:11, color:t.text3, marginTop:3 }}>Claude will auto-extract the details</div>
+            </>
+          )}
+        </div>
+        {extracting && (
+          <div style={{ background:"#0d1a0d", border:"1px solid #10B98130", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#10B981", display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span>
+            Reading contract document...
+          </div>
+        )}
+        <APMField label="Subcontractor / Vendor Name">
+          <input value={form.sub_name} onChange={e=>set("sub_name",e.target.value)} placeholder="ABC Pumping, Jones Rebar Supply..." style={{...dynInput,fontSize:15}} autoFocus />
+        </APMField>
+        <APMField label="Scope of Work">
+          <textarea value={form.scope||""} onChange={e=>set("scope",e.target.value)} placeholder="Concrete pumping, all floors..." style={{...dynInput,minHeight:60,resize:"vertical",fontSize:14}} />
+        </APMField>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <APMField label="Contract Amount ($)"><input type="number" value={form.contract_amount||""} onChange={e=>set("contract_amount",e.target.value)} placeholder="0.00" style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Start Date"><input type="date" value={form.start_date||""} onChange={e=>set("start_date",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="End Date"><input type="date" value={form.end_date||""} onChange={e=>set("end_date",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12 }}>
+          <APMField label="% Complete"><input type="number" min="0" max="100" value={form.percent_complete||"0"} onChange={e=>set("percent_complete",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Billed to Date ($)"><input type="number" value={form.billed_to_date||"0"} onChange={e=>set("billed_to_date",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Paid to Date ($)"><input type="number" value={form.paid_to_date||"0"} onChange={e=>set("paid_to_date",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Retainage %"><input type="number" value={form.retainage_pct||"10"} onChange={e=>set("retainage_pct",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"2fr 1fr", gap:12 }}>
+          <APMField label="Notes"><input value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Any notes..." style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Status">
+            <select value={form.status} onChange={e=>set("status",e.target.value)} style={{...dynInput,fontSize:14}}>
+              {SUB_STATUSES.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </APMField>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && <button onClick={async()=>{ await supabase.from("subcontracts").delete().eq("id",sub.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||uploading||extracting||!form.sub_name.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.sub_name.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Sub/PO":"Save"}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+function SubcontractsTab({ project }) {
+  const { t } = useTheme();
+  const [subs, setSubs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null);
 
   useEffect(() => {
-    supabase.from("receipts").select("*").eq("project_id", project.id).order("receipt_date",{ascending:false})
-      .then(({data,error}) => { if (!error) setReceipts(data||[]); setLoading(false); });
+    supabase.from("subcontracts").select("*").eq("project_id",project.id).order("created_at",{ascending:false})
+      .then(({data,error})=>{ if(!error) setSubs(data||[]); setLoading(false); });
   }, [project.id]);
 
-  const handleSave = (data, isDelete) => {
-    if (isDelete) setReceipts(prev => prev.filter(r => r.id !== modal?.item?.id));
-    else if (modal?.item?.id) setReceipts(prev => prev.map(r => r.id===data.id?data:r));
-    else setReceipts(prev => [data, ...prev]);
+  const handleSave = (data, isNew) => {
+    if (!data) setSubs(prev=>prev.filter(s=>s.id!==modal?.item?.id));
+    else if (isNew) setSubs(prev=>[data,...prev]);
+    else setSubs(prev=>prev.map(s=>s.id===data.id?data:s));
     setModal(null);
   };
 
-  const contractVal = project.contract_value || 0;
-  const approvedCOs = cos.filter(c=>c.status==="approved").reduce((s,c)=>s+(c.amount||0),0);
-  const revisedContract = contractVal + approvedCOs;
-  const totalSpend = receipts.reduce((s,r)=>s+(r.amount||0),0);
-  const remaining = revisedContract - totalSpend;
+  const totalCommitted = subs.reduce((s,sub)=>s+(sub.contract_amount||0),0);
+  const totalBilled = subs.reduce((s,sub)=>s+(sub.billed_to_date||0),0);
+  const totalPaid = subs.reduce((s,sub)=>s+(sub.paid_to_date||0),0);
+  const totalRetainage = subs.reduce((s,sub)=>s+((sub.billed_to_date||0)*(sub.retainage_pct||10)/100),0);
 
-  // Spend by category
-  const byCategory = RECEIPT_CATEGORIES.reduce((acc,cat) => {
-    const total = receipts.filter(r=>r.category===cat).reduce((s,r)=>s+(r.amount||0),0);
-    if (total > 0) acc[cat] = total;
-    return acc;
-  }, {});
-  const maxCat = Math.max(...Object.values(byCategory), 1);
+  const rowStyle = { display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:8, background:t.bg3, border:`1px solid ${t.border}`, marginBottom:6, cursor:"pointer", transition:"border-color 0.1s" };
 
   return (
     <div>
       <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:14 }}>
-        <button onClick={()=>setModal({item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>+ Add Receipt</button>
+        <button onClick={()=>setModal({item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>+ Add Sub / PO</button>
+      </div>
+      {subs.length > 0 && (
+        <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))", gap:10, marginBottom:16 }}>
+          {[
+            { label:"COMMITTED", val:fmtMoney(totalCommitted), color:"#3B82F6" },
+            { label:"BILLED", val:fmtMoney(totalBilled), color:"#F59E0B" },
+            { label:"PAID", val:fmtMoney(totalPaid), color:"#10B981" },
+            { label:"RETAINAGE HELD", val:fmtMoney(totalRetainage), color:"#EF4444" },
+          ].map(card=>(
+            <div key={card.label} style={{ background:t.bg3, border:`1px solid ${t.border}`, borderRadius:8, padding:"10px 14px" }}>
+              <div style={{ fontSize:9, color:t.text4, fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:4 }}>{card.label}</div>
+              <div style={{ fontSize:15, fontWeight:700, color:card.color, fontFamily:"'DM Mono',monospace" }}>{card.val}</div>
+            </div>
+          ))}
+        </div>
+      )}
+      {loading && <div style={{ textAlign:"center", padding:40, color:t.text4, fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div>}
+      {!loading && subs.length===0 && <div style={{ textAlign:"center", padding:40, color:t.text4, fontFamily:"'DM Mono',monospace", fontSize:12 }}>No subcontracts yet</div>}
+      {subs.map(sub=>{
+        const retAmt = (sub.billed_to_date||0)*(sub.retainage_pct||10)/100;
+        const balance = (sub.contract_amount||0)-(sub.paid_to_date||0);
+        return (
+          <div key={sub.id} onClick={()=>setModal({item:sub})} style={rowStyle}
+            onMouseEnter={e=>e.currentTarget.style.borderColor=t.border2}
+            onMouseLeave={e=>e.currentTarget.style.borderColor=t.border}>
+            <div style={{ flex:1, minWidth:0 }}>
+              <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4, flexWrap:"wrap" }}>
+                <span style={{ fontSize:13, fontWeight:700, color:t.text }}>{sub.sub_name}</span>
+                <StatusBadge status={sub.status} />
+                {sub.file_url && <span style={{ fontSize:11 }}>📄</span>}
+              </div>
+              {sub.scope && <div style={{ fontSize:11, color:t.text2, marginBottom:5, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sub.scope}</div>}
+              {/* Progress bar */}
+              {sub.contract_amount > 0 && (
+                <div>
+                  <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                    <span style={{ fontSize:10, color:t.text3, fontFamily:"'DM Mono',monospace" }}>{sub.percent_complete||0}% complete</span>
+                    <span style={{ fontSize:10, color:t.text3, fontFamily:"'DM Mono',monospace" }}>Bal: {fmtMoney(balance)}</span>
+                  </div>
+                  <div style={{ background:t.bg5, borderRadius:3, height:4 }}>
+                    <div style={{ height:"100%", width:`${Math.min(sub.percent_complete||0,100)}%`, background:"#10B981", borderRadius:3 }} />
+                  </div>
+                </div>
+              )}
+            </div>
+            <div style={{ textAlign:"right", flexShrink:0 }}>
+              <div style={{ fontSize:14, fontWeight:700, color:t.text, fontFamily:"'DM Mono',monospace" }}>{fmtMoney(sub.contract_amount)}</div>
+              {retAmt > 0 && <div style={{ fontSize:10, color:"#EF4444", fontFamily:"'DM Mono',monospace" }}>-{fmtMoney(retAmt)} ret.</div>}
+            </div>
+          </div>
+        );
+      })}
+      {modal && <SubcontractModal sub={modal.item} projectId={project.id} onSave={handleSave} onClose={()=>setModal(null)} />}
+    </div>
+  );
+}
+
+// ── Pay Applications / SOV ─────────────────────────────
+function SOVModal({ project, sovItems, onSave, onClose }) {
+  const { t } = useTheme();
+  const [items, setItems] = useState(sovItems.length > 0 ? sovItems.map(i=>({...i})) : [{ item_no:"1", description:"", scheduled_value:"", sort_order:0 }]);
+  const [generating, setGenerating] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const addRow = () => setItems(prev=>[...prev, { item_no:String(prev.length+1), description:"", scheduled_value:"", sort_order:prev.length }]);
+  const removeRow = (idx) => setItems(prev=>prev.filter((_,i)=>i!==idx));
+  const updateRow = (idx, k, v) => setItems(prev=>prev.map((item,i)=>i===idx?{...item,[k]:v}:item));
+
+  const suggestSOV = async () => {
+    setGenerating(true);
+    const res = await fetch("/api/claude", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({
+        model:"claude-sonnet-4-20250514", max_tokens:800,
+        system:`You are a construction PM. Generate a Schedule of Values for an AIA G702 pay application. Return ONLY a JSON array, no markdown. Each item: {"item_no":"string","description":"string","scheduled_value":number}. Values must sum to the contract amount. Use realistic construction cost breakdowns.`,
+        messages:[{ role:"user", content:`Project: ${project.name}. Contract value: ${project.contract_value}. Company: ${getCompany(project.company).name}. Generate 8-12 SOV line items with realistic cost allocations for concrete/masonry construction work.` }]
+      })
+    });
+    const json = await res.json();
+    const text = json?.content?.find(b=>b.type==="text")?.text || "";
+    try {
+      const suggested = JSON.parse(text.replace(/```json|```/g,"").trim());
+      setItems(suggested.map((s,i)=>({...s, scheduled_value:String(s.scheduled_value), sort_order:i})));
+    } catch(e) {}
+    setGenerating(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    // Delete existing, reinsert all
+    await supabase.from("sov_items").delete().eq("project_id", project.id);
+    const toInsert = items.filter(i=>i.description.trim()).map((item,idx)=>({
+      project_id: project.id,
+      item_no: item.item_no || String(idx+1),
+      description: item.description,
+      scheduled_value: item.scheduled_value ? Number(item.scheduled_value) : 0,
+      sort_order: idx,
+    }));
+    const { data } = await supabase.from("sov_items").insert(toInsert).select();
+    onSave(data||[]);
+    setSaving(false);
+  };
+
+  const total = items.reduce((s,i)=>s+(Number(i.scheduled_value)||0),0);
+  const contractVal = project.contract_value || 0;
+  const diff = contractVal - total;
+  const dynInput = { ...inputStyle, background: t.input, borderColor: t.inputBorder, color: t.inputText };
+
+  return (
+    <APMModal title="Schedule of Values" onClose={onClose} width={700}>
+      <div style={{ marginBottom:14, display:"flex", alignItems:"center", justifyContent:"space-between", flexWrap:"wrap", gap:8 }}>
+        <div style={{ fontSize:12, color:t.text2 }}>
+          Contract: <span style={{ color:t.text, fontWeight:700 }}>{fmtMoney(contractVal)}</span>
+          {" · "}SOV Total: <span style={{ color: Math.abs(diff)<1?"#10B981":"#F59E0B", fontWeight:700 }}>{fmtMoney(total)}</span>
+          {Math.abs(diff)>1 && <span style={{ color:"#F59E0B", fontSize:11, marginLeft:6 }}>({diff>0?"under":"over"} by {fmtMoney(Math.abs(diff))})</span>}
+        </div>
+        <button onClick={suggestSOV} disabled={generating||!contractVal} style={{ background:"linear-gradient(135deg,#7c3aed,#a855f7)", border:"none", color:"#fff", padding:"7px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:5, opacity:contractVal?1:0.5 }}>
+          {generating ? <><span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span> Generating...</> : <><span>✦</span> AI Suggest SOV</>}
+        </button>
+      </div>
+      <div style={{ maxHeight:400, overflowY:"auto" }}>
+        <div style={{ display:"grid", gridTemplateColumns:"50px 1fr 130px 36px", gap:6, marginBottom:6 }}>
+          {["#","Description","Value ($)",""].map(h=><div key={h} style={{ fontSize:9, color:t.text4, fontFamily:"'DM Mono',monospace", letterSpacing:0.8 }}>{h}</div>)}
+        </div>
+        {items.map((item,idx)=>(
+          <div key={idx} style={{ display:"grid", gridTemplateColumns:"50px 1fr 130px 36px", gap:6, marginBottom:6 }}>
+            <input value={item.item_no} onChange={e=>updateRow(idx,"item_no",e.target.value)} style={{...dynInput,fontSize:12,padding:"6px 8px"}} />
+            <input value={item.description} onChange={e=>updateRow(idx,"description",e.target.value)} placeholder="Description of work..." style={{...dynInput,fontSize:13,padding:"6px 8px"}} />
+            <input type="number" value={item.scheduled_value} onChange={e=>updateRow(idx,"scheduled_value",e.target.value)} placeholder="0" style={{...dynInput,fontSize:13,padding:"6px 8px"}} />
+            <button onClick={()=>removeRow(idx)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", borderRadius:5, cursor:"pointer", fontSize:14, padding:"0 6px" }}>×</button>
+          </div>
+        ))}
+        <button onClick={addRow} style={{ background:"none", border:`1px dashed ${t.border2}`, color:t.text3, padding:"6px 14px", borderRadius:6, cursor:"pointer", fontSize:12, width:"100%", marginTop:4 }}>+ Add Line Item</button>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"flex-end" }}>
+        <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+        <button onClick={handleSave} disabled={saving} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":"Save SOV"}</button>
+      </div>
+    </APMModal>
+  );
+}
+
+function PayAppModal({ payApp, project, sovItems, onSave, onClose }) {
+  const { t } = useTheme();
+  const isNew = !payApp?.id;
+  const [form, setForm] = useState({
+    app_number:"", period_from:"", period_to:new Date().toISOString().slice(0,10),
+    status:"draft", payment_received:"", notes:"",
+    ...(payApp||{}), project_id:project.id
+  });
+  const [lineItems, setLineItems] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const dynInput = { ...inputStyle, background: t.input, borderColor: t.inputBorder, color: t.inputText };
+
+  useEffect(()=>{
+    if (payApp?.id) {
+      supabase.from("pay_app_items").select("*").eq("pay_app_id",payApp.id)
+        .then(({data})=>{
+          const merged = sovItems.map(sov=>{
+            const existing = (data||[]).find(li=>li.sov_item_id===sov.id);
+            return existing || { sov_item_id:sov.id, work_completed_from_prev:0, work_completed_this_period:0, materials_stored:0, retainage_pct:10 };
+          });
+          setLineItems(merged);
+        });
+    } else {
+      setLineItems(sovItems.map(sov=>({ sov_item_id:sov.id, work_completed_from_prev:0, work_completed_this_period:0, materials_stored:0, retainage_pct:10 })));
+    }
+  }, [payApp?.id, sovItems]);
+
+  const updateLine = (idx,k,v) => setLineItems(prev=>prev.map((li,i)=>i===idx?{...li,[k]:v}:li));
+
+  const totals = lineItems.reduce((acc,li,idx)=>{
+    const sov = sovItems[idx];
+    const scheduledVal = sov?.scheduled_value||0;
+    const completedPrev = Number(li.work_completed_from_prev)||0;
+    const completedThis = Number(li.work_completed_this_period)||0;
+    const stored = Number(li.materials_stored)||0;
+    const retPct = Number(li.retainage_pct)||10;
+    const totalCompleted = completedPrev + completedThis + stored;
+    const retainage = totalCompleted * retPct / 100;
+    acc.scheduled += scheduledVal;
+    acc.completedPrev += completedPrev;
+    acc.completedThis += completedThis;
+    acc.stored += stored;
+    acc.totalCompleted += totalCompleted;
+    acc.retainage += retainage;
+    acc.netDue += totalCompleted - retainage;
+    return acc;
+  }, { scheduled:0, completedPrev:0, completedThis:0, stored:0, totalCompleted:0, retainage:0, netDue:0 });
+
+  const handleSave = async () => {
+    setSaving(true);
+    const payload = {...form}; delete payload.id; delete payload.created_at;
+    let appId = payApp?.id;
+    if (isNew) {
+      const { data } = await supabase.from("pay_applications").insert([payload]).select().single();
+      appId = data?.id;
+    } else {
+      await supabase.from("pay_applications").update(payload).eq("id", payApp.id);
+    }
+    if (appId) {
+      await supabase.from("pay_app_items").delete().eq("pay_app_id", appId);
+      const itemsToInsert = lineItems.map(li=>({
+        pay_app_id: appId,
+        sov_item_id: li.sov_item_id,
+        work_completed_from_prev: Number(li.work_completed_from_prev)||0,
+        work_completed_this_period: Number(li.work_completed_this_period)||0,
+        materials_stored: Number(li.materials_stored)||0,
+        retainage_pct: Number(li.retainage_pct)||10,
+      }));
+      await supabase.from("pay_app_items").insert(itemsToInsert);
+    }
+    onSave({ ...form, id: appId });
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?"New Pay Application":"Edit Pay Application"} onClose={onClose} width={820}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr 1fr", gap:12 }}>
+          <APMField label="App #"><input type="number" value={form.app_number||""} onChange={e=>set("app_number",e.target.value)} placeholder="1" style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Period From"><input type="date" value={form.period_from||""} onChange={e=>set("period_from",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Period To"><input type="date" value={form.period_to||""} onChange={e=>set("period_to",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Status">
+            <select value={form.status} onChange={e=>set("status",e.target.value)} style={{...dynInput,fontSize:14}}>
+              {["draft","submitted","approved","paid"].map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </APMField>
+        </div>
+
+        {sovItems.length === 0 ? (
+          <div style={{ background:t.bg4, border:`1px solid ${t.border}`, borderRadius:8, padding:"20px", textAlign:"center", color:t.text3, fontSize:12, fontFamily:"'DM Mono',monospace" }}>
+            No SOV set up yet. Go back and set up your Schedule of Values first.
+          </div>
+        ) : (
+          <div style={{ overflowX:"auto" }}>
+            <table style={{ width:"100%", borderCollapse:"collapse", fontSize:11, fontFamily:"'DM Mono',monospace" }}>
+              <thead>
+                <tr style={{ borderBottom:`1px solid ${t.border}` }}>
+                  {["#","Description","Sched. Value","Prev Completed","This Period","Stored","Total Completed","Retainage%","Net Due"].map(h=>(
+                    <th key={h} style={{ padding:"6px 8px", color:t.text4, textAlign:"left", whiteSpace:"nowrap", fontWeight:600, letterSpacing:0.5 }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {sovItems.map((sov,idx)=>{
+                  const li = lineItems[idx] || {};
+                  const completedPrev = Number(li.work_completed_from_prev)||0;
+                  const completedThis = Number(li.work_completed_this_period)||0;
+                  const stored = Number(li.materials_stored)||0;
+                  const total = completedPrev + completedThis + stored;
+                  const retAmt = total * (Number(li.retainage_pct)||10) / 100;
+                  const net = total - retAmt;
+                  return (
+                    <tr key={sov.id} style={{ borderBottom:`1px solid ${t.border}` }}>
+                      <td style={{ padding:"6px 8px", color:t.text3 }}>{sov.item_no}</td>
+                      <td style={{ padding:"6px 8px", color:t.text, maxWidth:180, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{sov.description}</td>
+                      <td style={{ padding:"6px 8px", color:t.text }}>{fmtMoney(sov.scheduled_value)}</td>
+                      <td style={{ padding:"6px 8px" }}><input type="number" value={li.work_completed_from_prev||""} onChange={e=>updateLine(idx,"work_completed_from_prev",e.target.value)} style={{...dynInput,padding:"4px 6px",fontSize:11,width:90}} /></td>
+                      <td style={{ padding:"6px 8px" }}><input type="number" value={li.work_completed_this_period||""} onChange={e=>updateLine(idx,"work_completed_this_period",e.target.value)} style={{...dynInput,padding:"4px 6px",fontSize:11,width:90}} /></td>
+                      <td style={{ padding:"6px 8px" }}><input type="number" value={li.materials_stored||""} onChange={e=>updateLine(idx,"materials_stored",e.target.value)} style={{...dynInput,padding:"4px 6px",fontSize:11,width:70}} /></td>
+                      <td style={{ padding:"6px 8px", color:t.text, fontWeight:700 }}>{fmtMoney(total)}</td>
+                      <td style={{ padding:"6px 8px" }}><input type="number" value={li.retainage_pct||"10"} onChange={e=>updateLine(idx,"retainage_pct",e.target.value)} style={{...dynInput,padding:"4px 6px",fontSize:11,width:50}} /></td>
+                      <td style={{ padding:"6px 8px", color:"#10B981", fontWeight:700 }}>{fmtMoney(net)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              <tfoot>
+                <tr style={{ borderTop:`2px solid ${t.border2}`, fontWeight:700 }}>
+                  <td colSpan={2} style={{ padding:"8px 8px", color:t.text, fontSize:12 }}>TOTALS</td>
+                  <td style={{ padding:"8px 8px", color:t.text }}>{fmtMoney(totals.scheduled)}</td>
+                  <td style={{ padding:"8px 8px", color:t.text }}>{fmtMoney(totals.completedPrev)}</td>
+                  <td style={{ padding:"8px 8px", color:t.text }}>{fmtMoney(totals.completedThis)}</td>
+                  <td style={{ padding:"8px 8px", color:t.text }}>{fmtMoney(totals.stored)}</td>
+                  <td style={{ padding:"8px 8px", color:t.text }}>{fmtMoney(totals.totalCompleted)}</td>
+                  <td></td>
+                  <td style={{ padding:"8px 8px", color:"#10B981", fontSize:13 }}>{fmtMoney(totals.netDue)}</td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        )}
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <APMField label="Payment Received Date"><input type="date" value={form.payment_received||""} onChange={e=>set("payment_received",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Notes"><input value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Notes..." style={{...dynInput,fontSize:14}} /></APMField>
+        </div>
+
+        {/* Summary */}
+        <div style={{ background:t.bg4, border:`1px solid ${t.border}`, borderRadius:8, padding:"12px 16px", display:"flex", gap:20, flexWrap:"wrap" }}>
+          <div><span style={{ fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace" }}>THIS PERIOD </span><span style={{ fontSize:15, fontWeight:700, color:t.text, fontFamily:"'DM Mono',monospace" }}>{fmtMoney(totals.completedThis)}</span></div>
+          <div><span style={{ fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace" }}>RETAINAGE </span><span style={{ fontSize:15, fontWeight:700, color:"#EF4444", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(totals.retainage)}</span></div>
+          <div><span style={{ fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace" }}>NET DUE </span><span style={{ fontSize:15, fontWeight:700, color:"#10B981", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(totals.netDue)}</span></div>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && <button onClick={async()=>{ await supabase.from("pay_applications").delete().eq("id",payApp.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Create Pay App":"Save"}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+function PayAppTab({ project }) {
+  const { t } = useTheme();
+  const [sovItems, setSovItems] = useState([]);
+  const [payApps, setPayApps] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null); // "sov" | {payApp}
+  const [appLineItems, setAppLineItems] = useState({});
+
+  useEffect(()=>{
+    Promise.all([
+      supabase.from("sov_items").select("*").eq("project_id",project.id).order("sort_order"),
+      supabase.from("pay_applications").select("*").eq("project_id",project.id).order("app_number"),
+    ]).then(([sov,apps])=>{
+      if (!sov.error) setSovItems(sov.data||[]);
+      if (!apps.error) setPayApps(apps.data||[]);
+      setLoading(false);
+    });
+  }, [project.id]);
+
+  const handlePayAppSave = (data, isDelete) => {
+    if (isDelete || !data) setPayApps(prev=>prev.filter(p=>p.id!==modal?.payApp?.id));
+    else if (modal?.payApp?.id) setPayApps(prev=>prev.map(p=>p.id===data.id?data:p));
+    else setPayApps(prev=>[...prev,data]);
+    setModal(null);
+  };
+
+  const totalBilled = payApps.filter(p=>p.status!=="draft").length;
+  const rowStyle = { display:"flex", alignItems:"center", gap:12, padding:"12px 14px", borderRadius:8, background:t.bg3, border:`1px solid ${t.border}`, marginBottom:6, cursor:"pointer", transition:"border-color 0.1s" };
+
+  return (
+    <div>
+      <div style={{ display:"flex", gap:8, justifyContent:"flex-end", marginBottom:14 }}>
+        <button onClick={()=>setModal("sov")} style={{ background:t.bg3, border:`1px solid ${t.border2}`, color:t.text2, padding:"7px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:600 }}>
+          {sovItems.length>0?"Edit SOV":"Setup SOV"}
+        </button>
+        <button onClick={()=>setModal({payApp:null})} disabled={sovItems.length===0} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, opacity:sovItems.length>0?1:0.5 }}>+ New Pay App</button>
       </div>
 
-      {/* Summary cards */}
-      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:10, marginBottom:18 }}>
+      {sovItems.length===0 && (
+        <div style={{ background:t.bg4, border:`1px dashed ${t.border2}`, borderRadius:8, padding:"24px", textAlign:"center", marginBottom:16 }}>
+          <div style={{ fontSize:14, color:t.text2, marginBottom:6 }}>No Schedule of Values yet</div>
+          <div style={{ fontSize:11, color:t.text3, fontFamily:"'DM Mono',monospace", marginBottom:12 }}>Set up your SOV first — Claude can suggest line items based on your contract value</div>
+          <button onClick={()=>setModal("sov")} style={{ background:"linear-gradient(135deg,#7c3aed,#a855f7)", border:"none", color:"#fff", padding:"8px 18px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>✦ Setup SOV with AI</button>
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign:"center", padding:40, color:t.text4, fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div>}
+      {!loading && payApps.length===0 && sovItems.length>0 && <div style={{ textAlign:"center", padding:40, color:t.text4, fontFamily:"'DM Mono',monospace", fontSize:12 }}>No pay applications yet</div>}
+
+      {payApps.map(app=>(
+        <div key={app.id} onClick={()=>setModal({payApp:app})} style={rowStyle}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=t.border2}
+          onMouseLeave={e=>e.currentTarget.style.borderColor=t.border}>
+          <div style={{ flex:1 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+              <span style={{ fontSize:13, fontWeight:700, color:t.text }}>Pay App #{app.app_number||"—"}</span>
+              <StatusBadge status={app.status} />
+            </div>
+            <div style={{ fontSize:11, color:t.text3, fontFamily:"'DM Mono',monospace" }}>
+              {app.period_from && app.period_to ? `${fmtDate(app.period_from)} – ${fmtDate(app.period_to)}` : fmtDate(app.period_to)}
+              {app.payment_received && <span style={{ color:"#10B981", marginLeft:8 }}>✓ Paid {fmtDate(app.payment_received)}</span>}
+            </div>
+          </div>
+          <span style={{ color:t.text4, fontSize:16 }}>›</span>
+        </div>
+      ))}
+
+      {modal==="sov" && <SOVModal project={project} sovItems={sovItems} onSave={(items)=>{ setSovItems(items); setModal(null); }} onClose={()=>setModal(null)} />}
+      {modal?.payApp !== undefined && modal!=="sov" && <PayAppModal payApp={modal.payApp} project={project} sovItems={sovItems} onSave={handlePayAppSave} onClose={()=>setModal(null)} />}
+    </div>
+  );
+}
+
+
+// ── Financials Tab (full waterfall) ───────────────────
+function FinancialsTab({ project, cos }) {
+  const { t } = useTheme();
+  const [receipts, setReceipts] = useState([]);
+  const [subs, setSubs] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  const [exporting, setExporting] = useState(false);
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from("receipts").select("*").eq("project_id",project.id).order("receipt_date",{ascending:false}),
+      supabase.from("subcontracts").select("*").eq("project_id",project.id),
+    ]).then(([r,s])=>{
+      if (!r.error) setReceipts(r.data||[]);
+      if (!s.error) setSubs(s.data||[]);
+      setLoading(false);
+    });
+  }, [project.id]);
+
+  const handleSave = (data, isDelete) => {
+    if (isDelete) setReceipts(prev=>prev.filter(r=>r.id!==modal?.item?.id));
+    else if (modal?.item?.id) setReceipts(prev=>prev.map(r=>r.id===data.id?data:r));
+    else setReceipts(prev=>[data,...prev]);
+    setModal(null);
+  };
+
+  // Waterfall calcs
+  const contractVal = project.contract_value || 0;
+  const approvedCOs = cos.filter(c=>c.status==="approved").reduce((s,c)=>s+(c.amount||0),0);
+  const pendingCOs = cos.filter(c=>c.status==="pending").reduce((s,c)=>s+(c.amount||0),0);
+  const revisedContract = contractVal + approvedCOs;
+  const subCommitments = subs.reduce((s,sub)=>s+(sub.contract_amount||0),0);
+  const subRetainage = subs.reduce((s,sub)=>s+((sub.billed_to_date||0)*(sub.retainage_pct||10)/100),0);
+  const directCosts = receipts.reduce((s,r)=>s+(r.amount||0),0);
+  const totalCosts = subCommitments + directCosts;
+  const grossMargin = revisedContract - totalCosts;
+  const grossMarginPct = revisedContract > 0 ? (grossMargin/revisedContract*100).toFixed(1) : 0;
+  const netCashPosition = grossMargin - subRetainage;
+
+  // Category breakdown
+  const byCategory = RECEIPT_CATEGORIES.reduce((acc,cat)=>{
+    const total = receipts.filter(r=>r.category===cat).reduce((s,r)=>s+(r.amount||0),0);
+    if (total>0) acc[cat]=total;
+    return acc;
+  },{});
+  const maxCat = Math.max(...Object.values(byCategory),1);
+
+  const exportToSheets = async () => {
+    setExporting(true);
+    try {
+      const sheetData = {
+        projectName: project.name,
+        company: getCompany(project.company).name,
+        address: project.address || "",
+        gcName: project.gc_name || "",
+        contractValue: contractVal,
+        approvedCOs, pendingCOs, revisedContract,
+        subCommitments, directCosts, totalCosts,
+        grossMargin, grossMarginPct, netCashPosition,
+        subs: subs.map(s=>({ name:s.sub_name, scope:s.scope||"", amount:s.contract_amount||0, billed:s.billed_to_date||0, paid:s.paid_to_date||0, pctComplete:s.percent_complete||0 })),
+        receipts: receipts.map(r=>({ vendor:r.vendor||"", amount:r.amount||0, category:r.category||"", date:r.receipt_date||"" })),
+        byCategory: Object.entries(byCategory),
+        exportDate: new Date().toLocaleDateString(),
+      };
+
+      const res = await fetch("/api/claude", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-20250514", max_tokens:1000,
+          system:"You generate Google Sheets CSV data for a PM budget review. Return ONLY a JSON object with key 'csv' containing the full CSV string with proper formatting.",
+          messages:[{ role:"user", content:`Generate a PM Budget Review spreadsheet CSV for this project data: ${JSON.stringify(sheetData)}. Include: 1) Project header info, 2) Financial waterfall (contract → COs → revised → costs → margin), 3) Subcontractor log table, 4) Direct costs by category, 5) Receipt ledger. Use proper CSV formatting with commas and quotes.` }]
+        })
+      });
+      const json = await res.json();
+      const text = json?.content?.find(b=>b.type==="text")?.text||"";
+      let csv = "";
+      try { csv = JSON.parse(text.replace(/```json|```/g,"").trim()).csv; } catch { csv = text; }
+
+      // Download as CSV
+      const blob = new Blob([csv], {type:"text/csv"});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = `${project.name.replace(/\s+/g,"-")}-budget-review.csv`;
+      a.click(); URL.revokeObjectURL(url);
+    } catch(e) { alert("Export failed: "+e.message); }
+    setExporting(false);
+  };
+
+  const card = (label, val, color, sub=null) => (
+    <div style={{ background:t.bg3, border:`1px solid ${t.border}`, borderRadius:8, padding:"10px 14px" }}>
+      <div style={{ fontSize:9, color:t.text4, fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:4 }}>{label}</div>
+      <div style={{ fontSize:15, fontWeight:700, color, fontFamily:"'DM Mono',monospace" }}>{val}</div>
+      {sub && <div style={{ fontSize:10, color:t.text3, fontFamily:"'DM Mono',monospace", marginTop:2 }}>{sub}</div>}
+    </div>
+  );
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:14 }}>
+        <div style={{ fontSize:11, color:t.text3, fontFamily:"'DM Mono',monospace" }}>FINANCIAL WATERFALL</div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={exportToSheets} disabled={exporting} style={{ background:t.bg3, border:`1px solid ${t.border2}`, color:t.text2, padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", gap:5 }}>
+            {exporting ? "Exporting..." : "📊 Export CSV"}
+          </button>
+          <button onClick={()=>setModal({item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>+ Receipt</button>
+        </div>
+      </div>
+
+      {/* Waterfall */}
+      <div style={{ background:t.bg3, border:`1px solid ${t.border}`, borderRadius:10, padding:"14px 16px", marginBottom:16 }}>
         {[
-          { label:"CONTRACT VALUE", val:fmtMoney(contractVal), color:"#e5e5e5" },
-          { label:"APPROVED COs", val:fmtMoney(approvedCOs), color:"#10B981" },
-          { label:"REVISED CONTRACT", val:fmtMoney(revisedContract), color:"#3B82F6" },
-          { label:"TOTAL SPEND", val:fmtMoney(totalSpend), color:"#F97316" },
-          { label:"REMAINING", val:fmtMoney(remaining), color: remaining >= 0 ? "#10B981" : "#EF4444" },
-        ].map(card => (
-          <div key={card.label} style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:8, padding:"10px 14px" }}>
-            <div style={{ fontSize:9, color:"#444", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:5 }}>{card.label}</div>
-            <div style={{ fontSize:15, fontWeight:700, color:card.color, fontFamily:"'DM Mono',monospace" }}>{card.val}</div>
+          { label:"Contract Value", val:contractVal, color:t.text, indent:0 },
+          { label:`Approved COs (${cos.filter(c=>c.status==="approved").length})`, val:approvedCOs, color:"#10B981", indent:1, prefix:"+" },
+          { label:`Pending COs (${cos.filter(c=>c.status==="pending").length})`, val:pendingCOs, color:"#F59E0B", indent:1, prefix:"+" },
+          { label:"= Revised Contract", val:revisedContract, color:"#3B82F6", indent:0, bold:true, line:true },
+          { label:`Subcontract Commitments (${subs.length})`, val:subCommitments, color:"#EF4444", indent:1, prefix:"-" },
+          { label:`Direct Costs (${receipts.length} receipts)`, val:directCosts, color:"#EF4444", indent:1, prefix:"-" },
+          { label:"= Gross Margin", val:grossMargin, color:grossMargin>=0?"#10B981":"#EF4444", indent:0, bold:true, line:true },
+          { label:"Sub Retainage Held", val:subRetainage, color:"#F59E0B", indent:1, prefix:"-" },
+          { label:"= Net Cash Position", val:netCashPosition, color:netCashPosition>=0?"#10B981":"#EF4444", indent:0, bold:true, line:true },
+        ].map((row,i)=>(
+          <div key={i} style={{ display:"flex", alignItems:"center", justifyContent:"space-between", padding:`${row.line?"8px 0 6px":"4px 0"}`, borderTop:row.line?`1px solid ${t.border}`:"none", paddingLeft:row.indent*16 }}>
+            <span style={{ fontSize:row.bold?12:11, color:row.bold?t.text:t.text2, fontFamily:"'DM Mono',monospace", fontWeight:row.bold?700:400 }}>{row.label}</span>
+            <span style={{ fontSize:row.bold?13:11, color:row.color, fontFamily:"'DM Mono',monospace", fontWeight:row.bold?700:400 }}>
+              {row.prefix||""}{fmtMoney(Math.abs(row.val))}
+              {row.bold && row.val!==0 && row.label.includes("Margin") && <span style={{ fontSize:10, marginLeft:6, color:t.text3 }}>({grossMarginPct}%)</span>}
+            </span>
           </div>
         ))}
       </div>
 
       {/* Budget bar */}
       {revisedContract > 0 && (
-        <div style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:8, padding:"12px 14px", marginBottom:18 }}>
+        <div style={{ background:t.bg3, border:`1px solid ${t.border}`, borderRadius:8, padding:"12px 14px", marginBottom:14 }}>
           <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
-            <span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>BUDGET UTILIZATION</span>
-            <span style={{ fontSize:11, fontWeight:700, color: totalSpend/revisedContract > 0.9 ? "#EF4444" : "#e5e5e5", fontFamily:"'DM Mono',monospace" }}>
-              {Math.round(totalSpend/revisedContract*100)}%
-            </span>
+            <span style={{ fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace" }}>COST UTILIZATION</span>
+            <span style={{ fontSize:11, fontWeight:700, color:totalCosts/revisedContract>0.9?"#EF4444":t.text, fontFamily:"'DM Mono',monospace" }}>{Math.round(totalCosts/revisedContract*100)}%</span>
           </div>
-          <div style={{ background:"#1a1a1a", borderRadius:4, height:8, overflow:"hidden" }}>
-            <div style={{ height:"100%", width:`${Math.min(totalSpend/revisedContract*100,100)}%`, background: totalSpend/revisedContract > 0.9 ? "#EF4444" : totalSpend/revisedContract > 0.75 ? "#F59E0B" : "#10B981", borderRadius:4, transition:"width 0.4s ease" }} />
+          <div style={{ background:t.bg5, borderRadius:4, height:8, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${Math.min(totalCosts/revisedContract*100,100)}%`, background:totalCosts/revisedContract>0.9?"#EF4444":totalCosts/revisedContract>0.75?"#F59E0B":"#10B981", borderRadius:4, transition:"width 0.4s ease" }} />
           </div>
         </div>
       )}
 
-      {/* Spend by category */}
-      {Object.keys(byCategory).length > 0 && (
-        <div style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:8, padding:"12px 14px", marginBottom:18 }}>
-          <div style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:10 }}>SPEND BY CATEGORY</div>
-          {Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).map(([cat,amt]) => (
+      {/* Category breakdown */}
+      {Object.keys(byCategory).length>0 && (
+        <div style={{ background:t.bg3, border:`1px solid ${t.border}`, borderRadius:8, padding:"12px 14px", marginBottom:14 }}>
+          <div style={{ fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:10 }}>DIRECT COST BY CATEGORY</div>
+          {Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>(
             <div key={cat} style={{ marginBottom:8 }}>
               <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
-                <span style={{ fontSize:11, color:"#888" }}>{cat}</span>
-                <span style={{ fontSize:11, color:"#e5e5e5", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(amt)}</span>
+                <span style={{ fontSize:11, color:t.text2 }}>{cat}</span>
+                <span style={{ fontSize:11, color:t.text, fontFamily:"'DM Mono',monospace" }}>{fmtMoney(amt)}</span>
               </div>
-              <div style={{ background:"#1a1a1a", borderRadius:3, height:4 }}>
+              <div style={{ background:t.bg5, borderRadius:3, height:4 }}>
                 <div style={{ height:"100%", width:`${amt/maxCat*100}%`, background:"#F97316", borderRadius:3 }} />
               </div>
             </div>
@@ -1594,34 +2279,29 @@ function FinancialsTab({ project, cos }) {
       )}
 
       {/* Receipt ledger */}
-      <div style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:8 }}>RECEIPTS ({receipts.length})</div>
-      {loading && <div style={{ textAlign:"center", padding:30, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div>}
-      {!loading && receipts.length===0 && (
-        <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No receipts yet — add one above</div>
-      )}
-      {receipts.map(r => (
+      <div style={{ fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:8 }}>RECEIPTS ({receipts.length})</div>
+      {loading && <div style={{ textAlign:"center", padding:30, color:t.text4, fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div>}
+      {!loading && receipts.length===0 && <div style={{ textAlign:"center", padding:30, color:t.text4, fontFamily:"'DM Mono',monospace", fontSize:12 }}>No receipts yet</div>}
+      {receipts.map(r=>(
         <div key={r.id} onClick={()=>setModal({item:r})}
-          style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:7, background:"#111", border:"1px solid #1a1a1a", marginBottom:5, cursor:"pointer" }}
-          onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
-          onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+          style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:7, background:t.bg3, border:`1px solid ${t.border}`, marginBottom:5, cursor:"pointer" }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor=t.border2}
+          onMouseLeave={e=>e.currentTarget.style.borderColor=t.border}>
           {r.file_url && r.file_url.match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
-            <img src={r.file_url} style={{ width:44, height:34, objectFit:"cover", borderRadius:5, border:"1px solid #2a2a2a", flexShrink:0 }} />
-          ) : r.file_url ? (
-            <div style={{ width:44, height:34, background:"#1a1a1a", borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>📄</div>
+            <img src={r.file_url} style={{ width:44,height:34,objectFit:"cover",borderRadius:5,border:`1px solid ${t.border2}`,flexShrink:0 }} />
           ) : (
-            <div style={{ width:44, height:34, background:"#1a1a1a", borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>🧾</div>
+            <div style={{ width:44,height:34,background:t.bg5,borderRadius:5,display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,flexShrink:0 }}>{r.file_url?"📄":"🧾"}</div>
           )}
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
-              <span style={{ fontSize:13, color:"#e5e5e5", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.vendor||"Unknown vendor"}</span>
-              <span style={{ fontSize:10, color:"#555", background:"#1a1a1a", padding:"1px 6px", borderRadius:4, flexShrink:0 }}>{r.category}</span>
+              <span style={{ fontSize:13, color:t.text, fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.vendor||"Unknown vendor"}</span>
+              <span style={{ fontSize:10, color:t.text3, background:t.bg5, padding:"1px 6px", borderRadius:4, flexShrink:0 }}>{r.category}</span>
             </div>
-            <div style={{ fontSize:11, color:"#444", fontFamily:"'DM Mono',monospace" }}>{fmtDate(r.receipt_date)}{r.notes ? " · "+r.notes : ""}</div>
+            <div style={{ fontSize:11, color:t.text3, fontFamily:"'DM Mono',monospace" }}>{fmtDate(r.receipt_date)}{r.notes?" · "+r.notes:""}</div>
           </div>
-          <div style={{ fontSize:14, fontWeight:700, color:"#e5e5e5", fontFamily:"'DM Mono',monospace", flexShrink:0 }}>{fmtMoney(r.amount)}</div>
+          <div style={{ fontSize:14, fontWeight:700, color:t.text, fontFamily:"'DM Mono',monospace", flexShrink:0 }}>{fmtMoney(r.amount)}</div>
         </div>
       ))}
-
       {modal && <ReceiptModal receipt={modal.item} projectId={project.id} onSave={handleSave} onClose={()=>setModal(null)} />}
     </div>
   );
@@ -1636,6 +2316,8 @@ function ProjectDetail({ project, onBack, onEdit }) {
   const [cos, setCos] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [receipts, setReceipts] = useState([]);
+  const [subcontracts, setSubcontracts] = useState([]);
+  const [payApps, setPayApps] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // {type, item}
 
@@ -1668,6 +2350,8 @@ function ProjectDetail({ project, onBack, onEdit }) {
     { id:"submittals", label:"Submittals", count:submittals.length },
     { id:"cos", label:"Change Orders", count:cos.length },
     { id:"materials", label:"Materials", count:materials.length },
+    { id:"subcontracts", label:"Subcontracts", count:subcontracts.length },
+    { id:"payapps", label:"Pay Apps", count:payApps.length },
     { id:"financials", label:"Financials", count:receipts.length },
   ];
 
@@ -1721,7 +2405,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
         {loading ? <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div> : (
           <>
             {/* Add button */}
-            {tab !== "financials" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+            {tab !== "financials" && tab !== "subcontracts" && tab !== "payapps" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
               <button onClick={()=>setModal({type:tab,item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>
                 {tab==="financials" ? null : ("+ Add " + (tab==="logs"?"Log":tab==="rfis"?"RFI":tab==="submittals"?"Submittal":tab==="cos"?"Change Order":"Order"))}
               </button>
@@ -1858,6 +2542,8 @@ function ProjectDetail({ project, onBack, onEdit }) {
             )}
 
             {/* Financials */}
+            {tab==="subcontracts" && <SubcontractsTab project={project} />}
+            {tab==="payapps" && <PayAppTab project={project} />}
             {tab==="financials" && <FinancialsTab project={project} cos={cos} />}
           </>
         )}
@@ -1975,6 +2661,14 @@ function APMSection() {
   );
 }
 
+export default function App() {
+  return (
+    <ThemeProvider>
+      <AppInner />
+    </ThemeProvider>
+  );
+}
+
 // ─────────────────────────────────────────────
 // Login Screen
 // ─────────────────────────────────────────────
@@ -2030,7 +2724,8 @@ function LoginScreen() {
 // Main App
 // ─────────────────────────────────────────────
 
-export default function TaskTracker() {
+function AppInner() {
+  const { dark, t } = useTheme();
   const isMobile = useIsMobile();
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
@@ -2438,6 +3133,8 @@ export default function TaskTracker() {
                 <span style={{ fontSize: 13, fontWeight: 800, color: "#e5e5e5" }}>FCG / BR OPS</span>
               </div>
             )}
+            {/* Dark mode toggle */}
+            <ThemeToggle />
             {/* OPS / APM toggle — always visible */}
             <div style={{ display: "flex", background: "#151515", borderRadius: 6, overflow: "hidden", border: "1px solid #2a2a2a" }}>
               <button onClick={() => setAppSection("ops")} style={{ padding: "5px 12px", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
