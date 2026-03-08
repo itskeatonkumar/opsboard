@@ -1446,10 +1446,10 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
             max_tokens: 300,
-            system: `You extract receipt data. Respond ONLY with valid JSON, no markdown, no explanation. Format: {"vendor":"string","amount":number_or_null,"date":"YYYY-MM-DD_or_null","category":"one of: Labor,Concrete,Rebar/Steel,Formwork,Equipment Rental,Subcontractor,Fuel,Tools/Supplies,Permits/Fees,Other"}`,
+            system: `You extract receipt data. Respond ONLY with valid JSON, no markdown, no explanation. Format: {"vendor":"string","amount":number_or_null,"date":"YYYY-MM-DD_or_null","category":"one of: Labor,Concrete,Rebar/Steel,Formwork,Equipment Rental,Subcontractor,Fuel,Tools/Supplies,Permits/Fees,Other","notes":"string - list the key items purchased, e.g. 2x4 lumber x40, concrete mix x10 bags, rebar #4 x20"}. For notes, extract the actual line items from the receipt. Keep it concise but specific - what was bought, quantities if visible. Max 120 chars.`,
             messages: [{ role:"user", content:[
               { type:"image", source:{ type:"base64", media_type:mediaType, data:base64 }},
-              { type:"text", text:"Extract the vendor name, total amount, date, and best-fit category from this receipt." }
+              { type:"text", text:"Extract vendor, total amount, date, best-fit category, and a concise summary of what was purchased (line items with quantities) for the notes field." }
             ]}]
           })
         });
@@ -1463,6 +1463,7 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
             amount: extracted.amount != null ? String(extracted.amount) : f.amount,
             receipt_date: extracted.date || f.receipt_date,
             category: extracted.category || f.category,
+            notes: extracted.notes || f.notes,
           }));
         } catch(e) {}
         setExtracting(false);
