@@ -1999,15 +1999,6 @@ export default function TaskTracker() {
 
           {appSection === "ops" && <>
 
-          {/* APM Section */}
-          {appSection === "apm" && (
-            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
-              <APMSection />
-            </div>
-          )}
-
-          {appSection === "ops" && <>
-
           {/* Overdue / Due Today banner */}
           {(stats.overdue > 0 || stats.dueToday > 0) && page === "tasks" && (
             <div style={{ display: "flex", gap: 0, flexShrink: 0 }}>
@@ -2052,11 +2043,11 @@ export default function TaskTracker() {
               </button>
             ))}
           </div>
-        </div>
 
-        {editTask !== null && <TaskModal task={editTask} isNew={isNew} onClose={closeModal} onSave={handleSave} onDelete={handleDelete} team={team} />}
-        {aiOpen && <AIModal onClose={() => setAiOpen(false)} onAdd={handleAiAdd} team={team} />}
-        {digestOpen && <DigestModal tasks={tasks} team={team} onClose={() => setDigestOpen(false)} />}
+          {editTask !== null && <TaskModal task={editTask} isNew={isNew} onClose={closeModal} onSave={handleSave} onDelete={handleDelete} team={team} />}
+          {aiOpen && <AIModal onClose={() => setAiOpen(false)} onAdd={handleAiAdd} team={team} />}
+          {digestOpen && <DigestModal tasks={tasks} team={team} onClose={() => setDigestOpen(false)} />}
+        </div>
       </>
     );
   }
