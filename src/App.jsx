@@ -2724,6 +2724,16 @@ function LoginScreen() {
 // Main App
 // ─────────────────────────────────────────────
 
+function ThemeToggle() {
+  const { dark, toggle } = useTheme();
+  return (
+    <button onClick={toggle} title={dark ? "Switch to light mode" : "Switch to dark mode"}
+      style={{ background:"none", border:"1px solid #2a2a2a", borderRadius:6, padding:"5px 9px", cursor:"pointer", fontSize:14, color: dark ? "#e5e5e5" : "#18181b", lineHeight:1, flexShrink:0 }}>
+      {dark ? "☀" : "☾"}
+    </button>
+  );
+}
+
 function AppInner() {
   const { dark, t } = useTheme();
   const isMobile = useIsMobile();
