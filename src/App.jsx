@@ -37,24 +37,56 @@ const TEAM_COLORS = [
 const ThemeContext = React.createContext({ dark: true, toggle: () => {} });
 function useTheme() { return React.useContext(ThemeContext); }
 
+// Set CSS vars synchronously - must run before any render
+function applyCSSVars(dark) {
+  const r = document.documentElement;
+  if (dark) {
+    r.style.setProperty('--bg',    '#0a0a0a');
+    r.style.setProperty('--bg2',   '#0d0d0d');
+    r.style.setProperty('--bg3',   '#111111');
+    r.style.setProperty('--bg4',   '#151515');
+    r.style.setProperty('--bg5',   '#1a1a1a');
+    r.style.setProperty('--bd',    '#1a1a1a');
+    r.style.setProperty('--bd2',   '#2a2a2a');
+    r.style.setProperty('--tx',    '#e5e5e5');
+    r.style.setProperty('--tx2',   '#888888');
+    r.style.setProperty('--tx3',   '#555555');
+    r.style.setProperty('--tx4',   '#444444');
+    r.style.setProperty('--inp',   '#0e0e0e');
+    r.style.setProperty('--inpbd', '#252525');
+    r.style.setProperty('--inptx', '#e0e0e0');
+  } else {
+    r.style.setProperty('--bg',    '#f4f4f5');
+    r.style.setProperty('--bg2',   '#ffffff');
+    r.style.setProperty('--bg3',   '#ffffff');
+    r.style.setProperty('--bg4',   '#f9f9f9');
+    r.style.setProperty('--bg5',   '#f0f0f0');
+    r.style.setProperty('--bd',    '#e4e4e7');
+    r.style.setProperty('--bd2',   '#d4d4d8');
+    r.style.setProperty('--tx',    '#18181b');
+    r.style.setProperty('--tx2',   '#52525b');
+    r.style.setProperty('--tx3',   '#71717a');
+    r.style.setProperty('--tx4',   '#a1a1aa');
+    r.style.setProperty('--inp',   '#ffffff');
+    r.style.setProperty('--inpbd', '#d4d4d8');
+    r.style.setProperty('--inptx', '#18181b');
+  }
+}
+
 function ThemeProvider({ children }) {
   const [dark, setDark] = useState(() => {
-    try { const s = localStorage.getItem("theme"); return s ? s === "dark" : true; } catch { return true; }
+    let isDark = true;
+    try { const s = localStorage.getItem("theme"); isDark = s ? s === "dark" : true; } catch {}
+    applyCSSVars(isDark); // set vars synchronously on first render
+    return isDark;
   });
-  const toggle = () => setDark(d => { const n = !d; try { localStorage.setItem("theme", n?"dark":"light"); } catch{} return n; });
-  const t = dark ? {
-    bg:"#0a0a0a", bg2:"#0d0d0d", bg3:"#111", bg4:"#151515", bg5:"#1a1a1a",
-    border:"#1a1a1a", border2:"#2a2a2a", border3:"#252525",
-    text:"#e5e5e5", text2:"#888", text3:"#555", text4:"#444", text5:"#333",
-    input:"#0e0e0e", inputBorder:"#252525", inputText:"#e0e0e0",
-    label:"#555", accent:"#F97316",
-  } : {
-    bg:"#f4f4f5", bg2:"#ffffff", bg3:"#ffffff", bg4:"#f9f9f9", bg5:"#f0f0f0",
-    border:"#e4e4e7", border2:"#d4d4d8", border3:"#e0e0e0",
-    text:"#18181b", text2:"#52525b", text3:"#71717a", text4:"#a1a1aa", text5:"#d4d4d8",
-    input:"#ffffff", inputBorder:"#d4d4d8", inputText:"#18181b",
-    label:"#71717a", accent:"#F97316",
-  };
+  const t = {}; // kept for compat but not needed - everything uses CSS vars now
+  const toggle = () => setDark(d => {
+    const n = !d;
+    applyCSSVars(n);
+    try { localStorage.setItem("theme", n ? "dark" : "light"); } catch {}
+    return n;
+  });
   return <ThemeContext.Provider value={{ dark, toggle, t }}>{children}</ThemeContext.Provider>;
 }
 
@@ -2728,7 +2760,7 @@ function ThemeToggle() {
   const { dark, toggle } = useTheme();
   return (
     <button onClick={toggle} title={dark ? "Switch to light mode" : "Switch to dark mode"}
-      style={{ background:"none", border:"1px solid #2a2a2a", borderRadius:6, padding:"5px 9px", cursor:"pointer", fontSize:14, color: dark ? "#e5e5e5" : "#18181b", lineHeight:1, flexShrink:0 }}>
+      style={{ background:"none", border:"1px solid var(--bd2)", borderRadius:6, padding:"5px 9px", cursor:"pointer", fontSize:14, color: dark ? "#e5e5e5" : "#18181b", lineHeight:1, flexShrink:0 }}>
       {dark ? "☀" : "☾"}
     </button>
   );
@@ -2921,19 +2953,19 @@ function AppInner() {
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
           * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-          body { background: #0a0a0a; }
+          body { background: var(--bg); }
           ::-webkit-scrollbar { width: 0; }
-          select option { background: #111; color: #e5e5e5; }
+          select option { background: var(--bg3); color: var(--tx); }
           @keyframes spin { from{transform:rotate(0deg)}to{transform:rotate(360deg)} }
         `}</style>
 
-        <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: "#0a0a0a", fontFamily: "'Syne', sans-serif" }}>
+        <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: "var(--bg)", fontFamily: "'Syne', sans-serif" }}>
 
           {/* Mobile Header */}
-          <div style={{ display: "flex", alignItems: "center", padding: "7px 12px", borderBottom: "1px solid #1a1a1a", background: "#0d0d0d", gap: 8, flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", padding: "7px 12px", borderBottom: "1px solid var(--bd)", background: "var(--bg2)", gap: 8, flexShrink: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
               <div style={{ width: 24, height: 24, borderRadius: 5, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>⬡</div>
-              <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden", border: "1px solid #2a2a2a" }}>
+              <div style={{ display: "flex", background: "var(--bg5)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
                 <button onClick={() => setAppSection("ops")} style={{ padding: "4px 10px", background: appSection === "ops" ? "#F9731620" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "#555", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
                 <button onClick={() => setAppSection("apm")} style={{ padding: "4px 10px", background: appSection === "apm" ? "#3B82F620" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "#555", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
               </div>
@@ -2943,7 +2975,7 @@ function AppInner() {
           </div>
 
           {/* Company filter pills */}
-          <div style={{ display: "flex", gap: 8, padding: "10px 16px", overflowX: "auto", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+          <div style={{ display: "flex", gap: 8, padding: "10px 16px", overflowX: "auto", borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
             {COMPANIES.map(co => {
               const active = activeCompany === co.id;
               return (
@@ -2967,7 +2999,7 @@ function AppInner() {
           </div>
 
           {/* Stats strip */}
-          <div style={{ display: "flex", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+          <div style={{ display: "flex", borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
             {[
               { label: "Total", val: stats.total, color: "#555" },
               { label: "Active", val: stats.inprogress, color: "#F59E0B" },
@@ -3016,7 +3048,7 @@ function AppInner() {
           </> }
 
           {/* Bottom nav */}
-          <div style={{ display: "flex", borderTop: "1px solid #1a1a1a", background: "#0d0d0d", flexShrink: 0 }}>
+          <div style={{ display: "flex", borderTop: "1px solid var(--bd)", background: "var(--bg2)", flexShrink: 0 }}>
             {[
               { id: "tasks", icon: "⊞", label: "Tasks" },
               { id: "dashboard", icon: "◈", label: "Stats" },
@@ -3049,21 +3081,21 @@ function AppInner() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
-        body { background: #0a0a0a; }
+        body { background: var(--bg); }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-track { background: #111; }
-        ::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 2px; }
-        select option { background: #111; color: #e5e5e5; }
+        ::-webkit-scrollbar-track { background: var(--bg3); }
+        ::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 2px; }
+        select option { background: var(--bg3); color: var(--tx); }
         @keyframes slideIn { from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)} }
         @keyframes spin { from{transform:rotate(0deg)}to{transform:rotate(360deg)} }
       `}</style>
 
       {ghostTask && ghostPos && <DragGhost task={ghostTask} pos={ghostPos} team={team} />}
 
-      <div style={{ display: "flex", height: "100vh", background: "#0a0a0a", fontFamily: "'Syne', sans-serif", overflow: "hidden", cursor: draggingId ? "grabbing" : "default" }}>
+      <div style={{ display: "flex", height: "100vh", background: "var(--bg)", fontFamily: "'Syne', sans-serif", overflow: "hidden", cursor: draggingId ? "grabbing" : "default" }}>
 
         {/* SIDEBAR */}
-        <div style={{ width: sidebarOpen ? 220 : 0, minWidth: sidebarOpen ? 220 : 0, background: "#0d0d0d", borderRight: "1px solid #1a1a1a", display: "flex", flexDirection: "column", overflow: "hidden", transition: "width 0.2s, min-width 0.2s", flexShrink: 0 }}>
+        <div style={{ width: sidebarOpen ? 220 : 0, minWidth: sidebarOpen ? 220 : 0, background: "var(--bg2)", borderRight: "1px solid var(--bd)", display: "flex", flexDirection: "column", overflow: "hidden", transition: "width 0.2s, min-width 0.2s", flexShrink: 0 }}>
           <div style={{ padding: "16px 14px 12px", borderBottom: "1px solid #1a1a1a" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <div style={{ width: 28, height: 28, borderRadius: 6, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -3074,9 +3106,9 @@ function AppInner() {
                 <div style={{ fontSize: 9.5, color: "#444", fontFamily: "'DM Mono', monospace", letterSpacing: 0.5 }}>OPERATIONS</div>
               </div>
             </div>
-            <div style={{ display: "flex", background: "#151515", borderRadius: 6, overflow: "hidden", border: "1px solid #2a2a2a" }}>
-              <button onClick={() => setAppSection("ops")} style={{ flex: 1, padding: "6px 0", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS BOARD</button>
-              <button onClick={() => setAppSection("apm")} style={{ flex: 1, padding: "6px 0", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
+            <div style={{ display: "flex", background: "var(--bg4)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
+              <button onClick={() => setAppSection("ops")} style={{ flex: 1, padding: "6px 0", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS BOARD</button>
+              <button onClick={() => setAppSection("apm")} style={{ flex: 1, padding: "6px 0", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
             </div>
           </div>
 
@@ -3084,8 +3116,8 @@ function AppInner() {
             <div style={{ marginBottom: 16 }}>
               {[["tasks","Tasks","⊞"],["settings","Settings","⚙"]].map(([id, label, icon]) => (
                 <button key={id} onClick={() => setPage(id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "7px 8px", borderRadius: 6, cursor: "pointer", background: page === id ? "#F9731615" : "none", border: page === id ? "1px solid #F9731630" : "1px solid transparent", marginBottom: 2, textAlign: "left" }}>
-                  <span style={{ fontSize: 13, color: page === id ? "#F97316" : "#444" }}>{icon}</span>
-                  <span style={{ fontSize: 12, color: page === id ? "#e5e5e5" : "#555" }}>{label}</span>
+                  <span style={{ fontSize: 13, color: page === id ? "#F97316" : "var(--tx4)" }}>{icon}</span>
+                  <span style={{ fontSize: 12, color: page === id ? "var(--tx)" : "var(--tx3)" }}>{label}</span>
                 </button>
               ))}
             </div>
@@ -3099,8 +3131,8 @@ function AppInner() {
                   return (
                     <button key={co.id} onClick={() => setActiveCompany(co.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "7px 8px", borderRadius: 6, cursor: "pointer", background: active ? co.color + "15" : "none", border: active ? `1px solid ${co.color}30` : "1px solid transparent", marginBottom: 2, textAlign: "left" }}>
                       <span style={{ width: 8, height: 8, borderRadius: "50%", background: co.id === "all" ? "#F97316" : co.color, flexShrink: 0, opacity: active ? 1 : 0.4 }} />
-                      <span style={{ fontSize: 12, color: active ? "#e5e5e5" : "#555", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{co.id === "all" ? "All Companies" : co.name}</span>
-                      <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: active ? co.color : "#333" }}>{count}</span>
+                      <span style={{ fontSize: 12, color: active ? "var(--tx)" : "var(--tx3)", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{co.id === "all" ? "All Companies" : co.name}</span>
+                      <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: active ? co.color : "var(--tx4)" }}>{count}</span>
                     </button>
                   );
                 })}
@@ -3108,21 +3140,21 @@ function AppInner() {
                 {team.map(m => (
                   <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", marginBottom: 2 }}>
                     <Avatar member={m} size={22} />
-                    <span style={{ fontSize: 12, color: "#555" }}>{m.name}</span>
-                    <span style={{ fontSize: 10, color: "#333", marginLeft: "auto", fontFamily: "'DM Mono', monospace" }}>{tasks.filter(t => t.assignee === m.id && t.status !== "done").length}</span>
+                    <span style={{ fontSize: 12, color: "var(--tx3)" }}>{m.name}</span>
+                    <span style={{ fontSize: 10, color: "var(--tx4)", marginLeft: "auto", fontFamily: "'DM Mono', monospace" }}>{tasks.filter(t => t.assignee === m.id && t.status !== "done").length}</span>
                   </div>
                 ))}
               </>
             )}
 
-            <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid #1a1a1a" }}>
+            <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--bd)" }}>
               <button onClick={() => setDigestOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "#0a1a12", border: "1px solid #10B98130", color: "#10B981", fontSize: 12, fontWeight: 600, fontFamily: "'Syne', sans-serif", marginBottom: 6 }}
                 onMouseEnter={e => e.currentTarget.style.background = "#0d2218"}
                 onMouseLeave={e => e.currentTarget.style.background = "#0a1a12"}
               >
                 <span style={{ fontSize: 14 }}>✉</span> Send Digest
               </button>
-              <button onClick={handleSignOut} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "none", border: "1px solid #2a2a2a", color: "#444", fontSize: 12, fontFamily: "'Syne', sans-serif" }}
+              <button onClick={handleSignOut} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "none", border: "1px solid var(--bd2)", color: "var(--tx4)", fontSize: 12, fontFamily: "'Syne', sans-serif" }}
                 onMouseEnter={e => e.currentTarget.style.color = "#e5e5e5"}
                 onMouseLeave={e => e.currentTarget.style.color = "#444"}
               >
@@ -3135,7 +3167,7 @@ function AppInner() {
         {/* MAIN */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {/* TOPBAR */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 20px", height: 56, borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 20px", height: 56, borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
             <button onClick={() => setSidebarOpen(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", color: "#444", fontSize: 16, padding: "4px 6px" }}>☰</button>
             {!sidebarOpen && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -3146,9 +3178,9 @@ function AppInner() {
             {/* Dark mode toggle */}
             <ThemeToggle />
             {/* OPS / APM toggle — always visible */}
-            <div style={{ display: "flex", background: "#151515", borderRadius: 6, overflow: "hidden", border: "1px solid #2a2a2a" }}>
-              <button onClick={() => setAppSection("ops")} style={{ padding: "5px 12px", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
-              <button onClick={() => setAppSection("apm")} style={{ padding: "5px 12px", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
+            <div style={{ display: "flex", background: "var(--bg4)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
+              <button onClick={() => setAppSection("ops")} style={{ padding: "5px 12px", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
+              <button onClick={() => setAppSection("apm")} style={{ padding: "5px 12px", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
             </div>
             <div style={{ flex: 1 }}>
               {appSection === "ops" && page === "tasks" && activeCompany !== "all" && <CompanyBadge companyId={activeCompany} />}
@@ -3157,11 +3189,11 @@ function AppInner() {
               <>
                 <div style={{ position: "relative" }}>
                   <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#333", fontSize: 13 }}>⌕</span>
-                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks..." style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 6, padding: "6px 12px 6px 30px", color: "#aaa", fontSize: 12, fontFamily: "'DM Mono', monospace", outline: "none", width: 190 }} />
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks..." style={{ background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6, padding: "6px 12px 6px 30px", color: "var(--tx2)", fontSize: 12, fontFamily: "'DM Mono', monospace", outline: "none", width: 190 }} />
                 </div>
-                <div style={{ display: "flex", background: "#111", border: "1px solid #1e1e1e", borderRadius: 6, overflow: "hidden" }}>
+                <div style={{ display: "flex", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6, overflow: "hidden" }}>
                   {[["kanban","⊞"],["list","≡"]].map(([v, icon]) => (
-                    <button key={v} onClick={() => setView(v)} style={{ padding: "6px 12px", background: view === v ? "#1e1e1e" : "none", border: "none", cursor: "pointer", color: view === v ? "#e5e5e5" : "#444", fontSize: 14 }}>{icon}</button>
+                    <button key={v} onClick={() => setView(v)} style={{ padding: "6px 12px", background: view === v ? "var(--bg5)" : "none", border: "none", cursor: "pointer", color: view === v ? "var(--tx)" : "var(--tx4)", fontSize: 14 }}>{icon}</button>
                   ))}
                 </div>
                 <button onClick={() => setAiOpen(true)} style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", color: "#fff", padding: "7px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
@@ -3176,14 +3208,14 @@ function AppInner() {
 
           {/* STATS */}
           {page === "tasks" && (
-            <div style={{ display: "flex", borderBottom: "1px solid #1a1a1a", flexShrink: 0 }}>
+            <div style={{ display: "flex", borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
               {[
                 { label: "Total", val: stats.total, color: "#555" },
                 { label: "In Progress", val: stats.inprogress, color: "#F59E0B" },
                 { label: "Overdue", val: stats.overdue, color: "#EF4444" },
                 { label: "Done", val: stats.done, color: "#10B981" },
               ].map((s, i) => (
-                <div key={i} style={{ padding: "10px 20px", borderRight: "1px solid #1a1a1a", display: "flex", alignItems: "center", gap: 8 }}>
+                <div key={i} style={{ padding: "10px 20px", borderRight: "1px solid var(--bd)", display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.val}</span>
                   <span style={{ fontSize: 10.5, color: "#3a3a3a", fontFamily: "'DM Mono', monospace", letterSpacing: 0.5 }}>{s.label.toUpperCase()}</span>
                 </div>
@@ -3199,7 +3231,7 @@ function AppInner() {
           ) : page === "settings" ? (
             <SettingsPage team={team} onTeamChange={setTeam} />
           ) : (
-            <div style={{ flex: 1, overflow: "auto", padding: 20, height: 0 }}>
+            <div style={{ flex: 1, overflow: "auto", padding: 20, height: 0, background: "var(--bg)" }}>
               {loading ? (
                 <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#333", fontFamily: "'DM Mono', monospace", fontSize: 12, gap: 10 }}>
                   <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Loading...
@@ -3211,14 +3243,14 @@ function AppInner() {
                     const isOver = overColumn === status.id && draggingId !== null;
                     return (
                       <div key={status.id} ref={el => { columnRefs.current[status.id] = el; }} style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: "100%" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, paddingBottom: 10, borderBottom: `1.5px solid ${isOver ? "#F97316" : "#1e1e1e"}`, transition: "border-color 0.12s" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, paddingBottom: 10, borderBottom: `1.5px solid ${isOver ? "#F97316" : "var(--bd)"}`, transition: "border-color 0.12s" }}>
                           <span style={{ fontSize: 14, color: isOver ? "#F97316" : "#666" }}>{status.icon}</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: isOver ? "#F97316" : "#888", letterSpacing: 1, fontFamily: "'DM Mono', monospace", textTransform: "uppercase" }}>{status.label}</span>
-                          <span style={{ marginLeft: "auto", background: "#1a1a1a", color: "#555", borderRadius: 10, padding: "2px 7px", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>{colTasks.length}</span>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: isOver ? "#F97316" : "var(--tx2)", letterSpacing: 1, fontFamily: "'DM Mono', monospace", textTransform: "uppercase" }}>{status.label}</span>
+                          <span style={{ marginLeft: "auto", background: "var(--bg5)", color: "var(--tx3)", borderRadius: 10, padding: "2px 7px", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>{colTasks.length}</span>
                         </div>
                         <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 200, borderRadius: 8, padding: isOver ? "6px" : "0", background: isOver ? "#F9731610" : "transparent", border: isOver ? "1.5px dashed #F9731650" : "1.5px solid transparent", transition: "all 0.12s" }}>
                           {colTasks.map(t => <TaskCard key={t.id} task={t} onEdit={openEdit} onMouseDownDrag={handleMouseDownDrag} isDragging={draggingId === t.id} team={team} attachmentCounts={attachmentCounts} />)}
-                          {colTasks.length === 0 && !isOver && <div style={{ border: "1px dashed #1e1e1e", borderRadius: 8, padding: "18px 0", textAlign: "center", color: "#2a2a2a", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>empty</div>}
+                          {colTasks.length === 0 && !isOver && <div style={{ border: "1px dashed var(--bd2)", borderRadius: 8, padding: "18px 0", textAlign: "center", color: "var(--tx4)", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>empty</div>}
                           {isOver && <div style={{ border: "1.5px dashed #F9731680", borderRadius: 8, padding: "14px 0", textAlign: "center", color: "#F97316", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>↓ drop here</div>}
                         </div>
                       </div>
@@ -3227,7 +3259,7 @@ function AppInner() {
                 </div>
               ) : (
                 <div style={{ maxWidth: 900 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 80px 100px 90px", gap: 10, padding: "8px 14px", marginBottom: 6, fontSize: 9.5, fontFamily: "'DM Mono', monospace", color: "#3a3a3a", letterSpacing: 0.8, textTransform: "uppercase" }}>
+                  <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 80px 100px 90px", gap: 10, padding: "8px 14px", marginBottom: 6, fontSize: 9.5, fontFamily: "'DM Mono', monospace", color: "var(--tx4)", letterSpacing: 0.8, textTransform: "uppercase" }}>
                     <span>Task</span><span>Company</span><span>Assignee</span><span>Priority</span><span>Status</span><span>Due</span>
                   </div>
                   {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#333", fontFamily: "'DM Mono', monospace", fontSize: 12 }}>No tasks found</div>}
@@ -3236,12 +3268,12 @@ function AppInner() {
                     const isOverdue = task.status !== "done" && task.due && new Date(task.due) < new Date();
                     const attachCount = attachmentCounts?.[task.id] || 0;
                     return (
-                      <div key={task.id} onClick={() => openEdit(task)} style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 80px 100px 90px", gap: 10, padding: "11px 14px", borderRadius: 7, cursor: "pointer", background: "#111", border: "1px solid #1a1a1a", marginBottom: 4, alignItems: "center", animation: "slideIn 0.15s ease-out" }}
+                      <div key={task.id} onClick={() => openEdit(task)} style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 80px 100px 90px", gap: 10, padding: "11px 14px", borderRadius: 7, cursor: "pointer", background: "var(--bg3)", border: "1px solid var(--bd)", marginBottom: 4, alignItems: "center", animation: "slideIn 0.15s ease-out" }}
                         onMouseEnter={e => e.currentTarget.style.borderColor = "#2a2a2a"}
                         onMouseLeave={e => e.currentTarget.style.borderColor = "#1a1a1a"}
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                          <span style={{ fontSize: 13, color: "#ddd", fontFamily: "'Syne', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
+                          <span style={{ fontSize: 13, color: "var(--tx)", fontFamily: "'Syne', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
                           {attachCount > 0 && <span style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>📎{attachCount}</span>}
                         </div>
                         <CompanyBadge companyId={task.company} small />
