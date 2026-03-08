@@ -534,27 +534,43 @@ function AIModal({ onClose, onAdd, team }) {
   const [saving, setSaving] = useState(false);
   const inputRef = useRef();
   const [listening, setListening] = useState(false);
-  const recogRef = useRef(null);
+  const [transcribing, setTranscribing] = useState(false);
+  const mediaRef = useRef(null);
+  const chunksRef = useRef([]);
   useEffect(() => { setTimeout(() => inputRef.current?.focus(), 100); }, []);
 
-  const startVoice = () => {
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SR) { setError("Voice not supported in this browser."); return; }
-    const r = new SR();
-    r.lang = "en-US"; r.interimResults = false; r.maxAlternatives = 1;
-    r.onstart = () => setListening(true);
-    r.onend = () => setListening(false);
-    r.onerror = () => setListening(false);
-    r.onresult = (e) => {
-      const text = e.results[0][0].transcript;
-      setPrompt(prev => (prev ? prev + " " + text : text));
-      setPreview(null); setError("");
-    };
-    recogRef.current = r;
-    r.start();
+  const startVoice = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      chunksRef.current = [];
+      const mr = new MediaRecorder(stream, { mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4" });
+      mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data); };
+      mr.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        setListening(false);
+        setTranscribing(true);
+        try {
+          const blob = new Blob(chunksRef.current, { type: mr.mimeType });
+          const fd = new FormData();
+          fd.append("audio", blob, "audio.webm");
+          const res = await fetch("/api/whisper", { method: "POST", body: fd });
+          const data = await res.json();
+          if (data.text) {
+            setPrompt(prev => (prev ? prev + " " + data.text : data.text));
+            setPreview(null); setError("");
+          } else {
+            setError("Couldn't transcribe — try again.");
+          }
+        } catch { setError("Transcription failed."); }
+        setTranscribing(false);
+      };
+      mediaRef.current = mr;
+      mr.start();
+      setListening(true);
+    } catch { setError("Mic access denied."); }
   };
 
-  const stopVoice = () => { recogRef.current?.stop(); setListening(false); };
+  const stopVoice = () => { mediaRef.current?.stop(); };
 
   const teamContext = team.map(m => `${m.id}=${m.name}${m.role ? ` (${m.role})` : ""}`).join(", ");
 
@@ -607,13 +623,14 @@ Interpret relative dates relative to today (${TODAY}).`,
             placeholder={`e.g. "Keaton follow up with FMGI, high priority FCG, due Friday"`}
             style={{ width: "100%", background: "#0c0c0c", border: `1px solid ${listening ? "#a855f7" : "#2a2a2a"}`, borderRadius: 8, padding: "12px 44px 12px 14px", color: "#e0e0e0", fontSize: 14, fontFamily: "'Syne', sans-serif", outline: "none", resize: "none", minHeight: 90, boxSizing: "border-box", lineHeight: 1.5, transition: "border-color 0.2s" }}
           />
-          <button onClick={listening ? stopVoice : startVoice} title={listening ? "Stop" : "Speak"}
-            style={{ position: "absolute", right: 10, top: 10, background: listening ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "#1a1a1a", border: `1px solid ${listening ? "#a855f7" : "#333"}`, borderRadius: 7, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", fontSize: 15, transition: "all 0.2s", boxShadow: listening ? "0 0 12px rgba(168,85,247,0.5)" : "none" }}>
-            {listening ? "⏹" : "🎤"}
+          <button onClick={listening ? stopVoice : startVoice} disabled={transcribing} title={listening ? "Stop" : transcribing ? "Transcribing..." : "Speak"}
+            style={{ position: "absolute", right: 10, top: 10, background: listening ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "#1a1a1a", border: `1px solid ${listening ? "#a855f7" : "#333"}`, borderRadius: 7, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: transcribing ? "not-allowed" : "pointer", fontSize: 15, transition: "all 0.2s", boxShadow: listening ? "0 0 12px rgba(168,85,247,0.5)" : "none", opacity: transcribing ? 0.4 : 1 }}>
+            {listening ? "⏹" : transcribing ? "◌" : "🎤"}
           </button>
         </div>
-        {listening && <div style={{ fontSize: 10, color: "#a855f7", fontFamily: "'DM Mono', monospace", marginTop: 5, display: "flex", alignItems: "center", gap: 5 }}><span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>◌</span> Listening...</div>}
-        {!isMobile && !listening && <div style={{ fontSize: 10, color: "#333", fontFamily: "'DM Mono', monospace", marginTop: 5 }}>Enter to parse · Shift+Enter for new line · 🎤 to speak</div>}
+        {listening && <div style={{ fontSize: 10, color: "#a855f7", fontFamily: "'DM Mono', monospace", marginTop: 5, display: "flex", alignItems: "center", gap: 5 }}><span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>◌</span> Listening — tap ⏹ when done</div>}
+        {transcribing && <div style={{ fontSize: 10, color: "#a855f7", fontFamily: "'DM Mono', monospace", marginTop: 5, display: "flex", alignItems: "center", gap: 5 }}><span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>◌</span> Transcribing...</div>}
+        {!isMobile && !listening && !transcribing && <div style={{ fontSize: 10, color: "#333", fontFamily: "'DM Mono', monospace", marginTop: 5 }}>Enter to parse · Shift+Enter for new line · 🎤 to speak</div>}
         {!preview && (
           <button onClick={parse} disabled={loading || !prompt.trim()} style={{ marginTop: 14, width: "100%", background: loading ? "#1a1228" : "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", borderRadius: 8, padding: "12px 0", color: "#fff", fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", cursor: loading || !prompt.trim() ? "not-allowed" : "pointer", opacity: !prompt.trim() ? 0.4 : 1, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
             {loading ? <><span style={{ display: "inline-block", animation: "spin 0.8s linear infinite" }}>◌</span> Parsing...</> : "✦ Parse Task"}
