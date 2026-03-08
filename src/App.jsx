@@ -2161,8 +2161,13 @@ export default function TaskTracker() {
                 <span style={{ fontSize: 13, fontWeight: 800, color: "#e5e5e5" }}>FCG / BR OPS</span>
               </div>
             )}
+            {/* OPS / APM toggle — always visible */}
+            <div style={{ display: "flex", background: "#151515", borderRadius: 6, overflow: "hidden", border: "1px solid #2a2a2a" }}>
+              <button onClick={() => setAppSection("ops")} style={{ padding: "5px 12px", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
+              <button onClick={() => setAppSection("apm")} style={{ padding: "5px 12px", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
+            </div>
             <div style={{ flex: 1 }}>
-              {page === "tasks" && activeCompany !== "all" && <CompanyBadge companyId={activeCompany} />}
+              {appSection === "ops" && page === "tasks" && activeCompany !== "all" && <CompanyBadge companyId={activeCompany} />}
             </div>
             {page === "tasks" && (
               <>
