@@ -706,59 +706,119 @@ function DigestModal({ tasks, team, onClose }) {
 // Mobile Task List
 // ─────────────────────────────────────────────
 
-function MobileTaskList({ filtered, team, onEdit, onStatusChange, attachmentCounts }) {
+function MobileKanban({ filtered, team, onEdit, onStatusChange, attachmentCounts }) {
+  const dragRef = useRef({ active: false, task: null, moved: false, clone: null });
+  const colRefs = useRef({});
+  const [dragOver, setDragOver] = useState(null);
+  const [draggingId, setDraggingId] = useState(null);
+
+  const getColAt = (x, y) => {
+    for (const [col, el] of Object.entries(colRefs.current)) {
+      if (!el) continue;
+      const r = el.getBoundingClientRect();
+      if (x >= r.left && x <= r.right && y >= r.top && y <= r.bottom) return col;
+    }
+    return null;
+  };
+
+  const handleTouchStart = (e, task) => {
+    const t = e.touches[0];
+    dragRef.current = { active: true, task, startX: t.clientX, startY: t.clientY, moved: false, clone: null };
+  };
+
+  useEffect(() => {
+    const handleTouchMove = (e) => {
+      const dr = dragRef.current;
+      if (!dr.active) return;
+      const t = e.touches[0];
+      const dx = Math.abs(t.clientX - dr.startX);
+      const dy = Math.abs(t.clientY - dr.startY);
+      if (!dr.moved && (dx > 8 || dy > 8)) {
+        dr.moved = true;
+        setDraggingId(dr.task.id);
+        const clone = document.createElement('div');
+        clone.innerText = dr.task.title;
+        clone.style.cssText = 'position:fixed;z-index:9999;background:#1e1e1e;border:1.5px solid #F97316;border-radius:8px;padding:10px 14px;font-size:12px;color:#e5e5e5;font-family:Syne,sans-serif;pointer-events:none;max-width:150px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;box-shadow:0 8px 32px rgba(0,0,0,0.8);opacity:0.9;transform:rotate(2deg) scale(1.05)';
+        document.body.appendChild(clone);
+        dr.clone = clone;
+      }
+      if (dr.moved && dr.clone) {
+        dr.clone.style.left = (t.clientX - 75) + 'px';
+        dr.clone.style.top = (t.clientY - 18) + 'px';
+        setDragOver(getColAt(t.clientX, t.clientY));
+      }
+      if (dr.moved) e.preventDefault();
+    };
+
+    const handleTouchEnd = async (e) => {
+      const dr = dragRef.current;
+      if (!dr.active) return;
+      if (dr.clone) { dr.clone.remove(); dr.clone = null; }
+      if (dr.moved) {
+        const t = e.changedTouches[0];
+        const col = getColAt(t.clientX, t.clientY);
+        if (col && col !== dr.task.status) onStatusChange(dr.task, col);
+      } else {
+        onEdit(dr.task);
+      }
+      dragRef.current = { active: false, task: null, moved: false, clone: null };
+      setDraggingId(null);
+      setDragOver(null);
+    };
+
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', handleTouchEnd);
+    return () => {
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, []);
+
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, padding: "10px 10px 80px" }}>
+    <div style={{ display: 'flex', overflowX: 'auto', height: '100%', padding: '8px 8px 80px', gap: 6, scrollSnapType: 'x mandatory', WebkitOverflowScrolling: 'touch' }}>
       {STATUSES.map(status => {
         const colTasks = filtered.filter(t => t.status === status.id);
-        if (colTasks.length === 0) return null;
+        const isOver = dragOver === status.id;
         return (
-          <div key={status.id}>
-            <div style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 4px", marginBottom: 4, marginTop: 6 }}>
-              <span style={{ fontSize: 11, color: "#555" }}>{status.icon}</span>
-              <span style={{ fontSize: 10, fontWeight: 700, color: "#555", letterSpacing: 1, fontFamily: "'DM Mono', monospace", textTransform: "uppercase" }}>{status.label}</span>
-              <span style={{ background: "#1a1a1a", color: "#444", borderRadius: 10, padding: "1px 5px", fontSize: 9, fontFamily: "'DM Mono', monospace" }}>{colTasks.length}</span>
+          <div key={status.id} ref={el => colRefs.current[status.id] = el}
+            style={{ minWidth: 'calc(50vw - 12px)', width: 'calc(50vw - 12px)', flexShrink: 0, display: 'flex', flexDirection: 'column', scrollSnapAlign: 'start' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginBottom: 6, paddingBottom: 6, borderBottom: `1.5px solid ${isOver ? '#F97316' : '#1e1e1e'}`, transition: 'border-color 0.1s' }}>
+              <span style={{ fontSize: 11 }}>{status.icon}</span>
+              <span style={{ fontSize: 9, fontWeight: 700, color: isOver ? '#F97316' : '#555', letterSpacing: 1, fontFamily: "'DM Mono', monospace", textTransform: 'uppercase' }}>{status.label}</span>
+              <span style={{ marginLeft: 'auto', background: '#1a1a1a', color: '#444', borderRadius: 8, padding: '1px 5px', fontSize: 9, fontFamily: "'DM Mono', monospace" }}>{colTasks.length}</span>
             </div>
-            {colTasks.map(task => {
-              const member = getMember(task.assignee, team);
-              const isOverdue = task.status !== "done" && task.due && new Date(task.due) < new Date();
-              const attachCount = attachmentCounts?.[task.id] || 0;
-              const nextStatus = STATUSES[STATUSES.findIndex(s => s.id === task.status) + 1];
-              return (
-                <div key={task.id} style={{ background: "#161616", border: "1px solid #222", borderRadius: 8, padding: "10px 12px", marginBottom: 4, display: "flex", alignItems: "center", gap: 10 }}>
-                  {/* Left: tap to edit */}
-                  <div onClick={() => onEdit(task)} style={{ flex: 1, minWidth: 0, cursor: "pointer" }}>
-                    <div style={{ display: "flex", gap: 5, marginBottom: 5, alignItems: "center" }}>
+            <div style={{ flex: 1, overflowY: 'auto', borderRadius: 8, background: isOver ? 'rgba(249,115,22,0.05)' : 'transparent', border: isOver ? '1.5px dashed rgba(249,115,22,0.4)' : '1.5px solid transparent', transition: 'all 0.15s', padding: isOver ? 4 : 0, minHeight: 60 }}>
+              {colTasks.map(task => {
+                const member = getMember(task.assignee, team);
+                const isOverdue = task.status !== 'done' && task.due && new Date(task.due) < new Date();
+                const attachCount = attachmentCounts?.[task.id] || 0;
+                return (
+                  <div key={task.id}
+                    onTouchStart={e => handleTouchStart(e, task)}
+                    style={{ background: '#161616', border: `1px solid ${draggingId === task.id ? 'rgba(249,115,22,0.3)' : '#222'}`, borderRadius: 7, padding: '8px 9px', marginBottom: 5, opacity: draggingId === task.id ? 0.25 : 1, transition: 'opacity 0.1s', userSelect: 'none', touchAction: 'none' }}>
+                    <div style={{ display: 'flex', gap: 3, marginBottom: 4, alignItems: 'center' }}>
                       <CompanyBadge companyId={task.company} small />
                       <PriorityDot priorityId={task.priority} />
-                      {isOverdue && <span style={{ fontSize: 9, color: "#EF4444", fontFamily: "'DM Mono', monospace" }}>OVERDUE</span>}
+                      {isOverdue && <span style={{ fontSize: 8, color: '#EF4444', fontFamily: "'DM Mono', monospace" }}>OVR</span>}
                     </div>
-                    <div style={{ fontSize: 13, color: "#e5e5e5", fontWeight: 500, lineHeight: 1.3, marginBottom: 5, fontFamily: "'Syne', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</div>
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                      <Avatar member={member} size={18} />
-                      <span style={{ fontSize: 10, color: "#555", fontFamily: "'Syne', sans-serif" }}>{member.name}</span>
-                      {task.due && <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: isOverdue ? "#EF4444" : "#444" }}>{new Date(task.due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}</span>}
-                      {attachCount > 0 && <span style={{ fontSize: 10, color: "#444" }}>📎{attachCount}</span>}
+                    <div style={{ fontSize: 11.5, color: '#e5e5e5', fontWeight: 500, lineHeight: 1.35, marginBottom: 5, fontFamily: "'Syne', sans-serif", overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{task.title}</div>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 3 }}>
+                        <Avatar member={member} size={15} />
+                        {attachCount > 0 && <span style={{ fontSize: 9, color: '#444' }}>📎</span>}
+                      </div>
+                      {task.due && <span style={{ fontSize: 9, fontFamily: "'DM Mono', monospace", color: isOverdue ? '#EF4444' : '#3a3a3a' }}>{new Date(task.due + 'T12:00:00').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}</span>}
                     </div>
                   </div>
-                  {/* Right: advance status button */}
-                  {nextStatus && (
-                    <button onClick={() => onStatusChange(task, nextStatus.id)} style={{ background: "#1e1e1e", border: "1px solid #2a2a2a", borderRadius: 6, padding: "6px 8px", cursor: "pointer", color: "#555", fontSize: 14, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                      {nextStatus.icon}
-                    </button>
-                  )}
-                  {task.status === "done" && (
-                    <span style={{ fontSize: 14, color: "#10B981", flexShrink: 0 }}>✓</span>
-                  )}
-                </div>
-              );
-            })}
+                );
+              })}
+              {colTasks.length === 0 && (
+                <div style={{ border: '1px dashed #1a1a1a', borderRadius: 7, padding: '14px 0', textAlign: 'center', color: '#252525', fontSize: 10, fontFamily: "'DM Mono', monospace" }}>empty</div>
+              )}
+            </div>
           </div>
         );
       })}
-      {filtered.length === 0 && (
-        <div style={{ textAlign: "center", padding: 40, color: "#333", fontFamily: "'DM Mono', monospace", fontSize: 11 }}>No tasks found</div>
-      )}
     </div>
   );
 }
@@ -1040,7 +1100,7 @@ export default function TaskTracker() {
           </div>
 
           {/* Content */}
-          <div style={{ flex: 1, overflowY: "auto" }}>
+          <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
             {page === "settings" ? (
               <SettingsPage team={team} onTeamChange={setTeam} />
             ) : loading ? (
@@ -1048,7 +1108,7 @@ export default function TaskTracker() {
                 <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Loading...
               </div>
             ) : (
-              <MobileTaskList filtered={filtered} team={team} onEdit={openEdit} attachmentCounts={attachmentCounts} onStatusChange={async (task, newStatus) => { setTasks(ts => ts.map(t => t.id === task.id ? {...t, status: newStatus} : t)); await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id); }} />
+              <MobileKanban filtered={filtered} team={team} onEdit={openEdit} attachmentCounts={attachmentCounts} onStatusChange={async (task, newStatus) => { setTasks(ts => ts.map(t => t.id === task.id ? {...t, status: newStatus} : t)); await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id); }} />
             )}
           </div>
 
