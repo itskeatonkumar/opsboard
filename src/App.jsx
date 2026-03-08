@@ -1939,15 +1939,16 @@ export default function TaskTracker() {
         <div style={{ display: "flex", flexDirection: "column", height: "100dvh", background: "#0a0a0a", fontFamily: "'Syne', sans-serif" }}>
 
           {/* Mobile Header */}
-          <div style={{ display: "flex", alignItems: "center", padding: "7px 12px", borderBottom: "1px solid #1a1a1a", background: "#0d0d0d", gap: 10, flexShrink: 0 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, flex: 1 }}>
-              <div style={{ width: 26, height: 26, borderRadius: 6, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>⬡</div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#e5e5e5", letterSpacing: -0.3 }}>FCG / BR OPS</div>
+          <div style={{ display: "flex", alignItems: "center", padding: "7px 12px", borderBottom: "1px solid #1a1a1a", background: "#0d0d0d", gap: 8, flexShrink: 0 }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
+              <div style={{ width: 24, height: 24, borderRadius: 5, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>⬡</div>
+              <div style={{ display: "flex", background: "#1a1a1a", borderRadius: 6, overflow: "hidden", border: "1px solid #2a2a2a" }}>
+                <button onClick={() => setAppSection("ops")} style={{ padding: "4px 10px", background: appSection === "ops" ? "#F9731620" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "#555", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
+                <button onClick={() => setAppSection("apm")} style={{ padding: "4px 10px", background: appSection === "apm" ? "#3B82F620" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "#555", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
               </div>
             </div>
-            <button onClick={() => setAiOpen(true)} style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", color: "#fff", padding: "7px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✦ AI</button>
-            <button onClick={openNew} style={{ background: "#F97316", border: "none", color: "#000", padding: "7px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>+ Task</button>
+            {appSection === "ops" && <button onClick={() => setAiOpen(true)} style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", color: "#fff", padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✦ AI</button>}
+            {appSection === "ops" && <button onClick={openNew} style={{ background: "#F97316", border: "none", color: "#000", padding: "6px 12px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>+ Task</button>}
           </div>
 
           {/* Company filter pills */}
@@ -1998,6 +1999,15 @@ export default function TaskTracker() {
 
           {appSection === "ops" && <>
 
+          {/* APM Section */}
+          {appSection === "apm" && (
+            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              <APMSection />
+            </div>
+          )}
+
+          {appSection === "ops" && <>
+
           {/* Overdue / Due Today banner */}
           {(stats.overdue > 0 || stats.dueToday > 0) && page === "tasks" && (
             <div style={{ display: "flex", gap: 0, flexShrink: 0 }}>
@@ -2020,6 +2030,8 @@ export default function TaskTracker() {
               <MobileKanban filtered={filtered} team={team} onEdit={openEdit} attachmentCounts={attachmentCounts} onStatusChange={async (task, newStatus) => { setTasks(ts => ts.map(t => t.id === task.id ? {...t, status: newStatus} : t)); await supabase.from("tasks").update({ status: newStatus }).eq("id", task.id); }} />
             )}
           </div>
+
+          </> }
 
           {/* Bottom nav */}
           <div style={{ display: "flex", borderTop: "1px solid #1a1a1a", background: "#0d0d0d", flexShrink: 0 }}>
@@ -2070,8 +2082,8 @@ export default function TaskTracker() {
 
         {/* SIDEBAR */}
         <div style={{ width: sidebarOpen ? 220 : 0, minWidth: sidebarOpen ? 220 : 0, background: "#0d0d0d", borderRight: "1px solid #1a1a1a", display: "flex", flexDirection: "column", overflow: "hidden", transition: "width 0.2s, min-width 0.2s", flexShrink: 0 }}>
-          <div style={{ padding: "20px 18px 16px", borderBottom: "1px solid #1a1a1a" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <div style={{ padding: "16px 14px 12px", borderBottom: "1px solid #1a1a1a" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <div style={{ width: 28, height: 28, borderRadius: 6, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center" }}>
                 <span style={{ fontSize: 14 }}>⬡</span>
               </div>
@@ -2079,6 +2091,10 @@ export default function TaskTracker() {
                 <div style={{ fontSize: 13, fontWeight: 800, color: "#e5e5e5", letterSpacing: -0.3 }}>FCG / BR OPS</div>
                 <div style={{ fontSize: 9.5, color: "#444", fontFamily: "'DM Mono', monospace", letterSpacing: 0.5 }}>OPERATIONS</div>
               </div>
+            </div>
+            <div style={{ display: "flex", background: "#151515", borderRadius: 6, overflow: "hidden", border: "1px solid #2a2a2a" }}>
+              <button onClick={() => setAppSection("ops")} style={{ flex: 1, padding: "6px 0", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS BOARD</button>
+              <button onClick={() => setAppSection("apm")} style={{ flex: 1, padding: "6px 0", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "#444", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
             </div>
           </div>
 
