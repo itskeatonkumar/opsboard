@@ -994,6 +994,701 @@ function DashboardPage({ tasks, team }) {
   );
 }
 
+
+// ═══════════════════════════════════════════════════════
+// APM — ASSISTANT PROJECT MANAGER
+// ═══════════════════════════════════════════════════════
+
+const APM_STATUSES = {
+  project: ["active","on_hold","complete","cancelled"],
+  rfi: ["open","answered","closed"],
+  submittal: ["pending","submitted","approved","rejected","revise_resubmit"],
+  co: ["pending","approved","rejected","void"],
+  material: ["pending","ordered","partial","delivered","cancelled"],
+};
+
+const STATUS_COLORS = {
+  active:"#10B981", on_hold:"#F59E0B", complete:"#3B82F6", cancelled:"#555",
+  open:"#F59E0B", answered:"#10B981", closed:"#555",
+  pending:"#F59E0B", submitted:"#3B82F6", approved:"#10B981", rejected:"#EF4444", revise_resubmit:"#F97316",
+  ordered:"#3B82F6", partial:"#F59E0B", delivered:"#10B981",
+  void:"#555",
+};
+
+const fmtDate = d => d ? new Date(d+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—";
+const fmtMoney = v => v != null ? "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:0}) : "—";
+
+function StatusBadge({ status }) {
+  const color = STATUS_COLORS[status] || "#555";
+  return <span style={{ background: color+"20", color, border:`1px solid ${color}40`, borderRadius:5, padding:"2px 7px", fontSize:10, fontFamily:"'DM Mono',monospace", textTransform:"uppercase", letterSpacing:0.5, whiteSpace:"nowrap" }}>{(status||"").replace(/_/g," ")}</span>;
+}
+
+function APMModal({ title, children, onClose, width=540 }) {
+  const isMobile = useIsMobile();
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:isMobile?"flex-end":"center", justifyContent:"center", zIndex:1000, padding:isMobile?0:20 }}
+      onClick={e => e.target===e.currentTarget && onClose()}>
+      <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:isMobile?"16px 16px 0 0":12, padding:isMobile?"24px 20px 32px":28, width:"100%", maxWidth:isMobile?"100%":width, boxShadow:"0 24px 80px rgba(0,0,0,0.7)", maxHeight:isMobile?"92vh":"88vh", overflowY:"auto" }}>
+        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
+          <span style={{ fontSize:16, fontWeight:700, color:"#e5e5e5", fontFamily:"'Syne',sans-serif" }}>{title}</span>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:"#555", cursor:"pointer", fontSize:22 }}>×</button>
+        </div>
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function APMField({ label, children }) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      {children}
+    </div>
+  );
+}
+
+// ── Project Modal ──────────────────────────────────────
+function ProjectModal({ project, onSave, onClose }) {
+  const isNew = !project?.id;
+  const [form, setForm] = useState({
+    name:"", address:"", company:"fcg", gc_name:"", gc_contact:"", gc_email:"", gc_phone:"",
+    contract_value:"", start_date:"", end_date:"", status:"active",
+    ...(project||{})
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    const payload = { ...form, contract_value: form.contract_value ? Number(form.contract_value) : null };
+    delete payload.id; delete payload.created_at;
+    if (isNew) {
+      const { data } = await supabase.from("projects").insert([payload]).select().single();
+      if (data) onSave(data, true);
+    } else {
+      await supabase.from("projects").update(payload).eq("id", project.id);
+      onSave({...project,...payload}, false);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?"New Project":"Edit Project"} onClose={onClose} width={600}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <APMField label="Project Name"><input value={form.name} onChange={e=>set("name",e.target.value)} placeholder="Project name" style={{...inputStyle,fontSize:15}} autoFocus /></APMField>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <APMField label="Company">
+            <select value={form.company} onChange={e=>set("company",e.target.value)} style={{...inputStyle,fontSize:14}}>
+              {COMPANIES.filter(c=>c.id!=="all").map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </APMField>
+          <APMField label="Status">
+            <select value={form.status} onChange={e=>set("status",e.target.value)} style={{...inputStyle,fontSize:14}}>
+              {APM_STATUSES.project.map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
+            </select>
+          </APMField>
+        </div>
+        <APMField label="Address"><input value={form.address||""} onChange={e=>set("address",e.target.value)} placeholder="Job site address" style={{...inputStyle,fontSize:14}} /></APMField>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <APMField label="Contract Value"><input value={form.contract_value||""} onChange={e=>set("contract_value",e.target.value)} placeholder="0" type="number" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Start Date"><input type="date" value={form.start_date||""} onChange={e=>set("start_date",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="End Date"><input type="date" value={form.end_date||""} onChange={e=>set("end_date",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+        </div>
+        <div style={{ borderTop:"1px solid #1e1e1e", paddingTop:14, marginTop:2 }}>
+          <div style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:10 }}>GC / OWNER CONTACT</div>
+          <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+            <APMField label="GC / Owner"><input value={form.gc_name||""} onChange={e=>set("gc_name",e.target.value)} placeholder="Company name" style={{...inputStyle,fontSize:14}} /></APMField>
+            <APMField label="Contact Name"><input value={form.gc_contact||""} onChange={e=>set("gc_contact",e.target.value)} placeholder="Name" style={{...inputStyle,fontSize:14}} /></APMField>
+            <APMField label="Email"><input value={form.gc_email||""} onChange={e=>set("gc_email",e.target.value)} placeholder="email@co.com" type="email" style={{...inputStyle,fontSize:14}} /></APMField>
+            <APMField label="Phone"><input value={form.gc_phone||""} onChange={e=>set("gc_phone",e.target.value)} placeholder="(555) 000-0000" style={{...inputStyle,fontSize:14}} /></APMField>
+          </div>
+        </div>
+      </div>
+      <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:20 }}>
+        <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+        <button onClick={handleSave} disabled={saving||!form.name.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.name.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Create Project":"Save"}</button>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Daily Log Modal ────────────────────────────────────
+function DailyLogModal({ log, projectId, onSave, onClose }) {
+  const isNew = !log?.id;
+  const [form, setForm] = useState({ log_date:new Date().toISOString().slice(0,10), weather:"", crew_count:"", work_performed:"", issues:"", ...(log||{}), project_id:projectId });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleSave = async () => {
+    setSaving(true);
+    const payload = { ...form, crew_count: form.crew_count ? Number(form.crew_count) : null };
+    delete payload.id; delete payload.created_at;
+    if (isNew) {
+      const { data } = await supabase.from("daily_logs").insert([payload]).select().single();
+      if (data) onSave(data);
+    } else {
+      await supabase.from("daily_logs").update(payload).eq("id", log.id);
+      onSave({...log,...payload});
+    }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?"New Daily Log":"Edit Daily Log"} onClose={onClose} width={560}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <APMField label="Date"><input type="date" value={form.log_date} onChange={e=>set("log_date",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Weather"><input value={form.weather||""} onChange={e=>set("weather",e.target.value)} placeholder="Sunny, 72°F" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Crew on Site"><input type="number" value={form.crew_count||""} onChange={e=>set("crew_count",e.target.value)} placeholder="0" style={{...inputStyle,fontSize:14}} /></APMField>
+        </div>
+        <APMField label="Work Performed">
+          <textarea value={form.work_performed||""} onChange={e=>set("work_performed",e.target.value)} placeholder="Describe work completed today..." style={{...inputStyle, minHeight:100, resize:"vertical", fontSize:14}} />
+        </APMField>
+        <APMField label="Issues / Notes">
+          <textarea value={form.issues||""} onChange={e=>set("issues",e.target.value)} placeholder="Any issues, delays, or notes..." style={{...inputStyle, minHeight:70, resize:"vertical", fontSize:14}} />
+        </APMField>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && <button onClick={async()=>{ await supabase.from("daily_logs").delete().eq("id",log.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Add Log":"Save"}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── RFI Modal ──────────────────────────────────────────
+function RFIModal({ rfi, projectId, onSave, onClose }) {
+  const isNew = !rfi?.id;
+  const [form, setForm] = useState({ rfi_number:"", subject:"", sent_to:"", date_sent:new Date().toISOString().slice(0,10), date_due:"", status:"open", response:"", ...(rfi||{}), project_id:projectId });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleSave = async () => {
+    if (!form.subject.trim()) return;
+    setSaving(true);
+    const payload = {...form}; delete payload.id; delete payload.created_at;
+    if (isNew) { const {data} = await supabase.from("rfis").insert([payload]).select().single(); if (data) onSave(data); }
+    else { await supabase.from("rfis").update(payload).eq("id",rfi.id); onSave({...rfi,...payload}); }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?"New RFI":"Edit RFI"} onClose={onClose}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:12 }}>
+          <APMField label="RFI #"><input value={form.rfi_number||""} onChange={e=>set("rfi_number",e.target.value)} placeholder="RFI-001" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Status">
+            <select value={form.status} onChange={e=>set("status",e.target.value)} style={{...inputStyle,fontSize:14}}>
+              {APM_STATUSES.rfi.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </APMField>
+        </div>
+        <APMField label="Subject"><input value={form.subject} onChange={e=>set("subject",e.target.value)} placeholder="RFI subject" style={{...inputStyle,fontSize:15}} autoFocus /></APMField>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <APMField label="Sent To"><input value={form.sent_to||""} onChange={e=>set("sent_to",e.target.value)} placeholder="GC / Architect" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Date Sent"><input type="date" value={form.date_sent||""} onChange={e=>set("date_sent",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Due Date"><input type="date" value={form.date_due||""} onChange={e=>set("date_due",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+        </div>
+        <APMField label="Response / Notes">
+          <textarea value={form.response||""} onChange={e=>set("response",e.target.value)} placeholder="Response or notes..." style={{...inputStyle,minHeight:80,resize:"vertical",fontSize:14}} />
+        </APMField>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && <button onClick={async()=>{ await supabase.from("rfis").delete().eq("id",rfi.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||!form.subject.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.subject.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add RFI":"Save"}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Submittal Modal ────────────────────────────────────
+function SubmittalModal({ submittal, projectId, onSave, onClose }) {
+  const isNew = !submittal?.id;
+  const [form, setForm] = useState({ submittal_number:"", description:"", sent_to:"", date_sent:new Date().toISOString().slice(0,10), date_due:"", status:"pending", ...(submittal||{}), project_id:projectId });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleSave = async () => {
+    if (!form.description.trim()) return;
+    setSaving(true);
+    const payload = {...form}; delete payload.id; delete payload.created_at;
+    if (isNew) { const {data} = await supabase.from("submittals").insert([payload]).select().single(); if (data) onSave(data); }
+    else { await supabase.from("submittals").update(payload).eq("id",submittal.id); onSave({...submittal,...payload}); }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?"New Submittal":"Edit Submittal"} onClose={onClose}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 2fr", gap:12 }}>
+          <APMField label="Submittal #"><input value={form.submittal_number||""} onChange={e=>set("submittal_number",e.target.value)} placeholder="SUB-001" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Status">
+            <select value={form.status} onChange={e=>set("status",e.target.value)} style={{...inputStyle,fontSize:14}}>
+              {APM_STATUSES.submittal.map(s=><option key={s} value={s}>{s.replace(/_/g," ")}</option>)}
+            </select>
+          </APMField>
+        </div>
+        <APMField label="Description"><input value={form.description} onChange={e=>set("description",e.target.value)} placeholder="Submittal description" style={{...inputStyle,fontSize:15}} autoFocus /></APMField>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <APMField label="Sent To"><input value={form.sent_to||""} onChange={e=>set("sent_to",e.target.value)} placeholder="Architect / GC" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Date Sent"><input type="date" value={form.date_sent||""} onChange={e=>set("date_sent",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Due Date"><input type="date" value={form.date_due||""} onChange={e=>set("date_due",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && <button onClick={async()=>{ await supabase.from("submittals").delete().eq("id",submittal.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||!form.description.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.description.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Submittal":"Save"}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Change Order Modal ─────────────────────────────────
+function COModal({ co, projectId, onSave, onClose }) {
+  const isNew = !co?.id;
+  const [form, setForm] = useState({ co_number:"", description:"", amount:"", status:"pending", date_submitted:new Date().toISOString().slice(0,10), date_approved:"", ...(co||{}), project_id:projectId });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleSave = async () => {
+    if (!form.description.trim()) return;
+    setSaving(true);
+    const payload = {...form, amount:form.amount?Number(form.amount):null}; delete payload.id; delete payload.created_at;
+    if (isNew) { const {data} = await supabase.from("change_orders").insert([payload]).select().single(); if (data) onSave(data); }
+    else { await supabase.from("change_orders").update(payload).eq("id",co.id); onSave({...co,...payload}); }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?"New Change Order":"Edit Change Order"} onClose={onClose}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <APMField label="CO #"><input value={form.co_number||""} onChange={e=>set("co_number",e.target.value)} placeholder="CO-001" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Amount ($)"><input type="number" value={form.amount||""} onChange={e=>set("amount",e.target.value)} placeholder="0.00" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Status">
+            <select value={form.status} onChange={e=>set("status",e.target.value)} style={{...inputStyle,fontSize:14}}>
+              {APM_STATUSES.co.map(s=><option key={s} value={s}>{s}</option>)}
+            </select>
+          </APMField>
+        </div>
+        <APMField label="Description"><textarea value={form.description} onChange={e=>set("description",e.target.value)} placeholder="Describe the change order..." style={{...inputStyle,minHeight:80,resize:"vertical",fontSize:14}} autoFocus /></APMField>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <APMField label="Date Submitted"><input type="date" value={form.date_submitted||""} onChange={e=>set("date_submitted",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Date Approved"><input type="date" value={form.date_approved||""} onChange={e=>set("date_approved",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+        </div>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && <button onClick={async()=>{ await supabase.from("change_orders").delete().eq("id",co.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||!form.description.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.description.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add CO":"Save"}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Material Order Modal ───────────────────────────────
+function MaterialModal({ material, projectId, onSave, onClose }) {
+  const isNew = !material?.id;
+  const [form, setForm] = useState({ item:"", supplier:"", quantity:"", unit_cost:"", total_cost:"", order_date:new Date().toISOString().slice(0,10), eta:"", status:"pending", notes:"", ...(material||{}), project_id:projectId });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleSave = async () => {
+    if (!form.item.trim()) return;
+    setSaving(true);
+    const payload = {...form, unit_cost:form.unit_cost?Number(form.unit_cost):null, total_cost:form.total_cost?Number(form.total_cost):null};
+    delete payload.id; delete payload.created_at;
+    if (isNew) { const {data} = await supabase.from("material_orders").insert([payload]).select().single(); if (data) onSave(data); }
+    else { await supabase.from("material_orders").update(payload).eq("id",material.id); onSave({...material,...payload}); }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?"New Material Order":"Edit Material Order"} onClose={onClose}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <APMField label="Item / Material"><input value={form.item} onChange={e=>set("item",e.target.value)} placeholder="Concrete, Rebar, CMU block..." style={{...inputStyle,fontSize:15}} autoFocus /></APMField>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <APMField label="Supplier"><input value={form.supplier||""} onChange={e=>set("supplier",e.target.value)} placeholder="Supplier name" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Quantity"><input value={form.quantity||""} onChange={e=>set("quantity",e.target.value)} placeholder="e.g. 50 CY, 200 LF" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Unit Cost ($)"><input type="number" value={form.unit_cost||""} onChange={e=>set("unit_cost",e.target.value)} placeholder="0.00" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Total Cost ($)"><input type="number" value={form.total_cost||""} onChange={e=>set("total_cost",e.target.value)} placeholder="0.00" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Order Date"><input type="date" value={form.order_date||""} onChange={e=>set("order_date",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="ETA"><input type="date" value={form.eta||""} onChange={e=>set("eta",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+        </div>
+        <APMField label="Status">
+          <select value={form.status} onChange={e=>set("status",e.target.value)} style={{...inputStyle,fontSize:14}}>
+            {APM_STATUSES.material.map(s=><option key={s} value={s}>{s}</option>)}
+          </select>
+        </APMField>
+        <APMField label="Notes"><textarea value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Any notes..." style={{...inputStyle,minHeight:60,resize:"vertical",fontSize:14}} /></APMField>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && <button onClick={async()=>{ await supabase.from("material_orders").delete().eq("id",material.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||!form.item.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.item.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Order":"Save"}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Project Detail ─────────────────────────────────────
+function ProjectDetail({ project, onBack, onEdit }) {
+  const [tab, setTab] = useState("logs");
+  const [logs, setLogs] = useState([]);
+  const [rfis, setRfis] = useState([]);
+  const [submittals, setSubmittals] = useState([]);
+  const [cos, setCos] = useState([]);
+  const [materials, setMaterials] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null); // {type, item}
+
+  useEffect(() => {
+    const id = project.id;
+    Promise.all([
+      supabase.from("daily_logs").select("*").eq("project_id",id).order("log_date",{ascending:false}),
+      supabase.from("rfis").select("*").eq("project_id",id).order("created_at",{ascending:false}),
+      supabase.from("submittals").select("*").eq("project_id",id).order("created_at",{ascending:false}),
+      supabase.from("change_orders").select("*").eq("project_id",id).order("created_at",{ascending:false}),
+      supabase.from("material_orders").select("*").eq("project_id",id).order("created_at",{ascending:false}),
+    ]).then(([l,r,s,c,m]) => {
+      if (!l.error) setLogs(l.data||[]);
+      if (!r.error) setRfis(r.data||[]);
+      if (!s.error) setSubmittals(s.data||[]);
+      if (!c.error) setCos(c.data||[]);
+      if (!m.error) setMaterials(m.data||[]);
+      setLoading(false);
+    });
+  }, [project.id]);
+
+  const co = getCompany(project.company);
+  const approvedCOs = cos.filter(c=>c.status==="approved").reduce((sum,c)=>sum+(c.amount||0),0);
+  const pendingCOs = cos.filter(c=>c.status==="pending").reduce((sum,c)=>sum+(c.amount||0),0);
+  const totalMaterials = materials.reduce((sum,m)=>sum+(m.total_cost||0),0);
+
+  const TABS = [
+    { id:"logs", label:"Daily Logs", count:logs.length },
+    { id:"rfis", label:"RFIs", count:rfis.length },
+    { id:"submittals", label:"Submittals", count:submittals.length },
+    { id:"cos", label:"Change Orders", count:cos.length },
+    { id:"materials", label:"Materials", count:materials.length },
+  ];
+
+  const rowStyle = { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"11px 14px", borderRadius:7, background:"#111", border:"1px solid #1a1a1a", marginBottom:5, cursor:"pointer", gap:10 };
+
+  const handleSave = (type, data, isDelete) => {
+    if (type==="logs") setLogs(prev => isDelete ? prev.filter(x=>x.id!==modal.item?.id) : modal.item?.id ? prev.map(x=>x.id===data.id?data:x) : [data,...prev]);
+    if (type==="rfis") setRfis(prev => isDelete ? prev.filter(x=>x.id!==modal.item?.id) : modal.item?.id ? prev.map(x=>x.id===data.id?data:x) : [data,...prev]);
+    if (type==="submittals") setSubmittals(prev => isDelete ? prev.filter(x=>x.id!==modal.item?.id) : modal.item?.id ? prev.map(x=>x.id===data.id?data:x) : [data,...prev]);
+    if (type==="cos") setCos(prev => isDelete ? prev.filter(x=>x.id!==modal.item?.id) : modal.item?.id ? prev.map(x=>x.id===data.id?data:x) : [data,...prev]);
+    if (type==="materials") setMaterials(prev => isDelete ? prev.filter(x=>x.id!==modal.item?.id) : modal.item?.id ? prev.map(x=>x.id===data.id?data:x) : [data,...prev]);
+    setModal(null);
+  };
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", overflow:"hidden" }}>
+      {/* Header */}
+      <div style={{ padding:"14px 20px 0", borderBottom:"1px solid #1a1a1a", flexShrink:0 }}>
+        <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
+          <button onClick={onBack} style={{ background:"none", border:"none", color:"#555", cursor:"pointer", fontSize:14, padding:"4px 8px 4px 0" }}>← Back</button>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
+              <span style={{ fontSize:16, fontWeight:700, color:"#e5e5e5", fontFamily:"'Syne',sans-serif" }}>{project.name}</span>
+              <StatusBadge status={project.status} />
+              <span style={{ fontSize:11, color:co.color, fontFamily:"'DM Mono',monospace", background:co.color+"15", border:`1px solid ${co.color}30`, padding:"1px 6px", borderRadius:4 }}>{co.short}</span>
+            </div>
+            {project.address && <div style={{ fontSize:11, color:"#444", fontFamily:"'DM Mono',monospace", marginTop:2 }}>{project.address}</div>}
+          </div>
+          <button onClick={onEdit} style={{ background:"#1e1e1e", border:"1px solid #2a2a2a", color:"#888", padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Edit</button>
+        </div>
+        {/* Summary strip */}
+        <div style={{ display:"flex", gap:16, marginBottom:12, flexWrap:"wrap" }}>
+          {project.contract_value && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>Contract: <span style={{ color:"#e5e5e5" }}>{fmtMoney(project.contract_value)}</span></div>}
+          {approvedCOs > 0 && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>Approved COs: <span style={{ color:"#10B981" }}>+{fmtMoney(approvedCOs)}</span></div>}
+          {pendingCOs > 0 && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>Pending COs: <span style={{ color:"#F59E0B" }}>{fmtMoney(pendingCOs)}</span></div>}
+          {totalMaterials > 0 && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>Materials: <span style={{ color:"#e5e5e5" }}>{fmtMoney(totalMaterials)}</span></div>}
+          {project.gc_name && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>GC: <span style={{ color:"#e5e5e5" }}>{project.gc_name}</span></div>}
+        </div>
+        {/* Tabs */}
+        <div style={{ display:"flex", gap:0, overflowX:"auto" }}>
+          {TABS.map(t => (
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"8px 14px", background:"none", border:"none", borderBottom:tab===t.id?"2px solid #F97316":"2px solid transparent", color:tab===t.id?"#e5e5e5":"#555", cursor:"pointer", fontSize:12, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
+              {t.label} {t.count > 0 && <span style={{ background:"#1a1a1a", color:"#555", borderRadius:8, padding:"0 5px", fontSize:10 }}>{t.count}</span>}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Tab content */}
+      <div style={{ flex:1, overflowY:"auto", padding:"16px 20px 80px" }}>
+        {loading ? <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div> : (
+          <>
+            {/* Add button */}
+            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+              <button onClick={()=>setModal({type:tab,item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>
+                + Add {tab==="logs"?"Log":tab==="rfis"?"RFI":tab==="submittals"?"Submittal":tab==="cos"?"Change Order":"Order"}
+              </button>
+            </div>
+
+            {/* Daily Logs */}
+            {tab==="logs" && logs.map(log => (
+              <div key={log.id} onClick={()=>setModal({type:"logs",item:log})} style={rowStyle}
+                onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
+                    <span style={{ fontSize:12, fontWeight:600, color:"#e5e5e5", fontFamily:"'DM Mono',monospace" }}>{fmtDate(log.log_date)}</span>
+                    {log.weather && <span style={{ fontSize:11, color:"#555" }}>{log.weather}</span>}
+                    {log.crew_count && <span style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>👷 {log.crew_count}</span>}
+                  </div>
+                  <div style={{ fontSize:12, color:"#888", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{log.work_performed||"No description"}</div>
+                  {log.issues && <div style={{ fontSize:11, color:"#F59E0B", marginTop:3 }}>⚠ {log.issues}</div>}
+                </div>
+                <span style={{ color:"#333", fontSize:16 }}>›</span>
+              </div>
+            ))}
+            {tab==="logs" && logs.length===0 && <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No logs yet</div>}
+
+            {/* RFIs */}
+            {tab==="rfis" && rfis.map(r => (
+              <div key={r.id} onClick={()=>setModal({type:"rfis",item:r})} style={rowStyle}
+                onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                    {r.rfi_number && <span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>{r.rfi_number}</span>}
+                    <span style={{ fontSize:13, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.subject}</span>
+                  </div>
+                  <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                    <StatusBadge status={r.status} />
+                    {r.sent_to && <span style={{ fontSize:11, color:"#555" }}>{r.sent_to}</span>}
+                    {r.date_due && <span style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace" }}>Due {fmtDate(r.date_due)}</span>}
+                  </div>
+                </div>
+                <span style={{ color:"#333", fontSize:16 }}>›</span>
+              </div>
+            ))}
+            {tab==="rfis" && rfis.length===0 && <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No RFIs yet</div>}
+
+            {/* Submittals */}
+            {tab==="submittals" && submittals.map(s => (
+              <div key={s.id} onClick={()=>setModal({type:"submittals",item:s})} style={rowStyle}
+                onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                <div style={{ flex:1, minWidth:0 }}>
+                  <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                    {s.submittal_number && <span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>{s.submittal_number}</span>}
+                    <span style={{ fontSize:13, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.description}</span>
+                  </div>
+                  <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                    <StatusBadge status={s.status} />
+                    {s.sent_to && <span style={{ fontSize:11, color:"#555" }}>{s.sent_to}</span>}
+                    {s.date_due && <span style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace" }}>Due {fmtDate(s.date_due)}</span>}
+                  </div>
+                </div>
+                <span style={{ color:"#333", fontSize:16 }}>›</span>
+              </div>
+            ))}
+            {tab==="submittals" && submittals.length===0 && <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No submittals yet</div>}
+
+            {/* Change Orders */}
+            {tab==="cos" && (
+              <>
+                {cos.length > 0 && (
+                  <div style={{ display:"flex", gap:12, marginBottom:14, flexWrap:"wrap" }}>
+                    <div style={{ background:"#0a1a12", border:"1px solid #10B98130", borderRadius:8, padding:"8px 14px" }}>
+                      <div style={{ fontSize:16, fontWeight:700, color:"#10B981", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(approvedCOs)}</div>
+                      <div style={{ fontSize:9, color:"#555", fontFamily:"'DM Mono',monospace", letterSpacing:0.8 }}>APPROVED</div>
+                    </div>
+                    <div style={{ background:"#1a1208", border:"1px solid #F59E0B30", borderRadius:8, padding:"8px 14px" }}>
+                      <div style={{ fontSize:16, fontWeight:700, color:"#F59E0B", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(pendingCOs)}</div>
+                      <div style={{ fontSize:9, color:"#555", fontFamily:"'DM Mono',monospace", letterSpacing:0.8 }}>PENDING</div>
+                    </div>
+                  </div>
+                )}
+                {cos.map(c => (
+                  <div key={c.id} onClick={()=>setModal({type:"cos",item:c})} style={rowStyle}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                        {c.co_number && <span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>{c.co_number}</span>}
+                        <span style={{ fontSize:13, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.description}</span>
+                      </div>
+                      <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                        <StatusBadge status={c.status} />
+                        {c.amount && <span style={{ fontSize:12, color:"#e5e5e5", fontFamily:"'DM Mono',monospace", fontWeight:600 }}>{fmtMoney(c.amount)}</span>}
+                      </div>
+                    </div>
+                    <span style={{ color:"#333", fontSize:16 }}>›</span>
+                  </div>
+                ))}
+                {cos.length===0 && <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No change orders yet</div>}
+              </>
+            )}
+
+            {/* Materials */}
+            {tab==="materials" && (
+              <>
+                {materials.length > 0 && (
+                  <div style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:8, padding:"10px 14px", marginBottom:14, display:"flex", gap:20, flexWrap:"wrap" }}>
+                    <div><span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>TOTAL ORDERED </span><span style={{ fontSize:14, fontWeight:700, color:"#e5e5e5", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(totalMaterials)}</span></div>
+                    <div><span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>PENDING </span><span style={{ fontSize:14, fontWeight:700, color:"#F59E0B", fontFamily:"'DM Mono',monospace" }}>{materials.filter(m=>m.status==="pending").length}</span></div>
+                    <div><span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>DELIVERED </span><span style={{ fontSize:14, fontWeight:700, color:"#10B981", fontFamily:"'DM Mono',monospace" }}>{materials.filter(m=>m.status==="delivered").length}</span></div>
+                  </div>
+                )}
+                {materials.map(m => (
+                  <div key={m.id} onClick={()=>setModal({type:"materials",item:m})} style={rowStyle}
+                    onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                    <div style={{ flex:1, minWidth:0 }}>
+                      <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
+                        <span style={{ fontSize:13, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.item}</span>
+                        {m.quantity && <span style={{ fontSize:11, color:"#555", flexShrink:0 }}>{m.quantity}</span>}
+                      </div>
+                      <div style={{ display:"flex", gap:8, alignItems:"center" }}>
+                        <StatusBadge status={m.status} />
+                        {m.supplier && <span style={{ fontSize:11, color:"#555" }}>{m.supplier}</span>}
+                        {m.total_cost && <span style={{ fontSize:11, color:"#e5e5e5", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(m.total_cost)}</span>}
+                        {m.eta && <span style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace" }}>ETA {fmtDate(m.eta)}</span>}
+                      </div>
+                    </div>
+                    <span style={{ color:"#333", fontSize:16 }}>›</span>
+                  </div>
+                ))}
+                {materials.length===0 && <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No material orders yet</div>}
+              </>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Modals */}
+      {modal?.type==="logs" && <DailyLogModal log={modal.item} projectId={project.id} onSave={(d,del)=>handleSave("logs",d,del)} onClose={()=>setModal(null)} />}
+      {modal?.type==="rfis" && <RFIModal rfi={modal.item} projectId={project.id} onSave={(d,del)=>handleSave("rfis",d,del)} onClose={()=>setModal(null)} />}
+      {modal?.type==="submittals" && <SubmittalModal submittal={modal.item} projectId={project.id} onSave={(d,del)=>handleSave("submittals",d,del)} onClose={()=>setModal(null)} />}
+      {modal?.type==="cos" && <COModal co={modal.item} projectId={project.id} onSave={(d,del)=>handleSave("cos",d,del)} onClose={()=>setModal(null)} />}
+      {modal?.type==="materials" && <MaterialModal material={modal.item} projectId={project.id} onSave={(d,del)=>handleSave("materials",d,del)} onClose={()=>setModal(null)} />}
+    </div>
+  );
+}
+
+// ── APM Main ───────────────────────────────────────────
+function APMSection() {
+  const isMobile = useIsMobile();
+  const [projects, setProjects] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedProject, setSelectedProject] = useState(null);
+  const [editingProject, setEditingProject] = useState(null);
+  const [filterCo, setFilterCo] = useState("all");
+  const [filterStatus, setFilterStatus] = useState("active");
+
+  useEffect(() => {
+    supabase.from("projects").select("*").order("created_at",{ascending:false}).then(({data,error}) => {
+      if (!error) setProjects(data||[]);
+      setLoading(false);
+    });
+  }, []);
+
+  const handleProjectSave = (proj, isNew) => {
+    setProjects(prev => isNew ? [proj,...prev] : prev.map(p=>p.id===proj.id?proj:p));
+    setEditingProject(null);
+    if (isNew) setSelectedProject(proj);
+  };
+
+  const filtered = projects.filter(p => {
+    const matchCo = filterCo==="all" || p.company===filterCo;
+    const matchStatus = filterStatus==="all" || p.status===filterStatus;
+    return matchCo && matchStatus;
+  });
+
+  if (selectedProject) {
+    const current = projects.find(p=>p.id===selectedProject.id) || selectedProject;
+    return (
+      <div style={{ display:"flex", flexDirection:"column", height:"100%", overflow:"hidden" }}>
+        <ProjectDetail
+          project={current}
+          onBack={()=>setSelectedProject(null)}
+          onEdit={()=>setEditingProject(current)}
+        />
+        {editingProject && <ProjectModal project={editingProject} onSave={handleProjectSave} onClose={()=>setEditingProject(null)} />}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", overflow:"hidden" }}>
+      {/* APM Header */}
+      <div style={{ padding:"12px 20px", borderBottom:"1px solid #1a1a1a", display:"flex", alignItems:"center", gap:12, flexShrink:0, flexWrap:"wrap" }}>
+        <div style={{ flex:1, display:"flex", gap:8, flexWrap:"wrap" }}>
+          <button onClick={()=>setFilterStatus("active")} style={{ padding:"5px 12px", borderRadius:20, border:filterStatus==="active"?"1px solid #10B98160":"1px solid #2a2a2a", background:filterStatus==="active"?"#10B98115":"#111", color:filterStatus==="active"?"#10B981":"#555", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>Active</button>
+          <button onClick={()=>setFilterStatus("all")} style={{ padding:"5px 12px", borderRadius:20, border:filterStatus==="all"?"1px solid #F9731660":"1px solid #2a2a2a", background:filterStatus==="all"?"#F9731615":"#111", color:filterStatus==="all"?"#F97316":"#555", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>All</button>
+          {COMPANIES.filter(c=>c.id!=="all").map(co => (
+            <button key={co.id} onClick={()=>setFilterCo(f=>f===co.id?"all":co.id)} style={{ padding:"5px 12px", borderRadius:20, border:filterCo===co.id?`1px solid ${co.color}60`:"1px solid #2a2a2a", background:filterCo===co.id?co.color+"15":"#111", color:filterCo===co.id?co.color:"#555", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>{co.short}</button>
+          ))}
+        </div>
+        <button onClick={()=>setEditingProject({})} style={{ background:"#F97316", border:"none", color:"#000", padding:"8px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, flexShrink:0 }}>+ New Project</button>
+      </div>
+
+      {/* Projects list */}
+      <div style={{ flex:1, overflowY:"auto", padding:"16px 20px 80px" }}>
+        {loading ? (
+          <div style={{ textAlign:"center", padding:60, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div>
+        ) : filtered.length===0 ? (
+          <div style={{ textAlign:"center", padding:60, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No projects found — add one above</div>
+        ) : (
+          filtered.map(proj => {
+            const co = getCompany(proj.company);
+            return (
+              <div key={proj.id} onClick={()=>setSelectedProject(proj)}
+                style={{ background:"#111", border:"1px solid #1a1a1a", borderRadius:10, padding:"14px 16px", marginBottom:8, cursor:"pointer", transition:"border-color 0.1s" }}
+                onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10 }}>
+                  <div style={{ flex:1, minWidth:0 }}>
+                    <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5, flexWrap:"wrap" }}>
+                      <span style={{ fontSize:14, fontWeight:700, color:"#e5e5e5", fontFamily:"'Syne',sans-serif" }}>{proj.name}</span>
+                      <StatusBadge status={proj.status} />
+                      <span style={{ fontSize:10, color:co.color, fontFamily:"'DM Mono',monospace", background:co.color+"15", border:`1px solid ${co.color}30`, padding:"1px 6px", borderRadius:4 }}>{co.short}</span>
+                    </div>
+                    <div style={{ display:"flex", gap:14, flexWrap:"wrap" }}>
+                      {proj.address && <span style={{ fontSize:11, color:"#444", fontFamily:"'DM Mono',monospace" }}>📍 {proj.address}</span>}
+                      {proj.gc_name && <span style={{ fontSize:11, color:"#444", fontFamily:"'DM Mono',monospace" }}>🏢 {proj.gc_name}</span>}
+                      {proj.contract_value && <span style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(proj.contract_value)}</span>}
+                    </div>
+                    {(proj.start_date||proj.end_date) && (
+                      <div style={{ fontSize:11, color:"#333", fontFamily:"'DM Mono',monospace", marginTop:4 }}>
+                        {fmtDate(proj.start_date)} → {fmtDate(proj.end_date)}
+                      </div>
+                    )}
+                  </div>
+                  <span style={{ color:"#333", fontSize:18, flexShrink:0 }}>›</span>
+                </div>
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {editingProject && <ProjectModal project={Object.keys(editingProject).length?editingProject:null} onSave={handleProjectSave} onClose={()=>setEditingProject(null)} />}
+    </div>
+  );
+}
+
 // ─────────────────────────────────────────────
 // Login Screen
 // ─────────────────────────────────────────────
@@ -1053,6 +1748,7 @@ export default function TaskTracker() {
   const isMobile = useIsMobile();
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
+  const [appSection, setAppSection] = useState("ops"); // "ops" or "apm"
   const [tasks, setTasks] = useState([]);
   const [team, setTeam] = useState([]);
   const [attachmentCounts, setAttachmentCounts] = useState({});
@@ -1293,6 +1989,15 @@ export default function TaskTracker() {
             ))}
           </div>
 
+          {/* APM Section */}
+          {appSection === "apm" && (
+            <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+              <APMSection />
+            </div>
+          )}
+
+          {appSection === "ops" && <>
+
           {/* Overdue / Due Today banner */}
           {(stats.overdue > 0 || stats.dueToday > 0) && page === "tasks" && (
             <div style={{ display: "flex", gap: 0, flexShrink: 0 }}>
@@ -1482,7 +2187,11 @@ export default function TaskTracker() {
           )}
 
           {/* PAGE */}
-          {page === "settings" ? (
+          {appSection === "apm" ? (
+            <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+              <APMSection />
+            </div>
+          ) : page === "settings" ? (
             <SettingsPage team={team} onTeamChange={setTeam} />
           ) : (
             <div style={{ flex: 1, overflow: "auto", padding: 20, height: 0 }}>
