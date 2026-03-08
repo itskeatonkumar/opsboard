@@ -1346,6 +1346,287 @@ function MaterialModal({ material, projectId, onSave, onClose }) {
   );
 }
 
+
+// ── Receipt / Financials ───────────────────────────────
+const RECEIPT_CATEGORIES = ["Labor","Concrete","Rebar/Steel","Formwork","Equipment Rental","Subcontractor","Fuel","Tools/Supplies","Permits/Fees","Other"];
+
+function ReceiptModal({ receipt, projectId, onSave, onClose }) {
+  const isNew = !receipt?.id;
+  const [form, setForm] = useState({ vendor:"", amount:"", category:"Other", receipt_date:new Date().toISOString().slice(0,10), notes:"", file_url:"", file_name:"", ...(receipt||{}), project_id:projectId });
+  const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [extracting, setExtracting] = useState(false);
+  const [preview, setPreview] = useState(receipt?.file_url||null);
+  const fileRef = useRef();
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    // Upload to Supabase storage
+    const ext = file.name.split('.').pop();
+    const path = `receipts/${projectId}/${Date.now()}.${ext}`;
+    const { data, error } = await supabase.storage.from("attachments").upload(path, file, { upsert: true });
+    if (error) { setUploading(false); alert("Upload failed: " + error.message); return; }
+    const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+    const url = urlData.publicUrl;
+    set("file_url", url);
+    set("file_name", file.name);
+    setPreview(url);
+    setUploading(false);
+
+    // Auto-extract via Claude vision
+    setExtracting(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async (e) => {
+        const base64 = e.target.result.split(",")[1];
+        const mediaType = file.type || "image/jpeg";
+        const res = await fetch("/api/claude", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-20250514",
+            max_tokens: 300,
+            system: `You extract receipt data. Respond ONLY with valid JSON, no markdown, no explanation. Format: {"vendor":"string","amount":number_or_null,"date":"YYYY-MM-DD_or_null","category":"one of: Labor,Concrete,Rebar/Steel,Formwork,Equipment Rental,Subcontractor,Fuel,Tools/Supplies,Permits/Fees,Other"}`,
+            messages: [{ role:"user", content:[
+              { type:"image", source:{ type:"base64", media_type:mediaType, data:base64 }},
+              { type:"text", text:"Extract the vendor name, total amount, date, and best-fit category from this receipt." }
+            ]}]
+          })
+        });
+        const json = await res.json();
+        const text = json?.content?.[0]?.text || "";
+        try {
+          const extracted = JSON.parse(text.replace(/```json|```/g,"").trim());
+          setForm(f => ({
+            ...f,
+            vendor: extracted.vendor || f.vendor,
+            amount: extracted.amount != null ? String(extracted.amount) : f.amount,
+            receipt_date: extracted.date || f.receipt_date,
+            category: extracted.category || f.category,
+          }));
+        } catch(e) {}
+        setExtracting(false);
+      };
+      reader.readAsDataURL(file);
+    } catch(e) { setExtracting(false); }
+  };
+
+  const handleSave = async () => {
+    if (!form.vendor.trim() && !form.amount) return;
+    setSaving(true);
+    const payload = { ...form, amount: form.amount ? Number(form.amount) : null };
+    delete payload.id; delete payload.created_at;
+    if (isNew) {
+      const { data } = await supabase.from("receipts").insert([payload]).select().single();
+      if (data) onSave(data);
+    } else {
+      await supabase.from("receipts").update(payload).eq("id", receipt.id);
+      onSave({...receipt,...payload});
+    }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew ? "Add Receipt" : "Edit Receipt"} onClose={onClose} width={560}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        {/* Upload zone */}
+        <div
+          onClick={() => fileRef.current?.click()}
+          style={{ border:"2px dashed #2a2a2a", borderRadius:10, padding:preview?"8px":"28px 20px", textAlign:"center", cursor:"pointer", background:"#0d0d0d", position:"relative", transition:"border-color 0.15s" }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="#F97316"}
+          onMouseLeave={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+          onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#F97316"}}
+          onDragLeave={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+          onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)handleFile(f);}}
+        >
+          <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" style={{ display:"none" }} onChange={e=>handleFile(e.target.files[0])} />
+          {preview ? (
+            <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+              {preview.match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
+                <img src={preview} style={{ width:80, height:60, objectFit:"cover", borderRadius:6, border:"1px solid #2a2a2a" }} />
+              ) : (
+                <div style={{ width:80, height:60, background:"#1a1a1a", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📄</div>
+              )}
+              <div style={{ textAlign:"left" }}>
+                <div style={{ fontSize:12, color:"#e5e5e5" }}>{form.file_name}</div>
+                {extracting && <div style={{ fontSize:11, color:"#F97316", marginTop:4 }}>⚡ Extracting data...</div>}
+                {!extracting && <div style={{ fontSize:11, color:"#555", marginTop:4 }}>Click to replace</div>}
+              </div>
+            </div>
+          ) : (
+            <>
+              {uploading ? (
+                <div style={{ fontSize:12, color:"#F97316" }}>Uploading...</div>
+              ) : (
+                <>
+                  <div style={{ fontSize:28, marginBottom:8 }}>📷</div>
+                  <div style={{ fontSize:13, color:"#888" }}>Tap to upload receipt</div>
+                  <div style={{ fontSize:11, color:"#444", marginTop:4 }}>Photo, image, or PDF · Auto-extracts data</div>
+                </>
+              )}
+            </>
+          )}
+        </div>
+
+        {extracting && (
+          <div style={{ background:"#0d1a0d", border:"1px solid #10B98130", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#10B981", display:"flex", alignItems:"center", gap:8 }}>
+            <span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span>
+            Claude is reading your receipt...
+          </div>
+        )}
+
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <APMField label="Vendor / Payee"><input value={form.vendor} onChange={e=>set("vendor",e.target.value)} placeholder="Home Depot, Vulcan..." style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Amount ($)"><input type="number" value={form.amount} onChange={e=>set("amount",e.target.value)} placeholder="0.00" style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Date"><input type="date" value={form.receipt_date||""} onChange={e=>set("receipt_date",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Category">
+            <select value={form.category} onChange={e=>set("category",e.target.value)} style={{...inputStyle,fontSize:14}}>
+              {RECEIPT_CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
+            </select>
+          </APMField>
+        </div>
+        <APMField label="Notes"><textarea value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Optional notes..." style={{...inputStyle,minHeight:50,resize:"vertical",fontSize:13}} /></APMField>
+      </div>
+
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && (
+          <button onClick={async()=>{ await supabase.from("receipts").delete().eq("id",receipt.id); onSave(null,true); }}
+            style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>
+        )}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||uploading||extracting} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:!saving&&!uploading&&!extracting?1:0.5 }}>
+            {saving?"Saving...":isNew?"Add Receipt":"Save"}
+          </button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Financials Tab ─────────────────────────────────────
+function FinancialsTab({ project, cos }) {
+  const [receipts, setReceipts] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+
+  useEffect(() => {
+    supabase.from("receipts").select("*").eq("project_id", project.id).order("receipt_date",{ascending:false})
+      .then(({data,error}) => { if (!error) setReceipts(data||[]); setLoading(false); });
+  }, [project.id]);
+
+  const handleSave = (data, isDelete) => {
+    if (isDelete) setReceipts(prev => prev.filter(r => r.id !== modal?.item?.id));
+    else if (modal?.item?.id) setReceipts(prev => prev.map(r => r.id===data.id?data:r));
+    else setReceipts(prev => [data, ...prev]);
+    setModal(null);
+  };
+
+  const contractVal = project.contract_value || 0;
+  const approvedCOs = cos.filter(c=>c.status==="approved").reduce((s,c)=>s+(c.amount||0),0);
+  const revisedContract = contractVal + approvedCOs;
+  const totalSpend = receipts.reduce((s,r)=>s+(r.amount||0),0);
+  const remaining = revisedContract - totalSpend;
+
+  // Spend by category
+  const byCategory = RECEIPT_CATEGORIES.reduce((acc,cat) => {
+    const total = receipts.filter(r=>r.category===cat).reduce((s,r)=>s+(r.amount||0),0);
+    if (total > 0) acc[cat] = total;
+    return acc;
+  }, {});
+  const maxCat = Math.max(...Object.values(byCategory), 1);
+
+  return (
+    <div>
+      <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:14 }}>
+        <button onClick={()=>setModal({item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>+ Add Receipt</button>
+      </div>
+
+      {/* Summary cards */}
+      <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fit, minmax(140px, 1fr))", gap:10, marginBottom:18 }}>
+        {[
+          { label:"CONTRACT VALUE", val:fmtMoney(contractVal), color:"#e5e5e5" },
+          { label:"APPROVED COs", val:fmtMoney(approvedCOs), color:"#10B981" },
+          { label:"REVISED CONTRACT", val:fmtMoney(revisedContract), color:"#3B82F6" },
+          { label:"TOTAL SPEND", val:fmtMoney(totalSpend), color:"#F97316" },
+          { label:"REMAINING", val:fmtMoney(remaining), color: remaining >= 0 ? "#10B981" : "#EF4444" },
+        ].map(card => (
+          <div key={card.label} style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:8, padding:"10px 14px" }}>
+            <div style={{ fontSize:9, color:"#444", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:5 }}>{card.label}</div>
+            <div style={{ fontSize:15, fontWeight:700, color:card.color, fontFamily:"'DM Mono',monospace" }}>{card.val}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Budget bar */}
+      {revisedContract > 0 && (
+        <div style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:8, padding:"12px 14px", marginBottom:18 }}>
+          <div style={{ display:"flex", justifyContent:"space-between", marginBottom:6 }}>
+            <span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>BUDGET UTILIZATION</span>
+            <span style={{ fontSize:11, fontWeight:700, color: totalSpend/revisedContract > 0.9 ? "#EF4444" : "#e5e5e5", fontFamily:"'DM Mono',monospace" }}>
+              {Math.round(totalSpend/revisedContract*100)}%
+            </span>
+          </div>
+          <div style={{ background:"#1a1a1a", borderRadius:4, height:8, overflow:"hidden" }}>
+            <div style={{ height:"100%", width:`${Math.min(totalSpend/revisedContract*100,100)}%`, background: totalSpend/revisedContract > 0.9 ? "#EF4444" : totalSpend/revisedContract > 0.75 ? "#F59E0B" : "#10B981", borderRadius:4, transition:"width 0.4s ease" }} />
+          </div>
+        </div>
+      )}
+
+      {/* Spend by category */}
+      {Object.keys(byCategory).length > 0 && (
+        <div style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:8, padding:"12px 14px", marginBottom:18 }}>
+          <div style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:10 }}>SPEND BY CATEGORY</div>
+          {Object.entries(byCategory).sort((a,b)=>b[1]-a[1]).map(([cat,amt]) => (
+            <div key={cat} style={{ marginBottom:8 }}>
+              <div style={{ display:"flex", justifyContent:"space-between", marginBottom:3 }}>
+                <span style={{ fontSize:11, color:"#888" }}>{cat}</span>
+                <span style={{ fontSize:11, color:"#e5e5e5", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(amt)}</span>
+              </div>
+              <div style={{ background:"#1a1a1a", borderRadius:3, height:4 }}>
+                <div style={{ height:"100%", width:`${amt/maxCat*100}%`, background:"#F97316", borderRadius:3 }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Receipt ledger */}
+      <div style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:8 }}>RECEIPTS ({receipts.length})</div>
+      {loading && <div style={{ textAlign:"center", padding:30, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div>}
+      {!loading && receipts.length===0 && (
+        <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No receipts yet — add one above</div>
+      )}
+      {receipts.map(r => (
+        <div key={r.id} onClick={()=>setModal({item:r})}
+          style={{ display:"flex", alignItems:"center", gap:12, padding:"11px 14px", borderRadius:7, background:"#111", border:"1px solid #1a1a1a", marginBottom:5, cursor:"pointer" }}
+          onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+          onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+          {r.file_url && r.file_url.match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
+            <img src={r.file_url} style={{ width:44, height:34, objectFit:"cover", borderRadius:5, border:"1px solid #2a2a2a", flexShrink:0 }} />
+          ) : r.file_url ? (
+            <div style={{ width:44, height:34, background:"#1a1a1a", borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>📄</div>
+          ) : (
+            <div style={{ width:44, height:34, background:"#1a1a1a", borderRadius:5, display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, flexShrink:0 }}>🧾</div>
+          )}
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:2 }}>
+              <span style={{ fontSize:13, color:"#e5e5e5", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.vendor||"Unknown vendor"}</span>
+              <span style={{ fontSize:10, color:"#555", background:"#1a1a1a", padding:"1px 6px", borderRadius:4, flexShrink:0 }}>{r.category}</span>
+            </div>
+            <div style={{ fontSize:11, color:"#444", fontFamily:"'DM Mono',monospace" }}>{fmtDate(r.receipt_date)}{r.notes ? " · "+r.notes : ""}</div>
+          </div>
+          <div style={{ fontSize:14, fontWeight:700, color:"#e5e5e5", fontFamily:"'DM Mono',monospace", flexShrink:0 }}>{fmtMoney(r.amount)}</div>
+        </div>
+      ))}
+
+      {modal && <ReceiptModal receipt={modal.item} projectId={project.id} onSave={handleSave} onClose={()=>setModal(null)} />}
+    </div>
+  );
+}
+
 // ── Project Detail ─────────────────────────────────────
 function ProjectDetail({ project, onBack, onEdit }) {
   const [tab, setTab] = useState("logs");
@@ -1354,6 +1635,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
   const [submittals, setSubmittals] = useState([]);
   const [cos, setCos] = useState([]);
   const [materials, setMaterials] = useState([]);
+  const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // {type, item}
 
@@ -1386,6 +1668,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
     { id:"submittals", label:"Submittals", count:submittals.length },
     { id:"cos", label:"Change Orders", count:cos.length },
     { id:"materials", label:"Materials", count:materials.length },
+    { id:"financials", label:"Financials", count:receipts.length },
   ];
 
   const rowStyle = { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"11px 14px", borderRadius:7, background:"#111", border:"1px solid #1a1a1a", marginBottom:5, cursor:"pointer", gap:10 };
@@ -1438,11 +1721,11 @@ function ProjectDetail({ project, onBack, onEdit }) {
         {loading ? <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div> : (
           <>
             {/* Add button */}
-            <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+            {tab !== "financials" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
               <button onClick={()=>setModal({type:tab,item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>
-                + Add {tab==="logs"?"Log":tab==="rfis"?"RFI":tab==="submittals"?"Submittal":tab==="cos"?"Change Order":"Order"}
+                {tab==="financials" ? null : ("+ Add " + (tab==="logs"?"Log":tab==="rfis"?"RFI":tab==="submittals"?"Submittal":tab==="cos"?"Change Order":"Order"))}
               </button>
-            </div>
+            </div>}
 
             {/* Daily Logs */}
             {tab==="logs" && logs.map(log => (
@@ -1573,6 +1856,9 @@ function ProjectDetail({ project, onBack, onEdit }) {
                 {materials.length===0 && <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No material orders yet</div>}
               </>
             )}
+
+            {/* Financials */}
+            {tab==="financials" && <FinancialsTab project={project} cos={cos} />}
           </>
         )}
       </div>
