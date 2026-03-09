@@ -3015,6 +3015,53 @@ function PreconTab({ project }) {
     setImgDisp({w:r.width,h:r.height});
   };
 
+  const renderPdfPage = async (doc, num) => {
+    if(!doc||!canvasRef.current) return;
+    setRendering(true);
+    const page = await doc.getPage(num);
+    const viewport = page.getViewport({scale: 2.0}); // 2x for crisp rendering
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    canvas.style.width = viewport.width + 'px';
+    canvas.style.height = viewport.height + 'px';
+    await page.render({canvasContext: ctx, viewport}).promise;
+    setImgNat({w:viewport.width, h:viewport.height});
+    setImgDisp({w:viewport.width, h:viewport.height});
+    setRendering(false);
+  };
+
+  const loadPdf = async (src) => {
+    if(!window.pdfjsLib) return false;
+    try {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const loadingTask = window.pdfjsLib.getDocument(src);
+      const doc = await loadingTask.promise;
+      setPdfDoc(doc);
+      setTotalPages(doc.numPages);
+      setPageNum(1);
+      await renderPdfPage(doc, 1);
+      return true;
+    } catch(e) {
+      console.error('PDF load error:', e);
+      return false;
+    }
+  };
+
+  useEffect(()=>{
+    if(pdfDoc) renderPdfPage(pdfDoc, pageNum);
+  },[pageNum]);
+
+  useEffect(()=>{
+    if(!selPlan) return;
+    const isPdf = selPlan.file_type?.includes('pdf') || selPlan.file_url?.toLowerCase().includes('.pdf');
+    if(isPdf) {
+      // slight delay so canvas is in DOM
+      setTimeout(()=>loadPdf(selPlan.file_url), 100);
+    }
+  },[selPlan?.id]);
+
   const saveItem=async(itemData)=>{
     const catDef=TAKEOFF_CATS.find(c=>c.id===itemData.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
     const unit_cost=itemData.unit_cost??catDef.defaultCost;
@@ -3809,7 +3856,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   const [showUnitCosts, setShowUnitCosts] = useState(false);
   const [showBidSummary, setShowBidSummary] = useState(false);
   const [editProject, setEditProject] = useState(false);
+  const [pdfDoc, setPdfDoc] = useState(null);
+  const [pageNum, setPageNum] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
+  const [rendering, setRendering] = useState(false);
   const imgRef = useRef();
+  const canvasRef = useRef();
   const svgRef = useRef();
   const fileRef = useRef();
   const containerRef = useRef();
@@ -3861,6 +3913,53 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     const r=imgRef.current.getBoundingClientRect();
     setImgDisp({w:r.width,h:r.height});
   };
+
+  const renderPdfPage = async (doc, num) => {
+    if(!doc||!canvasRef.current) return;
+    setRendering(true);
+    const page = await doc.getPage(num);
+    const viewport = page.getViewport({scale: 2.0}); // 2x for crisp rendering
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    canvas.style.width = viewport.width + 'px';
+    canvas.style.height = viewport.height + 'px';
+    await page.render({canvasContext: ctx, viewport}).promise;
+    setImgNat({w:viewport.width, h:viewport.height});
+    setImgDisp({w:viewport.width, h:viewport.height});
+    setRendering(false);
+  };
+
+  const loadPdf = async (src) => {
+    if(!window.pdfjsLib) return false;
+    try {
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const loadingTask = window.pdfjsLib.getDocument(src);
+      const doc = await loadingTask.promise;
+      setPdfDoc(doc);
+      setTotalPages(doc.numPages);
+      setPageNum(1);
+      await renderPdfPage(doc, 1);
+      return true;
+    } catch(e) {
+      console.error('PDF load error:', e);
+      return false;
+    }
+  };
+
+  useEffect(()=>{
+    if(pdfDoc) renderPdfPage(pdfDoc, pageNum);
+  },[pageNum]);
+
+  useEffect(()=>{
+    if(!selPlan) return;
+    const isPdf = selPlan.file_type?.includes('pdf') || selPlan.file_url?.toLowerCase().includes('.pdf');
+    if(isPdf) {
+      // slight delay so canvas is in DOM
+      setTimeout(()=>loadPdf(selPlan.file_url), 100);
+    }
+  },[selPlan?.id]);
 
   const getUnitCosts = () => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} };
 
@@ -3944,6 +4043,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     if(plan){
       setPlans(prev=>[...prev.filter(p=>p.id!=='preview'),plan]);
       setSelPlan(plan);
+      // If PDF, load with PDF.js (slight delay for state to settle)
+      const isPdf = file.type?.includes('pdf');
+      if(isPdf && plan.file_url) setTimeout(()=>loadPdf(plan.file_url), 200);
     }
     setUploading(false);
   };
@@ -4121,7 +4223,13 @@ Return ONLY a valid JSON array, no markdown:
             </div>
             <div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0}}>
               {scale&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 6px',borderRadius:3}}>⇔ SCALED</span>}
-              <button onClick={()=>setZoom(z=>Math.min(z+0.25,3))} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>+</button>
+              {totalPages>1&&<>
+                <button onClick={()=>setPageNum(p=>Math.max(1,p-1))} disabled={pageNum===1} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>‹</button>
+                <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",minWidth:50,textAlign:'center'}}>pg {pageNum}/{totalPages}</span>
+                <button onClick={()=>setPageNum(p=>Math.min(totalPages,p+1))} disabled={pageNum===totalPages} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>›</button>
+                <div style={{width:1,height:16,background:t.border}}/>
+              </>}
+              <button onClick={()=>setZoom(z=>Math.min(z+0.25,4))} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>+</button>
               <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",minWidth:32,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
               <button onClick={()=>setZoom(z=>Math.max(z-0.25,0.25))} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>−</button>
               <button onClick={()=>setZoom(1)} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text4,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:10,fontFamily:"'DM Mono',monospace"}}>FIT</button>
@@ -4161,8 +4269,17 @@ Return ONLY a valid JSON array, no markdown:
             </div>
           )}
 
+          {/* PDF.js script loader */}
+          {typeof window !== 'undefined' && !window.pdfjsLib && (()=>{
+            const s=document.createElement('script');
+            s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+            s.onload=()=>{ if(selPlan){ const isPdf=selPlan.file_type?.includes('pdf')||selPlan.file_url?.toLowerCase().includes('.pdf'); if(isPdf) loadPdf(selPlan.file_url); }};
+            document.head.appendChild(s);
+            return null;
+          })()}
+
           {/* Plan canvas */}
-          <div ref={containerRef} style={{flex:1,overflow:'auto',background:t.bg,position:'relative',minHeight:0}}>
+          <div ref={containerRef} style={{flex:1,overflow:'auto',background:'#2a2a2a',position:'relative',minHeight:0}}>
             {!selPlan?(
               <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:40}}>
                 <div style={{fontSize:48,marginBottom:16}}>📐</div>
@@ -4171,24 +4288,34 @@ Return ONLY a valid JSON array, no markdown:
                 <button onClick={()=>fileRef.current?.click()}
                   style={{background:'#F97316',border:'none',color:'#000',padding:'10px 24px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>📎 Upload Plans</button>
               </div>
-            ):(
-              <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative',minWidth:'100%'}}>
-                <img ref={imgRef} src={selPlan.file_url} alt="Plan"
-                  crossOrigin="anonymous"
-                  style={{display:'block',maxWidth:'none',minWidth:400,minHeight:300,userSelect:'none',background:t.bg3}}
-                  onLoad={handleImgLoad}
-                  onError={(e)=>{e.target.style.display='none'; const d=document.createElement('div'); d.style.cssText='padding:20px;color:#ef4444;font-size:12px;font-family:monospace;background:#1a0a0a;border:1px solid #3a1a1a;border-radius:8px;margin:20px;max-width:600px'; d.textContent='Image failed to load. URL: '+selPlan.file_url; e.target.parentNode.appendChild(d);}}
-                  draggable={false}/>
-                <svg ref={svgRef} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',cursor:toolCursor}} onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
-                  {renderMeasurements()}
-                  {renderActive()}
-                  {scalePts.length>=2&&(()=>{
-                    const p1=toPx(scalePts[0].x,scalePts[0].y);const p2=toPx(scalePts[1].x,scalePts[1].y);
-                    return(<g><line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#10B981" strokeWidth={2.5} strokeDasharray="6,3"/><circle cx={p1.x} cy={p1.y} r={6} fill="#10B981"/><circle cx={p2.x} cy={p2.y} r={6} fill="#10B981"/></g>);
-                  })()}
-                </svg>
-              </div>
-            )}
+            ):(()=>{
+              const isPdf = selPlan.file_type?.includes('pdf') || selPlan.file_url?.toLowerCase().includes('.pdf') || selPlan.file_url?.startsWith('data:application/pdf');
+              return (
+                <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative'}}>
+                  {isPdf ? (
+                    <>
+                      {rendering&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',zIndex:5,color:'#fff',fontSize:13,gap:8}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>Rendering PDF...</div>}
+                      <canvas ref={canvasRef} style={{display:'block',userSelect:'none'}}/>
+                    </>
+                  ):(
+                    <img ref={imgRef} src={selPlan.file_url} alt="Plan"
+                      style={{display:'block',maxWidth:'none',userSelect:'none'}}
+                      onLoad={handleImgLoad}
+                      draggable={false}/>
+                  )}
+                  <svg ref={svgRef}
+                    style={{position:'absolute',top:0,left:0,width: isPdf?(canvasRef.current?.width||800)+'px':'100%',height:isPdf?(canvasRef.current?.height||1100)+'px':'100%',cursor:toolCursor}}
+                    onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
+                    {renderMeasurements()}
+                    {renderActive()}
+                    {scalePts.length>=2&&(()=>{
+                      const p1=toPx(scalePts[0].x,scalePts[0].y);const p2=toPx(scalePts[1].x,scalePts[1].y);
+                      return(<g><line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#10B981" strokeWidth={2.5} strokeDasharray="6,3"/><circle cx={p1.x} cy={p1.y} r={6} fill="#10B981"/><circle cx={p2.x} cy={p2.y} r={6} fill="#10B981"/></g>);
+                    })()}
+                  </svg>
+                </div>
+              );
+            })()}
           </div>
         </div>
 
