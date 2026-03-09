@@ -3814,11 +3814,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   const fileRef = useRef();
   const containerRef = useRef();
 
-  const projectId = project.apm_project_id || project.id;
 
   useEffect(()=>{
-    const pid = project.apm_project_id;
-    if (!pid) { setLoading(false); return; }
+    const pid = project.id;
     Promise.all([
       supabase.from('precon_plans').select('*').eq('project_id',pid).order('created_at'),
       supabase.from('takeoff_items').select('*').eq('project_id',pid).order('sort_order'),
@@ -3871,9 +3869,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     const costs = getUnitCosts();
     const uc = itemData.unit_cost ?? ((costs[itemData.category]?.mat||0)+(costs[itemData.category]?.lab||0));
     const total_cost = (itemData.quantity||0)*uc;
-    const apmId = project.apm_project_id;
-    if (!apmId) { alert('Link this project to an APM project first to save measurements.'); return; }
-    const payload = {...itemData, project_id:apmId, plan_id:selPlan?.id, unit_cost:uc, total_cost, color:catDef.color, ai_generated:false, sort_order:items.length};
+    const pid = project.id;
+    const payload = {...itemData, project_id:pid, plan_id:selPlan?.id, unit_cost:uc, total_cost, color:catDef.color, ai_generated:false, sort_order:items.length};
     const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
     if(data){setItems(prev=>[...prev,data]); setEditItem(data);}
   };
@@ -3926,15 +3923,14 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
 
   const handleUpload=async(file)=>{
     if(!file) return;
-    const apmId = project.apm_project_id;
-    if (!apmId) { alert('Link this project to an APM project first to upload plans.'); return; }
+    const pid = project.id;
     setUploading(true);
     const ext=file.name.split('.').pop();
-    const path=`precon/${apmId}/${Date.now()}.${ext}`;
+    const path=`precon/${pid}/${Date.now()}.${ext}`;
     const {error}=await supabase.storage.from('attachments').upload(path,file,{upsert:true});
     if(error){setUploading(false);alert('Upload failed: '+error.message);return;}
     const {data:ud}=supabase.storage.from('attachments').getPublicUrl(path);
-    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:apmId,name:file.name,file_url:ud.publicUrl,file_type:file.type}]).select().single();
+    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:pid,name:file.name,file_url:ud.publicUrl,file_type:file.type}]).select().single();
     if(plan){setPlans(prev=>[...prev,plan]);setSelPlan(plan);}
     const reader=new FileReader();
     reader.onload=ev=>{setPlanB64(ev.target.result.split(',')[1]);setPlanMime(file.type);};
@@ -3981,12 +3977,11 @@ Return ONLY a valid JSON array, no markdown:
     const text=json?.content?.find(b=>b.type==='text')?.text||'';
     try{
       const aiItems=JSON.parse(text.replace(/```json|```/g,'').trim());
-      const apmId=project.apm_project_id;
-      if(!apmId){alert('Link to APM project first to save items.');setAnalyzing(false);return;}
+      const pid=project.id;
       const toInsert=aiItems.map((it,i)=>{
         const catDef=TAKEOFF_CATS.find(c=>c.id===it.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
         const uc=(costs[it.category]?.mat||0)+(costs[it.category]?.lab||0)||catDef.defaultCost;
-        return {project_id:apmId,plan_id:selPlan?.id,category:it.category||'other',description:it.description,quantity:it.quantity||0,unit:it.unit||catDef.unit,unit_cost:uc,total_cost:(it.quantity||0)*uc,measurement_type:it.measurement_type||'manual',points:null,color:catDef.color,ai_generated:true,sort_order:items.length+i};
+        return {project_id:pid,plan_id:selPlan?.id,category:it.category||'other',description:it.description,quantity:it.quantity||0,unit:it.unit||catDef.unit,unit_cost:uc,total_cost:(it.quantity||0)*uc,measurement_type:it.measurement_type||'manual',points:null,color:catDef.color,ai_generated:true,sort_order:items.length+i};
       });
       const {data}=await supabase.from('takeoff_items').insert(toInsert).select();
       if(data) setItems(prev=>[...prev,...data]);
@@ -3995,9 +3990,8 @@ Return ONLY a valid JSON array, no markdown:
   };
 
   const applyAssembly = async (assemblyItems) => {
-    const apmId = project.apm_project_id;
-    if(!apmId){alert('Link to APM project first.');return;}
-    const toInsert = assemblyItems.map((it,i)=>({...it,project_id:apmId,plan_id:selPlan?.id,measurement_type:'manual',points:null,color:TAKEOFF_CATS.find(c=>c.id===it.category)?.color||'#555',ai_generated:false,sort_order:items.length+i}));
+    const pid = project.id;
+    const toInsert = assemblyItems.map((it,i)=>({...it,project_id:pid,plan_id:selPlan?.id,measurement_type:'manual',points:null,color:TAKEOFF_CATS.find(c=>c.id===it.category)?.color||'#555',ai_generated:false,sort_order:items.length+i}));
     const {data}=await supabase.from('takeoff_items').insert(toInsert).select();
     if(data) setItems(prev=>[...prev,...data]);
     setShowAssembly(false);
@@ -4010,7 +4004,8 @@ Return ONLY a valid JSON array, no markdown:
 
   const pushToSOV = async () => {
     const apmId=project.apm_project_id;
-    if(!apmId||!items.length) return;
+    if(!apmId){alert('Link to an APM project first to push SOV.');return;}
+    if(!items.length) return;
     const grouped={};
     items.forEach(it=>{ const cat=TAKEOFF_CATS.find(c=>c.id===it.category); const key=cat?.label||it.category; if(!grouped[key])grouped[key]={desc:key,total:0}; grouped[key].total+=(it.total_cost||0); });
     const sovRows=Object.values(grouped).map((g,i)=>({project_id:apmId,item_no:String(i+1),description:g.desc,scheduled_value:Math.round(g.total),sort_order:i}));
@@ -4163,7 +4158,6 @@ Return ONLY a valid JSON array, no markdown:
                 <div style={{fontSize:48,marginBottom:16}}>📐</div>
                 <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:6}}>No plans uploaded</div>
                 <div style={{fontSize:12,color:t.text3,fontFamily:"'DM Mono',monospace",marginBottom:24,textAlign:'center'}}>Upload PDFs or images of your plans<br/>to start measuring and quantifying</div>
-                {!project.apm_project_id&&<div style={{fontSize:11,color:'#F59E0B',background:'rgba(245,158,11,0.1)',border:'1px solid rgba(245,158,11,0.2)',borderRadius:6,padding:'8px 14px',marginBottom:16,textAlign:'center'}}>⚠ Link to an APM project to save takeoff data</div>}
                 <button onClick={()=>fileRef.current?.click()}
                   style={{background:'#F97316',border:'none',color:'#000',padding:'10px 24px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>📎 Upload Plans</button>
               </div>
@@ -4200,7 +4194,7 @@ Return ONLY a valid JSON array, no markdown:
                 <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5}}>{items.filter(i=>i.ai_generated).length} AI · {items.filter(i=>!i.ai_generated).length} MANUAL</span>
                 <div style={{display:'flex',gap:5}}>
                   <button onClick={()=>setShowAssembly(true)} style={{background:'rgba(139,92,246,0.1)',border:'1px solid rgba(139,92,246,0.3)',color:'#8B5CF6',padding:'3px 8px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>⬡ Assembly</button>
-                  <button onClick={()=>setEditItem({project_id:project.apm_project_id,plan_id:selPlan?.id})} style={{background:'#F97316',border:'none',color:'#000',padding:'3px 8px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>+ Add</button>
+                  <button onClick={()=>setEditItem({project_id:project.id,plan_id:selPlan?.id})} style={{background:'#F97316',border:'none',color:'#000',padding:'3px 8px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>+ Add</button>
                 </div>
               </div>
               {items.length===0&&(
