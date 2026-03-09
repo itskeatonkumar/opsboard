@@ -4467,7 +4467,7 @@ function FCGEstimating({ onExit }) {
             {id:'rates',icon:'$',label:'Unit Cost Rates'},
           ].map(item=>(
             <button key={item.id} onClick={()=>{ if(item.id==='rates'){/* handled below */} setEstiPage(item.id); if(selProject) setSelProject(null); }}
-              style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:'8px 10px',borderRadius:6,cursor:'pointer',background:estiPage===item.id?'rgba(16,185,129,0.12)`:'none',border:estiPage===item.id?'1px solid rgba(16,185,129,0.25)`:'1px solid transparent',marginBottom:2,textAlign:'left'}}>
+              style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:'8px 10px',borderRadius:6,cursor:'pointer',background:estiPage===item.id?'rgba(16,185,129,0.12)':'none',border:estiPage===item.id?'1px solid rgba(16,185,129,0.25)':'1px solid transparent',marginBottom:2,textAlign:'left'}}>
               <span style={{fontSize:14,color:estiPage===item.id?'#10B981':'#4a6a4a'}}>{item.icon}</span>
               <span style={{fontSize:12,fontWeight:600,color:estiPage===item.id?'#e5e5e5':'#6a8a6a'}}>{item.label}</span>
             </button>
