@@ -3015,43 +3015,55 @@ function PreconTab({ project }) {
     setImgDisp({w:r.width,h:r.height});
   };
 
-  const renderPdfPage = async (doc, num) => {
-    if(!doc||!canvasRef.current) return;
+  const renderPdfPage = async (doc, pageN=1) => {
+    if(!doc) return;
+    // Wait for canvas to be in DOM
+    let canvas = canvasRef.current;
+    if(!canvas){
+      await new Promise(r=>setTimeout(r,120));
+      canvas = canvasRef.current;
+    }
+    if(!canvas) return;
     setRendering(true);
-    const page = await doc.getPage(num);
-    const viewport = page.getViewport({scale: 2.0}); // 2x for crisp rendering
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    canvas.style.width = viewport.width + 'px';
-    canvas.style.height = viewport.height + 'px';
-    await page.render({canvasContext: ctx, viewport}).promise;
-    setImgNat({w:viewport.width, h:viewport.height});
-    setImgDisp({w:viewport.width, h:viewport.height});
+    try {
+      const page = await doc.getPage(pageN);
+      const viewport = page.getViewport({scale: 2.0});
+      const ctx = canvas.getContext('2d');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = viewport.width + 'px';
+      canvas.style.height = viewport.height + 'px';
+      await page.render({canvasContext: ctx, viewport}).promise;
+      setImgNat({w:viewport.width, h:viewport.height});
+      setImgDisp({w:viewport.width, h:viewport.height});
+    } catch(e){ console.error('renderPdfPage error', e); }
     setRendering(false);
   };
 
   const loadPdf = async (src) => {
-    if(!window.pdfjsLib) return false;
+    const lib = await ensurePdfLib();
+    if(!lib) return null;
     try {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const loadingTask = window.pdfjsLib.getDocument(src);
-      const doc = await loadingTask.promise;
+      lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const doc = await lib.getDocument(src).promise;
+      pdfDocRef.current = doc;
       setPdfDoc(doc);
-      setTotalPages(doc.numPages);
-      setPageNum(1);
       await renderPdfPage(doc, 1);
-      return true;
+      return doc;
     } catch(e) {
       console.error('PDF load error:', e);
-      return false;
+      return null;
     }
   };
 
-  useEffect(()=>{
-    if(pdfDoc) renderPdfPage(pdfDoc, pageNum);
-  },[pageNum]);
+  const ensurePdfLib = () => new Promise((resolve)=>{
+    if(window.pdfjsLib){ resolve(window.pdfjsLib); return; }
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=()=>resolve(window.pdfjsLib);
+    s.onerror=()=>resolve(null);
+    document.head.appendChild(s);
+  });
 
   useEffect(()=>{
     const handleKey=(e)=>{
@@ -3068,13 +3080,36 @@ function PreconTab({ project }) {
   },[]);
 
   useEffect(()=>{
+    const el = containerRef.current;
+    if(!el) return;
+    const onWheel=(e)=>{
+      e.preventDefault();
+      const delta = e.deltaY>0 ? -0.1 : 0.1;
+      setZoom(z=>Math.min(4, Math.max(0.1, Math.round((z+delta)*10)/10)));
+    };
+    el.addEventListener('wheel', onWheel, {passive:false});
+    return ()=>el.removeEventListener('wheel', onWheel);
+  },[]);
+
+  useEffect(()=>{
     if(!selPlan) return;
-    const isPdf = selPlan.file_type?.includes('pdf') || selPlan.file_url?.toLowerCase().includes('.pdf');
-    if(isPdf) {
-      // slight delay so canvas is in DOM
-      setTimeout(()=>loadPdf(selPlan.file_url), 100);
+    const isPdf = selPlan.file_type?.includes('pdf')
+      || selPlan.file_url?.toLowerCase().includes('.pdf')
+      || selPlan.file_url?.startsWith('data:application/pdf');
+    setIsPdfPlan(isPdf);
+    // Reset scale from saved value
+    if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
+    else { setScale(null); setPresetScale(''); }
+    if(isPdf){
+      pdfDocRef.current = null;
+      setPdfDoc(null);
+      // renderPdfPage waits for canvas internally
+      loadPdf(selPlan.file_url);
+    } else {
+      pdfDocRef.current = null;
+      setPdfDoc(null);
     }
-  },[selPlan?.id]);
+  },[selPlan?.id, selPlan?.file_url]);
 
   const saveItem=async(itemData)=>{
     const catDef=TAKEOFF_CATS.find(c=>c.id===itemData.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
@@ -3897,9 +3932,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   const [showBidSummary, setShowBidSummary] = useState(false);
   const [editProject, setEditProject] = useState(false);
   const [pdfDoc, setPdfDoc] = useState(null);
-  const [pageNum, setPageNum] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
   const [rendering, setRendering] = useState(false);
+  const [isPdfPlan, setIsPdfPlan] = useState(false);
+  const pdfDocRef = useRef(null);
   const imgRef = useRef();
   const canvasRef = useRef();
   const svgRef = useRef();
@@ -3954,43 +3989,55 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     setImgDisp({w:r.width,h:r.height});
   };
 
-  const renderPdfPage = async (doc, num) => {
-    if(!doc||!canvasRef.current) return;
+  const renderPdfPage = async (doc, pageN=1) => {
+    if(!doc) return;
+    // Wait for canvas to be in DOM
+    let canvas = canvasRef.current;
+    if(!canvas){
+      await new Promise(r=>setTimeout(r,120));
+      canvas = canvasRef.current;
+    }
+    if(!canvas) return;
     setRendering(true);
-    const page = await doc.getPage(num);
-    const viewport = page.getViewport({scale: 2.0}); // 2x for crisp rendering
-    const canvas = canvasRef.current;
-    const ctx = canvas.getContext('2d');
-    canvas.width = viewport.width;
-    canvas.height = viewport.height;
-    canvas.style.width = viewport.width + 'px';
-    canvas.style.height = viewport.height + 'px';
-    await page.render({canvasContext: ctx, viewport}).promise;
-    setImgNat({w:viewport.width, h:viewport.height});
-    setImgDisp({w:viewport.width, h:viewport.height});
+    try {
+      const page = await doc.getPage(pageN);
+      const viewport = page.getViewport({scale: 2.0});
+      const ctx = canvas.getContext('2d');
+      canvas.width = viewport.width;
+      canvas.height = viewport.height;
+      canvas.style.width = viewport.width + 'px';
+      canvas.style.height = viewport.height + 'px';
+      await page.render({canvasContext: ctx, viewport}).promise;
+      setImgNat({w:viewport.width, h:viewport.height});
+      setImgDisp({w:viewport.width, h:viewport.height});
+    } catch(e){ console.error('renderPdfPage error', e); }
     setRendering(false);
   };
 
   const loadPdf = async (src) => {
-    if(!window.pdfjsLib) return false;
+    const lib = await ensurePdfLib();
+    if(!lib) return null;
     try {
-      window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
-      const loadingTask = window.pdfjsLib.getDocument(src);
-      const doc = await loadingTask.promise;
+      lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      const doc = await lib.getDocument(src).promise;
+      pdfDocRef.current = doc;
       setPdfDoc(doc);
-      setTotalPages(doc.numPages);
-      setPageNum(1);
       await renderPdfPage(doc, 1);
-      return true;
+      return doc;
     } catch(e) {
       console.error('PDF load error:', e);
-      return false;
+      return null;
     }
   };
 
-  useEffect(()=>{
-    if(pdfDoc) renderPdfPage(pdfDoc, pageNum);
-  },[pageNum]);
+  const ensurePdfLib = () => new Promise((resolve)=>{
+    if(window.pdfjsLib){ resolve(window.pdfjsLib); return; }
+    const s=document.createElement('script');
+    s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
+    s.onload=()=>resolve(window.pdfjsLib);
+    s.onerror=()=>resolve(null);
+    document.head.appendChild(s);
+  });
 
   useEffect(()=>{
     const handleKey=(e)=>{
@@ -4007,13 +4054,36 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   },[]);
 
   useEffect(()=>{
+    const el = containerRef.current;
+    if(!el) return;
+    const onWheel=(e)=>{
+      e.preventDefault();
+      const delta = e.deltaY>0 ? -0.1 : 0.1;
+      setZoom(z=>Math.min(4, Math.max(0.1, Math.round((z+delta)*10)/10)));
+    };
+    el.addEventListener('wheel', onWheel, {passive:false});
+    return ()=>el.removeEventListener('wheel', onWheel);
+  },[]);
+
+  useEffect(()=>{
     if(!selPlan) return;
-    const isPdf = selPlan.file_type?.includes('pdf') || selPlan.file_url?.toLowerCase().includes('.pdf');
-    if(isPdf) {
-      // slight delay so canvas is in DOM
-      setTimeout(()=>loadPdf(selPlan.file_url), 100);
+    const isPdf = selPlan.file_type?.includes('pdf')
+      || selPlan.file_url?.toLowerCase().includes('.pdf')
+      || selPlan.file_url?.startsWith('data:application/pdf');
+    setIsPdfPlan(isPdf);
+    // Reset scale from saved value
+    if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
+    else { setScale(null); setPresetScale(''); }
+    if(isPdf){
+      pdfDocRef.current = null;
+      setPdfDoc(null);
+      // renderPdfPage waits for canvas internally
+      loadPdf(selPlan.file_url);
+    } else {
+      pdfDocRef.current = null;
+      setPdfDoc(null);
     }
-  },[selPlan?.id]);
+  },[selPlan?.id, selPlan?.file_url]);
 
   const getUnitCosts = () => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} };
 
@@ -4149,8 +4219,53 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     if(!file) return;
     const pid = project.id;
     setUploading(true);
+    const isPdf = file.type?.includes('pdf');
+
+    if(isPdf){
+      // Read file as ArrayBuffer for PDF.js processing
+      const arrayBuf = await file.arrayBuffer();
+      const lib = await ensurePdfLib();
+      if(!lib){ setUploading(false); alert('PDF library not loaded'); return; }
+      lib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+      let doc;
+      try { doc = await lib.getDocument({data: arrayBuf.slice(0)}).promise; }
+      catch(e){ setUploading(false); alert('Could not read PDF: '+e.message); return; }
+
+      const numPages = doc.numPages;
+      const baseName = autoNameSheet(file.name, plans);
+      const newPlans = [];
+
+      for(let pageN=1; pageN<=numPages; pageN++){
+        // Render page to canvas → blob → upload as PNG
+        const page = await doc.getPage(pageN);
+        const viewport = page.getViewport({scale:2.0});
+        const offscreen = document.createElement('canvas');
+        offscreen.width = viewport.width; offscreen.height = viewport.height;
+        await page.render({canvasContext: offscreen.getContext('2d'), viewport}).promise;
+        const blob = await new Promise(r=>offscreen.toBlob(r,'image/png',0.95));
+        const sheetName = numPages>1 ? `${baseName} — Pg ${pageN}` : baseName;
+        const path = `precon/${pid}/${Date.now()}_p${pageN}.png`;
+        const {error} = await supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/png'});
+        if(error){ console.error('page upload fail', error); continue; }
+        const {data:ud} = supabase.storage.from('attachments').getPublicUrl(path);
+        const publicUrl = ud?.publicUrl || '';
+        const {data:plan} = await supabase.from('precon_plans')
+          .insert([{project_id:pid, name:sheetName, file_url:publicUrl, file_type:'image/png'}])
+          .select().single();
+        if(plan) newPlans.push(plan);
+      }
+
+      if(newPlans.length>0){
+        setPlans(prev=>[...prev, ...newPlans]);
+        setSelPlan(newPlans[0]);
+        setPlanB64(null); setPlanMime('image/png');
+      }
+      setUploading(false);
+      return;
+    }
+
+    // Image upload (non-PDF)
     const sheetName = autoNameSheet(file.name, plans);
-    // Show image immediately from local file while uploading
     const reader=new FileReader();
     reader.onload=ev=>{
       const dataUrl = ev.target.result;
@@ -4169,9 +4284,6 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     if(plan){
       setPlans(prev=>[...prev.filter(p=>p.id!=='preview'),plan]);
       setSelPlan(plan);
-      // If PDF, load with PDF.js (slight delay for state to settle)
-      const isPdf = file.type?.includes('pdf');
-      if(isPdf && plan.file_url) setTimeout(()=>loadPdf(plan.file_url), 200);
     }
     setUploading(false);
   };
@@ -4371,12 +4483,7 @@ Return ONLY a valid JSON array, no markdown:
             </div>
             <div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0}}>
               {scale&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 6px',borderRadius:3}}>⇔ SCALED</span>}
-              {totalPages>1&&<>
-                <button onClick={()=>setPageNum(p=>Math.max(1,p-1))} disabled={pageNum===1} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>‹</button>
-                <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",minWidth:50,textAlign:'center'}}>pg {pageNum}/{totalPages}</span>
-                <button onClick={()=>setPageNum(p=>Math.min(totalPages,p+1))} disabled={pageNum===totalPages} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>›</button>
-                <div style={{width:1,height:16,background:t.border}}/>
-              </>}
+
               <button onClick={()=>setZoom(z=>Math.min(z+0.25,4))} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>+</button>
               <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",minWidth:32,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
               <button onClick={()=>setZoom(z=>Math.max(z-0.25,0.25))} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>−</button>
@@ -4461,15 +4568,6 @@ Return ONLY a valid JSON array, no markdown:
             </div>
           )}
 
-          {/* PDF.js script loader */}
-          {typeof window !== 'undefined' && !window.pdfjsLib && (()=>{
-            const s=document.createElement('script');
-            s.src='https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js';
-            s.onload=()=>{ if(selPlan){ const isPdf=selPlan.file_type?.includes('pdf')||selPlan.file_url?.toLowerCase().includes('.pdf'); if(isPdf) loadPdf(selPlan.file_url); }};
-            document.head.appendChild(s);
-            return null;
-          })()}
-
           {/* Plan canvas */}
           <div ref={containerRef} style={{flex:1,overflow:'auto',background:'#2a2a2a',position:'relative',minHeight:0}}>
             {!selPlan?(
@@ -4480,24 +4578,22 @@ Return ONLY a valid JSON array, no markdown:
                 <button onClick={()=>fileRef.current?.click()}
                   style={{background:'#F97316',border:'none',color:'#000',padding:'10px 24px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>📎 Upload Plans</button>
               </div>
-            ):(()=>{
-              const isPdf = selPlan.file_type?.includes('pdf') || selPlan.file_url?.toLowerCase().includes('.pdf') || selPlan.file_url?.startsWith('data:application/pdf');
-              return (
-                <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative'}}>
-                  {isPdf ? (
-                    <>
-                      {rendering&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.5)',zIndex:5,color:'#fff',fontSize:13,gap:8}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>Rendering PDF...</div>}
-                      <canvas ref={canvasRef} style={{display:'block',userSelect:'none'}}/>
-                    </>
-                  ):(
-                    <img ref={imgRef} src={selPlan.file_url} alt="Plan"
-                      style={{display:'block',maxWidth:'none',userSelect:'none'}}
-                      onLoad={handleImgLoad}
-                      draggable={false}/>
-                  )}
-                  <svg ref={svgRef}
-                    style={{position:'absolute',top:0,left:0,width: isPdf?(canvasRef.current?.width||800)+'px':'100%',height:isPdf?(canvasRef.current?.height||1100)+'px':'100%',cursor:toolCursor}}
-                    onClick={handleSvgClick}
+            ):(
+              <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative'}}>
+                {isPdfPlan ? (
+                  <>
+                    {rendering&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.7)',zIndex:5,color:'#fff',fontSize:13,gap:8,borderRadius:4}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>Loading...</div>}
+                    <canvas ref={canvasRef} style={{display:'block',userSelect:'none'}}/>
+                  </>
+                ):(
+                  <img ref={imgRef} src={selPlan.file_url} alt="Plan"
+                    style={{display:'block',maxWidth:'none',userSelect:'none'}}
+                    onLoad={handleImgLoad}
+                    draggable={false}/>
+                )}
+                <svg ref={svgRef}
+                  style={{position:'absolute',top:0,left:0,width:(canvasRef.current?.width||imgDisp.w||800)+'px',height:(canvasRef.current?.height||imgDisp.h||1100)+'px',cursor:toolCursor}}
+                  onClick={handleSvgClick}
                     onDoubleClick={(e)=>{
                       if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
                         e.stopPropagation();
@@ -4521,8 +4617,7 @@ Return ONLY a valid JSON array, no markdown:
                     })()}
                   </svg>
                 </div>
-              );
-            })()}
+            )}
           </div>
         </div>
 
