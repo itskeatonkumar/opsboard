@@ -3610,27 +3610,54 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
 // ══════════════════════════════════════════════════════
 
 
-// Standard construction drawing scales (architectural + engineering)
+// All standard construction drawing scales
+// group: 'civil' | 'arch' | 'detail'
+// ratio: real inches per 1 drawn inch (e.g. 1"=20ft → 240)
 const CONSTRUCTION_SCALES = [
-  { label:'1"=1ft',     pxPerFt: null, ratio: 12    },
-  { label:'1"=2ft',     pxPerFt: null, ratio: 24    },
-  { label:'1"=4ft',     pxPerFt: null, ratio: 48    },
-  { label:'1"=8ft',     pxPerFt: null, ratio: 96    },
-  { label:'1"=10ft',    pxPerFt: null, ratio: 120   },
-  { label:'1"=16ft',    pxPerFt: null, ratio: 192   },
-  { label:'1"=20ft',    pxPerFt: null, ratio: 240   },
-  { label:'1"=30ft',    pxPerFt: null, ratio: 360   },
-  { label:'1"=40ft',    pxPerFt: null, ratio: 480   },
-  { label:'1"=50ft',    pxPerFt: null, ratio: 600   },
-  { label:'1"=60ft',    pxPerFt: null, ratio: 720   },
-  { label:'1"=100ft',   pxPerFt: null, ratio: 1200  },
-  { label:'1/8"=1ft',   pxPerFt: null, ratio: 96    },
-  { label:'1/4"=1ft',   pxPerFt: null, ratio: 48    },
-  { label:'3/8"=1ft',   pxPerFt: null, ratio: 32    },
-  { label:'1/2"=1ft',   pxPerFt: null, ratio: 24    },
-  { label:'3/4"=1ft',   pxPerFt: null, ratio: 16    },
-  { label:'1.5"=1ft',   pxPerFt: null, ratio: 8     },
-  { label:'3"=1ft',     pxPerFt: null, ratio: 4     },
+  // ── Civil / Engineering (1"=X ft) ──────────────────────────────
+  { label:'1"=1ft',      group:'civil', ratio:12    },
+  { label:'1"=2ft',      group:'civil', ratio:24    },
+  { label:'1"=4ft',      group:'civil', ratio:48    },
+  { label:'1"=5ft',      group:'civil', ratio:60    },
+  { label:'1"=8ft',      group:'civil', ratio:96    },
+  { label:'1"=10ft',     group:'civil', ratio:120   },
+  { label:'1"=20ft',     group:'civil', ratio:240   },
+  { label:'1"=30ft',     group:'civil', ratio:360   },
+  { label:'1"=40ft',     group:'civil', ratio:480   },
+  { label:'1"=50ft',     group:'civil', ratio:600   },
+  { label:'1"=60ft',     group:'civil', ratio:720   },
+  { label:'1"=80ft',     group:'civil', ratio:960   },
+  { label:'1"=100ft',    group:'civil', ratio:1200  },
+  { label:'1"=200ft',    group:'civil', ratio:2400  },
+  { label:'1"=400ft',    group:'civil', ratio:4800  },
+  { label:'1"=500ft',    group:'civil', ratio:6000  },
+  { label:'1"=1000ft',   group:'civil', ratio:12000 },
+  // ── Civil (fractional denominator) ─────────────────────────────
+  { label:'1:10',        group:'civil', ratio:10    },
+  { label:'1:20',        group:'civil', ratio:20    },
+  { label:'1:50',        group:'civil', ratio:50    },
+  { label:'1:100',       group:'civil', ratio:100   },
+  { label:'1:200',       group:'civil', ratio:200   },
+  { label:'1:500',       group:'civil', ratio:500   },
+  { label:'1:1000',      group:'civil', ratio:1000  },
+  // ── Architectural (fractional inch = 1ft) ───────────────────────
+  { label:'1/16"=1ft',   group:'arch',  ratio:192   },
+  { label:'3/32"=1ft',   group:'arch',  ratio:128   },
+  { label:'1/8"=1ft',    group:'arch',  ratio:96    },
+  { label:'3/16"=1ft',   group:'arch',  ratio:64    },
+  { label:'1/4"=1ft',    group:'arch',  ratio:48    },
+  { label:'3/8"=1ft',    group:'arch',  ratio:32    },
+  { label:'1/2"=1ft',    group:'arch',  ratio:24    },
+  { label:'3/4"=1ft',    group:'arch',  ratio:16    },
+  { label:'1"=1ft',      group:'arch',  ratio:12    },
+  { label:'1.5"=1ft',    group:'arch',  ratio:8     },
+  { label:'3"=1ft',      group:'arch',  ratio:4     },
+  // ── Detail scales ───────────────────────────────────────────────
+  { label:'6"=1ft',      group:'detail',ratio:2     },
+  { label:'12"=1ft (FS)',group:'detail',ratio:1     },
+  { label:'1.5:1',       group:'detail',ratio:0.667 },
+  { label:'2:1',         group:'detail',ratio:0.5   },
+  { label:'4:1',         group:'detail',ratio:0.25  },
 ];
 
 const UNIT_COSTS_DEFAULT = {
@@ -4775,15 +4802,16 @@ Return ONLY a valid JSON array, no markdown:
                 if(!s) return;
                 // pxPerFt assumes 96px/in screen resolution (standard CSS px)
                 // For scanned images use ⊕ Calibrate to override
-                const pxPerFt=96/(s.ratio/12);
+                const pxPerFt=(96*12)/s.ratio; // ratio = real_in per drawn_in
                 setScale(pxPerFt); setPresetScale(s.label);
                 if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
               }} style={{...inputStyle,width:'100%',fontSize:11,marginBottom:14}}>
                 <option value="">⇔ Set Scale</option>
                 <option value="auto">✦ Auto-Detect from Drawing</option>
                 <option value="cal">⊕ Calibrate (click 2 pts)</option>
-                <optgroup label="Engineering">{CONSTRUCTION_SCALES.filter(s=>s.label.startsWith('1"=')).map(s=><option key={s.label} value={s.label}>{s.label}</option>)}</optgroup>
-                <optgroup label="Architectural">{CONSTRUCTION_SCALES.filter(s=>!s.label.startsWith('1"=')).map(s=><option key={s.label} value={s.label}>{s.label}</option>)}</optgroup>
+                <optgroup label="Civil / Engineering">{CONSTRUCTION_SCALES.filter(s=>s.group==='civil').map(s=><option key={s.label+s.group} value={s.label}>{s.label}</option>)}</optgroup>
+                <optgroup label="Architectural">{CONSTRUCTION_SCALES.filter(s=>s.group==='arch').map(s=><option key={s.label+s.group} value={s.label}>{s.label}</option>)}</optgroup>
+                <optgroup label="Detail">{CONSTRUCTION_SCALES.filter(s=>s.group==='detail').map(s=><option key={s.label+s.group} value={s.label}>{s.label}</option>)}</optgroup>
               </select>
               {scale&&<div style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginBottom:14}}>✓ Scale set: {presetScale||'Calibrated'}</div>}
               <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,marginBottom:8}}>UNIT COSTS</div>
