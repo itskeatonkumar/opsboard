@@ -1883,16 +1883,417 @@ function SubcontractsTab({ project }) {
   );
 }
 
+
+// ── Schedule Gantt ─────────────────────────────────────
+const SCHEDULE_STATUSES = [
+  { id:"not_started", label:"Not Started", color:"#555" },
+  { id:"in_progress", label:"In Progress", color:"#F59E0B" },
+  { id:"complete",    label:"Complete",    color:"#10B981" },
+  { id:"blocked",     label:"Blocked",     color:"#EF4444" },
+];
+
+function ScheduleItemModal({ item, projectId, onSave, onClose }) {
+  const { t } = useTheme();
+  const isNew = !item?.id;
+  const [form, setForm] = useState({
+    title:"", phase:"Mobilization", description:"", start_date:"", end_date:"",
+    duration_days:"", status:"not_started", sort_order:0,
+    ...(item||{}), project_id:projectId
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const dynInput = { ...inputStyle, background:t.input, borderColor:t.inputBorder, color:t.inputText };
+  const PHASES = ["Mobilization","Demolition","Excavation/Earthwork","Foundation","Slab on Grade","Structural Concrete","Masonry","Flatwork/Paving","MEP Rough-In","Waterproofing","Backfill/Site Work","Finishes","Punch List","Closeout"];
+
+  const handleSave = async () => {
+    if (!form.title.trim()) return;
+    setSaving(true);
+    const dur = form.start_date && form.end_date
+      ? Math.max(1, Math.round((new Date(form.end_date)-new Date(form.start_date))/(1000*60*60*24)))
+      : (form.duration_days ? Number(form.duration_days) : null);
+    const payload = { ...form, duration_days: dur };
+    delete payload.id; delete payload.created_at;
+    if (isNew) {
+      const { data } = await supabase.from("schedule_items").insert([payload]).select().single();
+      if (data) onSave(data, true);
+    } else {
+      await supabase.from("schedule_items").update(payload).eq("id", item.id);
+      onSave({...item,...payload}, false);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?"New Schedule Item":"Edit Schedule Item"} onClose={onClose} width={500}>
+      <div style={{ display:"flex", flexDirection:"column", gap:14 }}>
+        <APMField label="Task / Milestone">
+          <input value={form.title} onChange={e=>set("title",e.target.value)} placeholder="e.g. Pour foundation walls" style={{...dynInput,fontSize:15}} autoFocus />
+        </APMField>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
+          <APMField label="Phase">
+            <select value={form.phase} onChange={e=>set("phase",e.target.value)} style={{...dynInput,fontSize:13}}>
+              {PHASES.map(p=><option key={p} value={p}>{p}</option>)}
+            </select>
+          </APMField>
+          <APMField label="Status">
+            <select value={form.status} onChange={e=>set("status",e.target.value)} style={{...dynInput,fontSize:14}}>
+              {SCHEDULE_STATUSES.map(s=><option key={s.id} value={s.id}>{s.label}</option>)}
+            </select>
+          </APMField>
+        </div>
+        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr 1fr", gap:12 }}>
+          <APMField label="Start Date"><input type="date" value={form.start_date||""} onChange={e=>set("start_date",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="End Date"><input type="date" value={form.end_date||""} onChange={e=>set("end_date",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
+          <APMField label="Duration (days)"><input type="number" value={form.duration_days||""} onChange={e=>set("duration_days",e.target.value)} placeholder="auto" style={{...dynInput,fontSize:14}} /></APMField>
+        </div>
+        <APMField label="Notes">
+          <textarea value={form.description||""} onChange={e=>set("description",e.target.value)} placeholder="Details, predecessor tasks..." style={{...dynInput,minHeight:60,resize:"vertical",fontSize:14}} />
+        </APMField>
+      </div>
+      <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
+        {!isNew && <button onClick={async()=>{ await supabase.from("schedule_items").delete().eq("id",item.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
+          <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||!form.title.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Add Item":"Save"}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+function GanttChart({ items, onClickItem }) {
+  const { t } = useTheme();
+  if (!items.length) return null;
+
+  const PHASE_COLORS = {
+    "Mobilization":"#6366f1","Demolition":"#ef4444","Excavation/Earthwork":"#92400e",
+    "Foundation":"#b45309","Slab on Grade":"#d97706","Structural Concrete":"#f59e0b",
+    "Masonry":"#84cc16","Flatwork/Paving":"#10b981","MEP Rough-In":"#06b6d4",
+    "Waterproofing":"#3b82f6","Backfill/Site Work":"#8b5cf6","Finishes":"#ec4899",
+    "Punch List":"#f97316","Closeout":"#22c55e",
+  };
+
+  // Calculate date range
+  const datesWithValues = items.filter(i=>i.start_date);
+  if (!datesWithValues.length) return (
+    <div style={{ textAlign:"center", padding:40, color:t.text4, fontSize:12, fontFamily:"'DM Mono',monospace" }}>
+      No dates set — add start/end dates to tasks to see the Gantt chart
+    </div>
+  );
+
+  const allStarts = datesWithValues.map(i=>new Date(i.start_date+"T12:00:00").getTime());
+  const allEnds = items.filter(i=>i.end_date).map(i=>new Date(i.end_date+"T12:00:00").getTime());
+  const minDate = new Date(Math.min(...allStarts));
+  const maxDate = allEnds.length ? new Date(Math.max(...allEnds)) : new Date(Math.max(...allStarts));
+  // Pad by 3 days each side
+  minDate.setDate(minDate.getDate()-3);
+  maxDate.setDate(maxDate.getDate()+5);
+
+  const totalDays = Math.max(1, Math.round((maxDate-minDate)/(1000*60*60*24)));
+  const DAY_W = Math.max(18, Math.min(28, Math.floor(900/totalDays))); // px per day, responsive
+  const LABEL_W = 180;
+  const ROW_H = 34;
+  const HEADER_H = 52;
+
+  // Build week headers
+  const weeks = [];
+  const cur = new Date(minDate);
+  cur.setDate(cur.getDate() - cur.getDay()); // align to Sunday
+  while (cur <= maxDate) {
+    const weekStart = new Date(cur);
+    const left = Math.max(0, Math.round((weekStart-minDate)/(1000*60*60*24)))*DAY_W;
+    weeks.push({ date: new Date(cur), left });
+    cur.setDate(cur.getDate()+7);
+  }
+
+  // Today line
+  const today = new Date();
+  const todayLeft = Math.round((today-minDate)/(1000*60*60*24))*DAY_W;
+
+  const getBar = (item) => {
+    if (!item.start_date) return null;
+    const s = new Date(item.start_date+"T12:00:00");
+    const e = item.end_date ? new Date(item.end_date+"T12:00:00") : new Date(s.getTime()+86400000*(item.duration_days||1));
+    const left = Math.round((s-minDate)/(1000*60*60*24))*DAY_W;
+    const width = Math.max(DAY_W, Math.round((e-s)/(1000*60*60*24))*DAY_W);
+    const status = SCHEDULE_STATUSES.find(x=>x.id===item.status);
+    const baseColor = PHASE_COLORS[item.phase] || "#6366f1";
+    const barColor = item.status==="complete" ? "#10b981" : item.status==="blocked" ? "#ef4444" : baseColor;
+    const pct = item.status==="complete" ? 100 : item.status==="in_progress" ? 50 : item.status==="blocked" ? 0 : 0;
+    return { left, width, barColor, pct };
+  };
+
+  // Group by phase
+  const phases = [...new Set(items.map(i=>i.phase).filter(Boolean))];
+  const totalW = totalDays * DAY_W;
+
+  return (
+    <div style={{ overflowX:"auto", overflowY:"auto", flex:1, position:"relative" }}>
+      <div style={{ minWidth: LABEL_W + totalW + 20, position:"relative" }}>
+        {/* Header */}
+        <div style={{ display:"flex", position:"sticky", top:0, zIndex:10, background:t.bg2 }}>
+          <div style={{ width:LABEL_W, flexShrink:0, borderRight:`1px solid ${t.border}`, padding:"8px 12px", fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace", letterSpacing:0.5, display:"flex", alignItems:"flex-end" }}>TASK</div>
+          <div style={{ position:"relative", width:totalW, height:HEADER_H, borderBottom:`1px solid ${t.border}`, overflow:"hidden" }}>
+            {weeks.map((w,i)=>(
+              <div key={i} style={{ position:"absolute", left:w.left, top:0, height:"100%", borderLeft:`1px solid ${t.border}`, paddingLeft:4 }}>
+                <div style={{ fontSize:9, color:t.text4, fontFamily:"'DM Mono',monospace", paddingTop:6 }}>
+                  {w.date.toLocaleDateString("en-US",{month:"short",day:"numeric"})}
+                </div>
+                <div style={{ fontSize:8, color:t.text5, fontFamily:"'DM Mono',monospace" }}>
+                  WK {Math.ceil((w.date-new Date(w.date.getFullYear(),0,1))/(7*86400000))}
+                </div>
+              </div>
+            ))}
+            {/* Today line in header */}
+            {todayLeft >= 0 && todayLeft <= totalW && (
+              <div style={{ position:"absolute", left:todayLeft, top:0, bottom:0, width:2, background:"#F97316", zIndex:5 }}>
+                <div style={{ position:"absolute", top:6, left:3, fontSize:8, color:"#F97316", fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap", fontWeight:700 }}>TODAY</div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Rows grouped by phase */}
+        {phases.map(phase=>{
+          const phaseItems = items.filter(i=>i.phase===phase);
+          const pColor = PHASE_COLORS[phase] || "#6366f1";
+          return (
+            <div key={phase}>
+              {/* Phase group header */}
+              <div style={{ display:"flex", background:t.bg3, borderBottom:`1px solid ${t.border}` }}>
+                <div style={{ width:LABEL_W, flexShrink:0, padding:"5px 12px", fontSize:9, fontWeight:700, color:pColor, fontFamily:"'DM Mono',monospace", letterSpacing:0.8, borderRight:`1px solid ${t.border}`, display:"flex", alignItems:"center", gap:6 }}>
+                  <span style={{ width:6, height:6, borderRadius:"50%", background:pColor, flexShrink:0 }} />
+                  {phase.toUpperCase()}
+                </div>
+                <div style={{ flex:1, position:"relative", height:22 }}>
+                  {/* Weekend shading in phase header */}
+                  {Array.from({length:totalDays},(_,d)=>{
+                    const dd = new Date(minDate.getTime()+d*86400000);
+                    if (dd.getDay()===0||dd.getDay()===6) return <div key={d} style={{ position:"absolute",left:d*DAY_W,top:0,width:DAY_W,height:"100%",background:"rgba(255,255,255,0.02)" }} />;
+                    return null;
+                  })}
+                  {todayLeft >= 0 && todayLeft <= totalW && <div style={{ position:"absolute",left:todayLeft,top:0,bottom:0,width:2,background:"#F97316",opacity:0.5,zIndex:5 }} />}
+                </div>
+              </div>
+              {/* Task rows */}
+              {phaseItems.map((item,ri)=>{
+                const bar = getBar(item);
+                const rowBg = ri%2===0 ? t.bg : t.bg2;
+                return (
+                  <div key={item.id} style={{ display:"flex", height:ROW_H, background:rowBg, borderBottom:`1px solid ${t.border}20` }}
+                    onMouseEnter={e=>e.currentTarget.style.background=t.bg3}
+                    onMouseLeave={e=>e.currentTarget.style.background=rowBg}>
+                    {/* Label */}
+                    <div onClick={()=>onClickItem(item)} style={{ width:LABEL_W, flexShrink:0, padding:"0 12px", display:"flex", alignItems:"center", borderRight:`1px solid ${t.border}`, cursor:"pointer", gap:6, overflow:"hidden" }}>
+                      <span style={{ width:6, height:6, borderRadius:"50%", flexShrink:0,
+                        background: SCHEDULE_STATUSES.find(s=>s.id===item.status)?.color || "#555" }} />
+                      <span style={{ fontSize:11, color:t.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.title}</span>
+                    </div>
+                    {/* Bar area */}
+                    <div style={{ flex:1, position:"relative", overflow:"hidden" }}>
+                      {/* Grid lines */}
+                      {Array.from({length:totalDays},(_,d)=>{
+                        const dd = new Date(minDate.getTime()+d*86400000);
+                        if (dd.getDay()===0||dd.getDay()===6) return <div key={d} style={{ position:"absolute",left:d*DAY_W,top:0,width:DAY_W,height:"100%",background:"rgba(255,255,255,0.015)" }} />;
+                        return null;
+                      })}
+                      {/* Today line */}
+                      {todayLeft >= 0 && todayLeft <= totalW && <div style={{ position:"absolute",left:todayLeft,top:0,bottom:0,width:2,background:"#F97316",opacity:0.4,zIndex:5 }} />}
+                      {/* Gantt bar */}
+                      {bar && (
+                        <div onClick={()=>onClickItem(item)} style={{ position:"absolute", left:bar.left, top:7, height:ROW_H-14, width:bar.width,
+                          background:`${bar.barColor}30`, border:`1px solid ${bar.barColor}80`, borderRadius:4, cursor:"pointer",
+                          display:"flex", alignItems:"center", overflow:"hidden", transition:"opacity 0.1s", zIndex:3 }}
+                          onMouseEnter={e=>e.currentTarget.style.opacity="0.8"}
+                          onMouseLeave={e=>e.currentTarget.style.opacity="1"}>
+                          {/* Progress fill */}
+                          {bar.pct > 0 && <div style={{ position:"absolute", left:0, top:0, height:"100%", width:`${bar.pct}%`, background:`${bar.barColor}60`, borderRadius:4 }} />}
+                          {bar.width > 40 && <span style={{ fontSize:9, color:bar.barColor, fontWeight:700, paddingLeft:5, fontFamily:"'DM Mono',monospace", position:"relative", zIndex:1, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.title}</span>}
+                        </div>
+                      )}
+                      {/* Milestone diamond if no duration */}
+                      {bar && (bar.width <= DAY_W*1.5) && (
+                        <div onClick={()=>onClickItem(item)} style={{ position:"absolute", left:bar.left-5, top:"50%", transform:"translateY(-50%) rotate(45deg)", width:10, height:10,
+                          background:bar.barColor, cursor:"pointer", zIndex:4 }} />
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function ScheduleTab({ project }) {
+  const { t } = useTheme();
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [modal, setModal] = useState(null);
+  const [generating, setGenerating] = useState(false);
+  const [gcPdf, setGcPdf] = useState(null);
+  const gcRef = useRef();
+
+  useEffect(()=>{
+    supabase.from("schedule_items").select("*").eq("project_id",project.id).order("sort_order")
+      .then(({data})=>{ setItems(data||[]); setLoading(false); });
+  },[project.id]);
+
+  const handleSave = (data, isNew) => {
+    if (!data) setItems(prev=>prev.filter(i=>i.id!==modal?.item?.id));
+    else if (isNew) setItems(prev=>[...prev,data]);
+    else setItems(prev=>prev.map(i=>i.id===data.id?data:i));
+    setModal(null);
+  };
+
+  const generateSchedule = async () => {
+    setGenerating(true);
+    let msgContent;
+    if (gcPdf) {
+      const isImg = gcPdf.type.startsWith("image/");
+      msgContent = [
+        isImg
+          ? { type:"image", source:{ type:"base64", media_type:gcPdf.type, data:gcPdf.base64 }}
+          : { type:"document", source:{ type:"base64", media_type:"application/pdf", data:gcPdf.base64 }},
+        { type:"text", text:`Extract schedule tasks from this GC schedule for our concrete/masonry subcontract scope. Project: "${project.name}", Contract: $${project.contract_value}, Start: ${project.start_date||"TBD"}, End: ${project.end_date||"TBD"}. Return ONLY a JSON array, no markdown. Each item: {"title":"string","phase":"string","description":"string","start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD","duration_days":number,"status":"not_started"}. Phase must be one of: Mobilization, Demolition, Excavation/Earthwork, Foundation, Slab on Grade, Structural Concrete, Masonry, Flatwork/Paving, MEP Rough-In, Waterproofing, Backfill/Site Work, Finishes, Punch List, Closeout.` }
+      ];
+    } else {
+      msgContent = `Generate a Gantt chart schedule for a concrete/masonry subcontractor. Project: "${project.name}". Address: ${project.address||"N/A"}. Contract: $${project.contract_value}. GC: ${project.gc_name||"N/A"}. Start: ${project.start_date||new Date().toISOString().slice(0,10)}, End: ${project.end_date||"TBD"}. Company: ${getCompany(project.company).name}. Generate 12-20 realistic tasks. CRITICAL: Every task must have start_date and end_date in YYYY-MM-DD format — use the project start/end dates to distribute tasks realistically with proper sequencing (foundation before slab, etc). Return ONLY a JSON array, no markdown. Each item: {"title":"string","phase":"string","description":"string","start_date":"YYYY-MM-DD","end_date":"YYYY-MM-DD","duration_days":number,"status":"not_started","sort_order":number}. Phase must be one of: Mobilization, Demolition, Excavation/Earthwork, Foundation, Slab on Grade, Structural Concrete, Masonry, Flatwork/Paving, MEP Rough-In, Waterproofing, Backfill/Site Work, Finishes, Punch List, Closeout.`;
+    }
+
+    const res = await fetch("/api/claude", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:2500, messages:[{ role:"user", content: msgContent }] })
+    });
+    const json = await res.json();
+    const text = json?.content?.find(b=>b.type==="text")?.text || "";
+    try {
+      const generated = JSON.parse(text.replace(/```json|```/g,"").trim());
+      await supabase.from("schedule_items").delete().eq("project_id",project.id);
+      const toInsert = generated.map((g,i)=>({
+        project_id:project.id, title:g.title, phase:g.phase||"Mobilization",
+        description:g.description||"", start_date:g.start_date||null, end_date:g.end_date||null,
+        duration_days:g.duration_days||null, status:"not_started", sort_order:i,
+      }));
+      const { data } = await supabase.from("schedule_items").insert(toInsert).select();
+      setItems(data||[]);
+    } catch(e) { alert("Generation failed: "+e.message); }
+    setGenerating(false);
+  };
+
+  const doneCount = items.filter(i=>i.status==="complete").length;
+  const inProgressCount = items.filter(i=>i.status==="in_progress").length;
+  const blockedCount = items.filter(i=>i.status==="blocked").length;
+
+  return (
+    <div style={{ display:"flex", flexDirection:"column", height:"100%", overflow:"hidden" }}>
+      {/* Toolbar */}
+      <div style={{ display:"flex", gap:8, justifyContent:"space-between", alignItems:"center", marginBottom:12, flexWrap:"wrap", flexShrink:0 }}>
+        <div style={{ display:"flex", gap:12, alignItems:"center" }}>
+          <span style={{ fontSize:11, color:t.text4, fontFamily:"'DM Mono',monospace" }}>{items.length} tasks</span>
+          {doneCount>0 && <span style={{ fontSize:11, color:"#10B981", fontFamily:"'DM Mono',monospace" }}>✓ {doneCount} done</span>}
+          {inProgressCount>0 && <span style={{ fontSize:11, color:"#F59E0B", fontFamily:"'DM Mono',monospace" }}>⟳ {inProgressCount} active</span>}
+          {blockedCount>0 && <span style={{ fontSize:11, color:"#EF4444", fontFamily:"'DM Mono',monospace" }}>⚠ {blockedCount} blocked</span>}
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={()=>gcRef.current?.click()} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text2, padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", gap:5 }}>
+            📎 {gcPdf ? gcPdf.name.slice(0,14)+"…" : "GC Schedule PDF"}
+          </button>
+          <input ref={gcRef} type="file" accept="image/*,application/pdf" style={{ display:"none" }}
+            onChange={e=>{ const f=e.target.files[0]; if(f){ const r=new FileReader(); r.onload=ev=>setGcPdf({name:f.name,base64:ev.target.result.split(",")[1],type:f.type}); r.readAsDataURL(f); }}} />
+          <button onClick={generateSchedule} disabled={generating} style={{ background:"linear-gradient(135deg,#7c3aed,#a855f7)", border:"none", color:"#fff", padding:"6px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+            {generating ? <><span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span> {gcPdf?"Extracting...":"Generating..."}</> : <><span>✦</span> {gcPdf?"Extract from PDF":"AI Generate"}</>}
+          </button>
+          <button onClick={()=>setModal({item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"6px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>+ Add Task</button>
+        </div>
+      </div>
+
+      {/* Legend */}
+      {items.length>0 && (
+        <div style={{ display:"flex", gap:12, marginBottom:10, flexWrap:"wrap", flexShrink:0 }}>
+          {SCHEDULE_STATUSES.map(s=>(
+            <div key={s.id} style={{ display:"flex", alignItems:"center", gap:5 }}>
+              <span style={{ width:10, height:10, borderRadius:2, background:s.color, flexShrink:0 }} />
+              <span style={{ fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace" }}>{s.label}</span>
+            </div>
+          ))}
+          <div style={{ display:"flex", alignItems:"center", gap:5, marginLeft:8 }}>
+            <span style={{ width:2, height:12, background:"#F97316", flexShrink:0 }} />
+            <span style={{ fontSize:10, color:t.text4, fontFamily:"'DM Mono',monospace" }}>Today</span>
+          </div>
+        </div>
+      )}
+
+      {loading && <div style={{ textAlign:"center", padding:40, color:t.text4, fontSize:12, fontFamily:"'DM Mono',monospace" }}>Loading...</div>}
+
+      {!loading && items.length===0 && (
+        <div style={{ textAlign:"center", padding:60 }}>
+          <div style={{ fontSize:32, marginBottom:12 }}>📅</div>
+          <div style={{ fontSize:14, color:t.text2, marginBottom:6 }}>No schedule yet</div>
+          <div style={{ fontSize:11, color:t.text3, fontFamily:"'DM Mono',monospace", marginBottom:20 }}>Upload a GC schedule PDF or AI-generate from project dates</div>
+          <button onClick={generateSchedule} disabled={generating} style={{ background:"linear-gradient(135deg,#7c3aed,#a855f7)", border:"none", color:"#fff", padding:"10px 20px", borderRadius:8, cursor:"pointer", fontSize:13, fontWeight:700 }}>
+            {generating ? "Generating..." : "✦ AI Generate Gantt"}
+          </button>
+        </div>
+      )}
+
+      {!loading && items.length>0 && (
+        <GanttChart items={items} onClickItem={(item)=>setModal({item})} />
+      )}
+
+      {modal && <ScheduleItemModal item={modal.item} projectId={project.id} onSave={handleSave} onClose={()=>setModal(null)} />}
+    </div>
+  );
+}
+
 // ── Pay Applications / SOV ─────────────────────────────
 function SOVModal({ project, sovItems, onSave, onClose }) {
   const { t } = useTheme();
   const [items, setItems] = useState(sovItems.length > 0 ? sovItems.map(i=>({...i})) : [{ item_no:"1", description:"", scheduled_value:"", sort_order:0 }]);
   const [generating, setGenerating] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [estimateFile, setEstimateFile] = useState(null); // {name, base64, type}
+  const [extractingEstimate, setExtractingEstimate] = useState(false);
+  const estimateRef = useRef();
 
   const addRow = () => setItems(prev=>[...prev, { item_no:String(prev.length+1), description:"", scheduled_value:"", sort_order:prev.length }]);
   const removeRow = (idx) => setItems(prev=>prev.filter((_,i)=>i!==idx));
   const updateRow = (idx, k, v) => setItems(prev=>prev.map((item,i)=>i===idx?{...item,[k]:v}:item));
+
+  const handleEstimateUpload = (file) => {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      setEstimateFile({ name: file.name, base64: e.target.result.split(",")[1], type: file.type });
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const extractFromEstimate = async () => {
+    if (!estimateFile) return;
+    setExtractingEstimate(true);
+    const isImg = estimateFile.type.startsWith("image/");
+    const msgContent = [
+      isImg
+        ? { type:"image", source:{ type:"base64", media_type:estimateFile.type, data:estimateFile.base64 }}
+        : { type:"document", source:{ type:"base64", media_type:"application/pdf", data:estimateFile.base64 }},
+      { type:"text", text:`Extract Schedule of Values line items from this estimate/bid document for an AIA G702 pay application. Contract value is ${project.contract_value}. Return ONLY a JSON array, no markdown. Each item: {"item_no":"string","description":"string","scheduled_value":number}. Use the actual line items, divisions, or cost categories from the document. Values should sum to approximately ${project.contract_value}.` }
+    ];
+    const res = await fetch("/api/claude", {
+      method:"POST", headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1000, messages:[{ role:"user", content:msgContent }] })
+    });
+    const json = await res.json();
+    const text = json?.content?.find(b=>b.type==="text")?.text || "";
+    try {
+      const extracted = JSON.parse(text.replace(/```json|```/g,"").trim());
+      setItems(extracted.map((s,i)=>({...s, scheduled_value:String(s.scheduled_value), sort_order:i})));
+    } catch(e) {}
+    setExtractingEstimate(false);
+  };
 
   const suggestSOV = async () => {
     setGenerating(true);
@@ -1900,8 +2301,8 @@ function SOVModal({ project, sovItems, onSave, onClose }) {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
         model:"claude-sonnet-4-20250514", max_tokens:800,
-        system:`You are a construction PM. Generate a Schedule of Values for an AIA G702 pay application. Return ONLY a JSON array, no markdown. Each item: {"item_no":"string","description":"string","scheduled_value":number}. Values must sum to the contract amount. Use realistic construction cost breakdowns.`,
-        messages:[{ role:"user", content:`Project: ${project.name}. Contract value: ${project.contract_value}. Company: ${getCompany(project.company).name}. Generate 8-12 SOV line items with realistic cost allocations for concrete/masonry construction work.` }]
+        system:`You are a construction PM specializing in concrete and masonry work. Generate a Schedule of Values for an AIA G702 pay application. Return ONLY a JSON array, no markdown. Each item: {"item_no":"string","description":"string","scheduled_value":number}. Values must sum EXACTLY to the contract amount. Break down costs realistically for the specific project type.`,
+        messages:[{ role:"user", content:`Project: "${project.name}". Address: ${project.address||"not specified"}. Contract value: $${project.contract_value}. GC: ${project.gc_name||"not specified"}. Start: ${project.start_date||"not specified"}, End: ${project.end_date||"not specified"}. Company doing work: ${getCompany(project.company).name} (concrete/masonry contractor). Generate 8-14 SOV line items that reflect the actual scope — mobilization, concrete work, formwork, rebar, flatwork, masonry, equipment, etc. based on the project name and details. Values must sum to exactly $${project.contract_value}.` }]
       })
     });
     const json = await res.json();
@@ -1942,9 +2343,20 @@ function SOVModal({ project, sovItems, onSave, onClose }) {
           {" · "}SOV Total: <span style={{ color: Math.abs(diff)<1?"#10B981":"#F59E0B", fontWeight:700 }}>{fmtMoney(total)}</span>
           {Math.abs(diff)>1 && <span style={{ color:"#F59E0B", fontSize:11, marginLeft:6 }}>({diff>0?"under":"over"} by {fmtMoney(Math.abs(diff))})</span>}
         </div>
-        <button onClick={suggestSOV} disabled={generating||!contractVal} style={{ background:"linear-gradient(135deg,#7c3aed,#a855f7)", border:"none", color:"#fff", padding:"7px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:5, opacity:contractVal?1:0.5 }}>
-          {generating ? <><span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span> Generating...</> : <><span>✦</span> AI Suggest SOV</>}
-        </button>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={()=>estimateRef.current?.click()} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text2, padding:"7px 12px", borderRadius:6, cursor:"pointer", fontSize:12, display:"flex", alignItems:"center", gap:5 }}>
+            📎 {estimateFile ? estimateFile.name.slice(0,18)+"…" : "Upload Estimate"}
+          </button>
+          <input ref={estimateRef} type="file" accept="image/*,application/pdf" style={{ display:"none" }} onChange={e=>handleEstimateUpload(e.target.files[0])} />
+          {estimateFile && (
+            <button onClick={extractFromEstimate} disabled={extractingEstimate} style={{ background:"linear-gradient(135deg,#0ea5e9,#3b82f6)", border:"none", color:"#fff", padding:"7px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
+              {extractingEstimate ? <><span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span> Reading...</> : <><span>⚡</span> Extract from Estimate</>}
+            </button>
+          )}
+          <button onClick={suggestSOV} disabled={generating||!contractVal} style={{ background:"linear-gradient(135deg,#7c3aed,#a855f7)", border:"none", color:"#fff", padding:"7px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:5, opacity:contractVal?1:0.5 }}>
+            {generating ? <><span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span> Generating...</> : <><span>✦</span> AI Suggest</>}
+          </button>
+        </div>
       </div>
       <div style={{ maxHeight:400, overflowY:"auto" }}>
         <div style={{ display:"grid", gridTemplateColumns:"50px 1fr 130px 36px", gap:6, marginBottom:6 }}>
@@ -2412,6 +2824,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
   const [cos, setCos] = useState([]);
   const [materials, setMaterials] = useState([]);
   const [receipts, setReceipts] = useState([]);
+  const [scheduleItems, setScheduleItems] = useState([]);
   const [subcontracts, setSubcontracts] = useState([]);
   const [payApps, setPayApps] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2441,6 +2854,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
   const totalMaterials = materials.reduce((sum,m)=>sum+(m.total_cost||0),0);
 
   const TABS = [
+    { id:"schedule", label:"Schedule", count:scheduleItems.length },
     { id:"logs", label:"Daily Logs", count:logs.length },
     { id:"rfis", label:"RFIs", count:rfis.length },
     { id:"submittals", label:"Submittals", count:submittals.length },
@@ -2501,7 +2915,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
         {loading ? <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div> : (
           <>
             {/* Add button */}
-            {tab !== "financials" && tab !== "subcontracts" && tab !== "payapps" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+            {tab !== "financials" && tab !== "subcontracts" && tab !== "payapps" && tab !== "schedule" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
               <button onClick={()=>setModal({type:tab,item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>
                 {tab==="financials" ? null : ("+ Add " + (tab==="logs"?"Log":tab==="rfis"?"RFI":tab==="submittals"?"Submittal":tab==="cos"?"Change Order":"Order"))}
               </button>
@@ -2638,6 +3052,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
             )}
 
             {/* Financials */}
+            {tab==="schedule" && <ScheduleTab project={project} />}
             {tab==="subcontracts" && <SubcontractsTab project={project} />}
             {tab==="payapps" && <PayAppTab project={project} />}
             {tab==="financials" && <FinancialsTab project={project} cos={cos} />}
