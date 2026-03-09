@@ -3054,6 +3054,20 @@ function PreconTab({ project }) {
   },[pageNum]);
 
   useEffect(()=>{
+    const handleKey=(e)=>{
+      if(e.key==='Escape'){
+        setActivePts([]);
+        setScalePts([]);
+        setScaleStep(null);
+        setTool('select');
+        setShowScalePicker(false);
+      }
+    };
+    window.addEventListener('keydown',handleKey);
+    return ()=>window.removeEventListener('keydown',handleKey);
+  },[]);
+
+  useEffect(()=>{
     if(!selPlan) return;
     const isPdf = selPlan.file_type?.includes('pdf') || selPlan.file_url?.toLowerCase().includes('.pdf');
     if(isPdf) {
@@ -3979,6 +3993,20 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   },[pageNum]);
 
   useEffect(()=>{
+    const handleKey=(e)=>{
+      if(e.key==='Escape'){
+        setActivePts([]);
+        setScalePts([]);
+        setScaleStep(null);
+        setTool('select');
+        setShowScalePicker(false);
+      }
+    };
+    window.addEventListener('keydown',handleKey);
+    return ()=>window.removeEventListener('keydown',handleKey);
+  },[]);
+
+  useEffect(()=>{
     if(!selPlan) return;
     const isPdf = selPlan.file_type?.includes('pdf') || selPlan.file_url?.toLowerCase().includes('.pdf');
     if(isPdf) {
@@ -3988,6 +4016,41 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   },[selPlan?.id]);
 
   const getUnitCosts = () => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} };
+
+  const autoDetectScale = async () => {
+    if(!selPlan) return;
+    setAnalyzing(true);
+    let b64=planB64; let mime=planMime;
+    if(!b64){
+      try{
+        const res=await fetch(selPlan.file_url);
+        const blob=await res.blob(); mime=blob.type||'image/png';
+        b64=await new Promise(resolve=>{const r=new FileReader();r.onload=e=>resolve(e.target.result.split(',')[1]);r.readAsDataURL(blob);});
+      }catch(e){setAnalyzing(false);alert('Could not load plan');return;}
+    }
+    const isImg=mime.startsWith('image/');
+    const block=isImg?{type:'image',source:{type:'base64',media_type:mime,data:b64}}:{type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}};
+    try{
+      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:256,
+          messages:[{role:'user',content:[block,{type:'text',text:'Look at this construction drawing. Find the scale bar or scale notation in the title block or anywhere on the drawing. Return ONLY a JSON object like: {"scale":"1\"=20ft","found":true} or {"found":false} if you cannot find one. No other text.'}]}]})});
+      const json=await res.json();
+      const text=json?.content?.find(b=>b.type==='text')?.text||'';
+      const parsed=JSON.parse(text.replace(/```json|```/g,'').trim());
+      if(parsed.found&&parsed.scale){
+        const match=CONSTRUCTION_SCALES.find(s=>s.label===parsed.scale||s.label.replace('ft',"'")===parsed.scale);
+        if(match){
+          const dpi=144; const pxPerFt=dpi/(match.ratio/12);
+          setScale(pxPerFt); setPresetScale(match.label);
+          if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+          alert('✓ Scale detected: '+match.label);
+        } else {
+          alert('Detected scale "'+parsed.scale+'" — select it manually from the dropdown.');
+        }
+      } else { alert('Could not auto-detect scale. Please set manually.'); }
+    }catch(e){ alert('Auto-detect failed: '+e.message); }
+    setAnalyzing(false);
+  };
 
   const saveItem = async (itemData) => {
     const catDef = TAKEOFF_CATS.find(c=>c.id===itemData.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
@@ -4344,35 +4407,30 @@ Return ONLY a valid JSON array, no markdown:
               ))}
               {/* Scale tools */}
               <div style={{width:1,height:18,background:t.border,margin:'0 2px',flexShrink:0}}/>
-              <button onClick={()=>{setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);}}
-                title="Calibrate Scale — click 2 known points"
-                style={{padding:'4px 9px',borderRadius:4,border:tool==='scale'?'1.5px solid #10B981':`1px solid ${t.border}`,background:tool==='scale'?'#10B98118':'none',color:tool==='scale'?'#10B981':t.text4,cursor:'pointer',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',flexShrink:0}}>
-                <span>⇔</span><span style={{fontSize:10}}>Cal.</span>
-              </button>
-              <button onClick={()=>setShowScalePicker(s=>!s)}
-                style={{padding:'4px 9px',borderRadius:4,border:showScalePicker?'1.5px solid #10B981':`1px solid ${t.border}`,background:showScalePicker?'#10B98118':'none',color:'#10B981',cursor:'pointer',fontSize:10,fontWeight:700,display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap',flexShrink:0,fontFamily:"'DM Mono',monospace"}}>
-                {scale?`1"=${Math.round(96/scale*12*10)/10}'`:'⇔ Scale'}
-              </button>
-              {showScalePicker&&(
-                <div style={{position:'absolute',top:38,left:0,background:t.bg3,border:`1px solid ${t.border2}`,borderRadius:8,padding:8,zIndex:50,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:4,width:320,boxShadow:'0 8px 32px rgba(0,0,0,0.4)'}}>
-                  <div style={{gridColumn:'1/-1',fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",padding:'2px 4px 6px',letterSpacing:0.5}}>STANDARD SCALES — select to apply</div>
-                  {CONSTRUCTION_SCALES.map(s=>(
-                    <button key={s.label} onClick={async()=>{
-                      // pxPerFt = screen DPI (96) / ratio — ratio = inches per foot on paper
-                      // For PDF rendered at 2x: canvas px per inch ≈ 144 (72dpi * 2)
-                      const dpi = 144;
-                      const pxPerFt = dpi / (s.ratio / 12);
-                      setScale(pxPerFt);
-                      setPresetScale(s.label);
-                      setShowScalePicker(false);
-                      if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
-                    }}
-                      style={{padding:'5px 6px',borderRadius:4,border:`1px solid ${t.border}`,background:presetScale===s.label?'rgba(16,185,129,0.12)':t.bg4,color:presetScale===s.label?'#10B981':t.text3,cursor:'pointer',fontSize:10,fontFamily:"'DM Mono',monospace",fontWeight:600,textAlign:'center'}}>
-                      {s.label}
-                    </button>
-                  ))}
-                </div>
-              )}
+              <select
+                value={presetScale}
+                onChange={async e=>{
+                  const val=e.target.value;
+                  if(val==='cal'){setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);return;}
+                  if(val==='auto'){autoDetectScale();return;}
+                  const s=CONSTRUCTION_SCALES.find(x=>x.label===val);
+                  if(!s) return;
+                  const dpi=144;
+                  const pxPerFt=dpi/(s.ratio/12);
+                  setScale(pxPerFt); setPresetScale(s.label);
+                  if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+                }}
+                style={{...inputStyle,fontSize:10,padding:'3px 7px',borderRadius:4,color:scale?'#10B981':t.text4,fontFamily:"'DM Mono',monospace",fontWeight:700,minWidth:120,flexShrink:0,border:scale?'1px solid rgba(16,185,129,0.4)':`1px solid ${t.border}`}}>
+                <option value="">⇔ Set Scale</option>
+                <option value="auto">✦ Auto-Detect from Drawing</option>
+                <option value="cal">⊕ Calibrate (click 2 pts)</option>
+                <optgroup label="Engineering">
+                  {CONSTRUCTION_SCALES.filter(s=>s.label.startsWith('1"=')).map(s=><option key={s.label} value={s.label}>{s.label}</option>)}
+                </optgroup>
+                <optgroup label="Architectural">
+                  {CONSTRUCTION_SCALES.filter(s=>!s.label.startsWith('1"=')).map(s=><option key={s.label} value={s.label}>{s.label}</option>)}
+                </optgroup>
+              </select>
               <div style={{width:1,height:18,background:t.border,margin:'0 4px',flexShrink:0}}/>
               <button onClick={()=>setShowAssembly(true)} style={{padding:'4px 9px',borderRadius:4,border:`1px solid ${t.border}`,background:'none',color:'#8B5CF6',cursor:'pointer',fontSize:10,fontWeight:700,flexShrink:0,display:'flex',alignItems:'center',gap:3}}>
                 <span>⬡</span>Assembly
@@ -4396,7 +4454,7 @@ Return ONLY a valid JSON array, no markdown:
                     ━ {Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF
                   </span>
                 )}
-                {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Click 2 points of known distance ({scalePts.length}/2)</span>}
+                {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Click 2 points of known distance ({scalePts.length}/2) · ESC to cancel</span>}
                 {scale&&!scaleStep&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 6px',borderRadius:3}}>{presetScale||'SCALED'}</span>}
                 {!scale&&<span style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>⚠ set scale for accurate measurements</span>}
               </div>
@@ -4503,18 +4561,20 @@ Return ONLY a valid JSON array, no markdown:
                     <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{catItems.length}</span>
                   </div>
                   {catItems.map(item=>(
-                    <div key={item.id} onClick={()=>setEditItem(item)}
-                      style={{background:t.bg3,borderLeft:`3px solid ${cat.color}`,borderRadius:5,padding:'6px 8px',marginBottom:3,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6}}
-                      onMouseEnter={e=>e.currentTarget.style.background=t.bg4}
-                      onMouseLeave={e=>e.currentTarget.style.background=t.bg3}>
-                      <div style={{flex:1,minWidth:0}}>
+                    <div key={item.id}
+                      style={{background:t.bg3,borderLeft:`3px solid ${cat.color}`,borderRadius:5,padding:'6px 8px',marginBottom:3,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6,position:'relative'}}
+                      onMouseEnter={e=>{e.currentTarget.style.background=t.bg4;e.currentTarget.querySelector('.item-del').style.opacity='1';}}
+                      onMouseLeave={e=>{e.currentTarget.style.background=t.bg3;e.currentTarget.querySelector('.item-del').style.opacity='0';}}>
+                      <div style={{flex:1,minWidth:0}} onClick={()=>setEditItem(item)}>
                         <div style={{fontSize:11,fontWeight:600,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>
                         <div style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:1,display:'flex',gap:6}}>
                           <span>{item.quantity} {item.unit}</span>
                           {item.ai_generated&&<span style={{color:'#a855f7'}}>✦AI</span>}
                         </div>
                       </div>
-                      <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",flexShrink:0}}>${(item.total_cost||0).toLocaleString()}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",flexShrink:0}} onClick={()=>setEditItem(item)}>${(item.total_cost||0).toLocaleString()}</span>
+                      <button className="item-del" onClick={async e=>{e.stopPropagation();await supabase.from('takeoff_items').delete().eq('id',item.id);setItems(prev=>prev.filter(i=>i.id!==item.id));}}
+                        style={{opacity:0,transition:'opacity 0.1s',position:'absolute',top:4,right:4,background:'rgba(239,68,68,0.15)',border:'none',color:'#ef4444',cursor:'pointer',fontSize:10,padding:'1px 4px',borderRadius:3,lineHeight:1}}>✕</button>
                     </div>
                   ))}
                 </div>);
@@ -4533,9 +4593,13 @@ Return ONLY a valid JSON array, no markdown:
                     <span style={{fontSize:11,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${cat.subtotal.toLocaleString()}</span>
                   </div>
                   {cat.items.map(it=>(
-                    <div key={it.id} style={{display:'flex',padding:'2px 0 2px 12px',fontSize:10,color:t.text3,gap:4,justifyContent:'space-between'}}>
-                      <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,fontFamily:"'DM Mono',monospace"}}>{it.description}</span>
+                    <div key={it.id} style={{display:'flex',padding:'2px 0 2px 12px',fontSize:10,color:t.text3,gap:4,justifyContent:'space-between',alignItems:'center'}}
+                      onMouseEnter={e=>e.currentTarget.querySelector('.del-btn').style.opacity='1'}
+                      onMouseLeave={e=>e.currentTarget.querySelector('.del-btn').style.opacity='0'}>
+                      <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,fontFamily:"'DM Mono',monospace",cursor:'pointer'}} onClick={()=>setEditItem(it)}>{it.description}</span>
                       <span style={{color:t.text2,fontFamily:"'DM Mono',monospace",flexShrink:0,whiteSpace:'nowrap'}}>{it.quantity}{it.unit} × ${it.unit_cost} = <span style={{color:t.text,fontWeight:600}}>${(it.total_cost||0).toLocaleString()}</span></span>
+                      <button className="del-btn" onClick={async()=>{await supabase.from('takeoff_items').delete().eq('id',it.id);setItems(prev=>prev.filter(i=>i.id!==it.id));}}
+                        style={{opacity:0,transition:'opacity 0.1s',background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:12,padding:'0 2px',flexShrink:0,lineHeight:1}}>✕</button>
                     </div>
                   ))}
                 </div>
