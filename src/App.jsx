@@ -5245,9 +5245,10 @@ Return ONLY a valid JSON array, no markdown:
                 <button onClick={()=>fileRef.current?.click()} style={{background:'#10B981',border:'none',color:'#000',padding:'10px 24px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>📎 Upload Plans</button>
               </div>
             ):(()=>{
-              // planW/H: natural pixel dimensions of the current plan image
-              const planW = imgNat.w || (canvasRef.current?.width) || 800;
-              const planH = imgNat.h || (canvasRef.current?.height) || 1100;
+              // planW/H: natural pixel dimensions of the current plan image.
+              // imgNat starts at {w:1,h:1} — only use it once the image has actually loaded.
+              const planW = imgNat.w > 4 ? imgNat.w : (canvasRef.current?.width || 800);
+              const planH = imgNat.h > 4 ? imgNat.h : (canvasRef.current?.height || 1100);
               return (
                 // Sizing wrapper: zoom * natural dims → makes scrollLeft/scrollTop
                 // correctly range over the full zoomed content.
