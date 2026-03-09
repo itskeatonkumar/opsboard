@@ -3974,6 +3974,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   const [rendering, setRendering] = useState(false);
   const [blobUrl, setBlobUrl] = useState(null);
   const [loadingPlan, setLoadingPlan] = useState(false);
+  const [planErr, setPlanErr] = useState(null);
   const pdfDocRef = useRef(null);
   const imgRef = useRef();
   const canvasRef = useRef();
@@ -4123,46 +4124,50 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
 
   useEffect(()=>{
     if(!selPlan) return;
-    // Reset scale
     if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
     else { setScale(null); setPresetScale(''); }
     pdfDocRef.current = null;
     setPdfDoc(null);
+    setBlobUrl(null);
+    setPlanErr(null);
 
-    // If it's a local data: URL (just uploaded), use directly
     if(selPlan.file_url?.startsWith('data:')){
       setBlobUrl(selPlan.file_url);
       return;
     }
 
-    // Otherwise fetch as blob to bypass any CORS/cache issues
     setLoadingPlan(true);
-    setBlobUrl(null);
-    fetch(selPlan.file_url)
-      .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.blob(); })
-      .then(blob=>{
-        const url = URL.createObjectURL(blob);
-        setBlobUrl(url);
-        setLoadingPlan(false);
-      })
-      .catch(err=>{
-        console.error('Plan fetch failed:', err, selPlan.file_url);
-        // Fall back to direct URL
-        setBlobUrl(selPlan.file_url);
-        setLoadingPlan(false);
-      });
+
+    const marker = '/object/public/attachments/';
+    const idx = selPlan.file_url?.indexOf(marker) ?? -1;
+    const storagePath = idx !== -1 ? selPlan.file_url.slice(idx + marker.length) : null;
+
+    if(storagePath){
+      supabase.storage.from('attachments').download(storagePath)
+        .then(({data, error})=>{
+          if(error || !data){
+            console.error('Supabase download failed:', error?.message, storagePath);
+            setPlanErr('Download failed: ' + (error?.message||'unknown') + ' | path: ' + storagePath);
+            setLoadingPlan(false);
+            return;
+          }
+          const url = URL.createObjectURL(data);
+          setBlobUrl(url);
+          setLoadingPlan(false);
+        });
+    } else {
+      setBlobUrl(selPlan.file_url);
+      setLoadingPlan(false);
+    }
   },[selPlan?.id, selPlan?.file_url]);
 
-  // When blobUrl is ready, load PDF if needed
   useEffect(()=>{
     if(!blobUrl || !selPlan) return;
-    const isPdf = !!(
-      selPlan.file_type?.includes('pdf')
-      || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
-      || selPlan.file_url?.startsWith('data:application/pdf')
-    );
-    if(isPdf) loadPdf(blobUrl);
+    if(selPlan.file_type?.includes('pdf') || selPlan.file_url?.startsWith('data:application/pdf')){
+      loadPdf(blobUrl);
+    }
   },[blobUrl]);
+
 
   const getUnitCosts = () => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} };
 
@@ -4753,8 +4758,9 @@ Return ONLY a valid JSON array, no markdown:
               </div>
             ):(
               <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative'}}>
-                {(loadingPlan||(!blobUrl&&selPlan))&&!isPdfPlan&&(
-                  <div style={{width:800,height:600,display:'flex',alignItems:'center',justifyContent:'center',background:'#1a1a1a',color:'#555',fontSize:13,gap:8,fontFamily:"'DM Mono',monospace"}}>
+                {planErr&&<div style={{position:'absolute',top:10,left:10,zIndex:20,background:'#1a0505',border:'1px solid #ef4444',color:'#ef4444',padding:'10px 14px',borderRadius:8,fontSize:11,fontFamily:"'DM Mono',monospace",maxWidth:500,wordBreak:'break-all'}}>{planErr}</div>}
+                {loadingPlan&&(
+                  <div style={{width:800,height:600,display:'flex',alignItems:'center',justifyContent:'center',background:'#1a1a1a',color:'#aaa',fontSize:13,gap:8,fontFamily:"'DM Mono',monospace"}}>
                     <span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Loading plan…
                   </div>
                 )}
@@ -4768,8 +4774,8 @@ Return ONLY a valid JSON array, no markdown:
                     style={{display:'block',maxWidth:'none',userSelect:'none'}}
                     onLoad={handleImgLoad}
                     onError={(e)=>{
-                      console.error('Blob img failed, trying direct URL');
-                      e.target.src = selPlan.file_url;
+                      console.error('img load failed, src:', e.target.src.slice(0,80));
+                      setPlanErr('Load failed. URL: ' + (selPlan?.file_url||'').slice(0,120));
                     }}
                     draggable={false}/>
                 ))}
