@@ -2980,9 +2980,9 @@ function PreconTab({ project }) {
     });
   },[project.id]);
 
-  const toNorm=(x,y)=>({x:x/imgDisp.w,y:y/imgDisp.h});
-  const toPx=(nx,ny)=>({x:nx*imgDisp.w,y:ny*imgDisp.h});
-  const toNat=(nx,ny)=>({x:nx*imgNat.w,y:ny*imgNat.h});
+  // Points stored as raw SVG pixel coords — no normalization needed
+  // toPx is identity: SVG coord space = image pixel space
+  const toPx=(x,y)=>({x,y});
 
   const getSvgPos=(e)=>{
     const r=svgRef.current?.getBoundingClientRect();
@@ -2995,17 +2995,14 @@ function PreconTab({ project }) {
     let a=0;
     for(let i=0;i<pts.length;i++){
       const j=(i+1)%pts.length;
-      const pi=toNat(pts[i].x,pts[i].y);
-      const pj=toNat(pts[j].x,pts[j].y);
-      a+=pi.x*pj.y; a-=pj.x*pi.y;
+      a+=pts[i].x*pts[j].y - pts[j].x*pts[i].y;
     }
-    return Math.abs(a)/2/(scale*scale);
+    return Math.abs(a)/2/(scale*scale); // px² → ft²
   };
 
   const calcLinear=(p1,p2)=>{
     if(!scale) return 0;
-    const n1=toNat(p1.x,p1.y); const n2=toNat(p2.x,p2.y);
-    return Math.sqrt((n2.x-n1.x)**2+(n2.y-n1.y)**2)/scale;
+    return Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2)/scale; // px → ft
   };
 
   const handleImgLoad=()=>{
@@ -3308,7 +3305,7 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
 
   // SVG rendering
   const renderMeasurements=()=>items.filter(it=>it.points?.length).map(it=>{
-    const pts=it.points.map(p=>toPx(p.x,p.y));
+    const pts=it.points; // raw pixel coords
     const c=it.color||'#F97316';
     if(it.measurement_type==='area'){
       const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')+' Z';
@@ -4012,19 +4009,16 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     });
   },[project.id]);
 
-  const toNorm=(x,y)=>({x:x/imgDisp.w,y:y/imgDisp.h});
-  const toPx=(nx,ny)=>({x:nx*imgDisp.w,y:ny*imgDisp.h});
-  const toNat=(nx,ny)=>({x:nx*imgNat.w,y:ny*imgNat.h});
+  // Points stored as raw SVG pixel coords — no normalization needed
+  // toPx is identity: SVG coord space = image pixel space
+  const toPx=(x,y)=>({x,y});
 
   const getSvgPos=(e)=>{
     const r=svgRef.current?.getBoundingClientRect();
     if(!r) return {x:0,y:0};
-    // getBoundingClientRect of scaled SVG: r.left/top are correct screen coords,
-    // but the visual size is zoom * naturalSize. Dividing offset by zoom gives natural coords.
-    return {
-      x:(e.clientX - r.left) / zoom,
-      y:(e.clientY - r.top) / zoom
-    };
+    // SVG is inside transform:scale(zoom) div. BoundingClientRect gives scaled screen pos.
+    // Dividing by zoom converts back to unscaled SVG pixel coords.
+    return {x:(e.clientX-r.left)/zoom, y:(e.clientY-r.top)/zoom};
   };
 
   const calcArea=(pts)=>{
@@ -4032,17 +4026,14 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     let a=0;
     for(let i=0;i<pts.length;i++){
       const j=(i+1)%pts.length;
-      const pi=toNat(pts[i].x,pts[i].y);
-      const pj=toNat(pts[j].x,pts[j].y);
-      a+=pi.x*pj.y; a-=pj.x*pi.y;
+      a+=pts[i].x*pts[j].y - pts[j].x*pts[i].y;
     }
-    return Math.abs(a)/2/(scale*scale);
+    return Math.abs(a)/2/(scale*scale); // px² → ft²
   };
 
   const calcLinear=(p1,p2)=>{
     if(!scale) return 0;
-    const n1=toNat(p1.x,p1.y); const n2=toNat(p2.x,p2.y);
-    return Math.sqrt((n2.x-n1.x)**2+(n2.y-n1.y)**2)/scale;
+    return Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2)/scale; // px → ft
   };
 
   const handleImgLoad=()=>{
@@ -4260,59 +4251,62 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
   const handleSvgClick=(e)=>{
     if(!selPlan) return;
-    const pos=getSvgPos(e);
-    const norm=toNorm(pos.x,pos.y);
+    const pt=getSvgPos(e); // raw SVG pixel coords
     if(tool==='scale'&&scaleStep==='picking'){
-      const npts=[...scalePts,norm];
+      const npts=[...scalePts,pt];
       setScalePts(npts);
       if(npts.length===2) setScaleStep('entering');
       return;
     }
-    if(tool==='count'){ saveItem({category:'other',description:'Count',quantity:1,unit:'EA',measurement_type:'count',points:[norm]}); return; }
+    if(tool==='count'){
+      const cnt=items.filter(i=>i.measurement_type==='count').length+1;
+      saveItem({category:'other',description:`Count ${cnt}`,quantity:1,unit:'EA',measurement_type:'count',points:[pt]});
+      return;
+    }
     if(tool==='linear'){
-      const npts=[...activePts,norm];
+      const npts=[...activePts,pt];
       if(npts.length===2){
         const len=Math.round(calcLinear(npts[0],npts[1])*10)/10;
-        saveItem({category:'other',description:'Linear measurement',quantity:len,unit:'LF',measurement_type:'linear',points:npts});
+        const cnt=items.filter(i=>i.measurement_type==='linear').length+1;
+        saveItem({category:'other',description:`Linear ${cnt}`,quantity:len,unit:'LF',measurement_type:'linear',points:npts});
         setActivePts([]);
       } else setActivePts(npts);
       return;
     }
     if(tool==='area'){
       if(activePts.length>=3){
-        const fp=toPx(activePts[0].x,activePts[0].y);
-        if(Math.sqrt((pos.x-fp.x)**2+(pos.y-fp.y)**2)<14){
+        const fp=activePts[0]; // first point in pixel space
+        if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
           const area=Math.round(calcArea(activePts)*10)/10;
-          saveItem({category:'concrete_slab',description:'Area',quantity:area,unit:'SF',measurement_type:'area',points:activePts});
+          const cnt=items.filter(i=>i.measurement_type==='area').length+1;
+          saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});
           setActivePts([]); return;
         }
       }
-      setActivePts(prev=>[...prev,norm]);
+      setActivePts(prev=>[...prev,pt]);
+      return;
     }
     if(tool==='perimeter'){
       if(activePts.length>=3){
-        const fp=toPx(activePts[0].x,activePts[0].y);
-        if(Math.sqrt((pos.x-fp.x)**2+(pos.y-fp.y)**2)<14){
-          // Sum all sides
+        const fp=activePts[0];
+        if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
           let perim=0;
-          for(let i=0;i<activePts.length;i++){
-            perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);
-          }
-          perim=Math.round(perim*10)/10;
-          saveItem({category:'formwork',description:'Perimeter',quantity:perim,unit:'LF',measurement_type:'perimeter',points:activePts});
+          for(let i=0;i<activePts.length;i++) perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);
+          const cnt=items.filter(i=>i.measurement_type==='perimeter').length+1;
+          saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});
           setActivePts([]); return;
         }
       }
-      setActivePts(prev=>[...prev,norm]);
+      setActivePts(prev=>[...prev,pt]);
+      return;
     }
   };
 
-  const handleSvgMove=(e)=>{ setHoverPt(toNorm(getSvgPos(e).x, getSvgPos(e).y)); };
+  const handleSvgMove=(e)=>{ setHoverPt(getSvgPos(e)); };
 
   const confirmScale=async()=>{
     if(!scaleDist||scalePts.length<2) return;
-    const p1=toNat(scalePts[0].x,scalePts[0].y);
-    const p2=toNat(scalePts[1].x,scalePts[1].y);
+    const p1=scalePts[0]; const p2=scalePts[1]; // raw pixel coords
     const pxDist=Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2);
     const realFt=Number(scaleDist)*(scaleUnit==='in'?1/12:1);
     const pxPerFt=pxDist/realFt;
@@ -4491,7 +4485,7 @@ Return ONLY a valid JSON array, no markdown:
 
   // SVG
   const renderMeasurements=()=>items.filter(it=>it.points?.length).map(it=>{
-    const pts=it.points.map(p=>toPx(p.x,p.y));
+    const pts=it.points; // raw pixel coords
     const c=it.color||'#F97316';
     if(it.measurement_type==='area'&&pts.length>=3){
       const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')+' Z';
@@ -4536,14 +4530,13 @@ Return ONLY a valid JSON array, no markdown:
     const pts=(tool==='scale'&&scaleStep==='picking')?scalePts:activePts;
     if(!pts.length) return null;
     const c=tool==='scale'?'#10B981':tool==='area'?'#F59E0B':tool==='perimeter'?'#F97316':'#06B6D4';
-    const disp=pts.map(p=>toPx(p.x,p.y));
-    const hover=hoverPt?toPx(hoverPt.x,hoverPt.y):null;
-    const all=hover?[...disp,hover]:disp;
+    // pts and hoverPt are raw pixel coords — use directly
+    const all=hoverPt?[...pts,hoverPt]:pts;
     return(<>
       {all.length>=2&&<polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={2.5} strokeDasharray={tool==='area'?'none':'6,3'} opacity={0.9}/>}
-      {disp.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?10:5} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={2} opacity={0.95}/>)}
-      {hover&&<circle cx={hover.x} cy={hover.y} r={4} fill={c} opacity={0.5}/>}
-      {tool==='area'&&pts.length>=3&&<text x={disp[0].x+14} y={disp[0].y-10} fontSize={10} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>← close</text>}
+      {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?10:5} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={2} opacity={0.95}/>)}
+      {hoverPt&&<circle cx={hoverPt.x} cy={hoverPt.y} r={4} fill={c} opacity={0.5}/>}
+      {tool==='area'&&pts.length>=3&&<text x={pts[0].x+14} y={pts[0].y-10} fontSize={10} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>● close</text>}
     </>);
   };
 
@@ -4734,6 +4727,9 @@ Return ONLY a valid JSON array, no markdown:
                 if(val==='auto'){autoDetectScale();return;}
                 const s=CONSTRUCTION_SCALES.find(x=>x.label===val);
                 if(!s) return;
+                // Preset scales only valid for PDF plans (rendered at 144px/in).
+                // For image uploads, use ⊕ Calibrate instead.
+                if(!isPdfPlan){ alert('Preset scales are for PDF plans only (known DPI). Use ⊕ Calibrate to click two points of known distance on this image plan.'); return; }
                 const pxPerFt=144/(s.ratio/12);
                 setScale(pxPerFt); setPresetScale(s.label);
                 if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
@@ -4780,9 +4776,9 @@ Return ONLY a valid JSON array, no markdown:
 
             {/* Live measurement status */}
             <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-              {tool==='area'&&activePts.length>0&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>{activePts.length>=3?`⬡ ${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF · dbl-click to close`:`${activePts.length} pts`}</span>}
-              {tool==='perimeter'&&activePts.length>0&&<span style={{fontSize:10,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>{activePts.length>=3?`⬠ ${Math.round(activePts.reduce((s,p,i)=>s+(i>0?calcLinear(activePts[i-1],p):0),0)*10)/10} LF · dbl-click to close`:`${activePts.length} pts`}</span>}
-              {tool==='linear'&&activePts.length===1&&hoverPt&&<span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>━ {Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF</span>}
+              {tool==='area'&&activePts.length>0&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>{activePts.length>=3&&scale?`⬡ ${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF · click ● or dbl-click to close`:`${activePts.length} pts placed`}</span>}
+              {tool==='perimeter'&&activePts.length>0&&<span style={{fontSize:10,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>{activePts.length>=3&&scale?`⬠ ${Math.round(activePts.reduce((s,p,i)=>s+(i>0?calcLinear(activePts[i-1],p):0),0)*10)/10} LF · click ● or dbl-click to close`:`${activePts.length} pts`}</span>}
+              {tool==='linear'&&activePts.length===1&&hoverPt&&scale&&<span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>━ {Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF</span>}
               {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Pick 2 pts ({scalePts.length}/2) · ESC cancel</span>}
               {!scale&&!scaleStep&&selPlan&&<span style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>⚠ No scale set</span>}
               {scale&&!scaleStep&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 6px',borderRadius:3}}>{presetScale||'SCALED'}</span>}
@@ -4827,15 +4823,15 @@ Return ONLY a valid JSON array, no markdown:
                   onDoubleClick={(e)=>{
                     if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
                       e.stopPropagation();
-                      if(tool==='area'){const area=Math.round(calcArea(activePts)*10)/10;saveItem({category:'concrete_slab',description:'Area',quantity:area,unit:'SF',measurement_type:'area',points:activePts});}
-                      else{let perim=0;for(let i=0;i<activePts.length;i++)perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);saveItem({category:'formwork',description:'Perimeter',quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});}
+                      if(tool==='area'){const area=Math.round(calcArea(activePts)*10)/10;const cnt=items.filter(i=>i.measurement_type==='area').length+1;saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});}
+                      else{let perim=0;for(let i=0;i<activePts.length;i++)perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);const cnt=items.filter(i=>i.measurement_type==='perimeter').length+1;saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});}
                       setActivePts([]);
                     }
                   }}
                   onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
                   {renderMeasurements()}
                   {renderActive()}
-                  {scalePts.length>=2&&(()=>{const p1=toPx(scalePts[0].x,scalePts[0].y);const p2=toPx(scalePts[1].x,scalePts[1].y);return(<g><line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#10B981" strokeWidth={2.5} strokeDasharray="6,3"/><circle cx={p1.x} cy={p1.y} r={6} fill="#10B981"/><circle cx={p2.x} cy={p2.y} r={6} fill="#10B981"/></g>);})()}
+                  {scalePts.length>=2&&(()=>{const p1=scalePts[0];const p2=scalePts[1];return(<g><line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#10B981" strokeWidth={2.5} strokeDasharray="6,3"/><circle cx={p1.x} cy={p1.y} r={6} fill="#10B981"/><circle cx={p2.x} cy={p2.y} r={6} fill="#10B981"/></g>);})()}
                 </svg>
               </div>
             )}
