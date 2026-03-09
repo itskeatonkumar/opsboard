@@ -3925,16 +3925,26 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     if(!file) return;
     const pid = project.id;
     setUploading(true);
+    // Show image immediately from local file while uploading
+    const reader=new FileReader();
+    reader.onload=ev=>{
+      setPlanB64(ev.target.result.split(',')[1]);
+      setPlanMime(file.type);
+      // Set a temporary local preview plan so image shows right away
+      setSelPlan(prev => prev || {id:'preview',name:file.name,file_url:ev.target.result,file_type:file.type});
+    };
+    reader.readAsDataURL(file);
     const ext=file.name.split('.').pop();
     const path=`precon/${pid}/${Date.now()}.${ext}`;
     const {error}=await supabase.storage.from('attachments').upload(path,file,{upsert:true});
     if(error){setUploading(false);alert('Upload failed: '+error.message);return;}
     const {data:ud}=supabase.storage.from('attachments').getPublicUrl(path);
-    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:pid,name:file.name,file_url:ud.publicUrl,file_type:file.type}]).select().single();
-    if(plan){setPlans(prev=>[...prev,plan]);setSelPlan(plan);}
-    const reader=new FileReader();
-    reader.onload=ev=>{setPlanB64(ev.target.result.split(',')[1]);setPlanMime(file.type);};
-    reader.readAsDataURL(file);
+    const publicUrl = ud?.publicUrl || ud?.data?.publicUrl || '';
+    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:pid,name:file.name,file_url:publicUrl,file_type:file.type}]).select().single();
+    if(plan){
+      setPlans(prev=>[...prev.filter(p=>p.id!=='preview'),plan]);
+      setSelPlan(plan);
+    }
     setUploading(false);
   };
 
@@ -4152,7 +4162,7 @@ Return ONLY a valid JSON array, no markdown:
           )}
 
           {/* Plan canvas */}
-          <div ref={containerRef} style={{flex:1,overflow:'auto',background:t.bg,position:'relative'}}>
+          <div ref={containerRef} style={{flex:1,overflow:'auto',background:t.bg,position:'relative',minHeight:0}}>
             {!selPlan?(
               <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:40}}>
                 <div style={{fontSize:48,marginBottom:16}}>📐</div>
@@ -4162,8 +4172,13 @@ Return ONLY a valid JSON array, no markdown:
                   style={{background:'#F97316',border:'none',color:'#000',padding:'10px 24px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>📎 Upload Plans</button>
               </div>
             ):(
-              <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative'}}>
-                <img ref={imgRef} src={selPlan.file_url} alt="Plan" style={{display:'block',maxWidth:'none',userSelect:'none'}} onLoad={handleImgLoad} draggable={false}/>
+              <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative',minWidth:'100%'}}>
+                <img ref={imgRef} src={selPlan.file_url} alt="Plan"
+                  crossOrigin="anonymous"
+                  style={{display:'block',maxWidth:'none',minWidth:400,minHeight:300,userSelect:'none',background:t.bg3}}
+                  onLoad={handleImgLoad}
+                  onError={(e)=>{e.target.style.display='none'; const d=document.createElement('div'); d.style.cssText='padding:20px;color:#ef4444;font-size:12px;font-family:monospace;background:#1a0a0a;border:1px solid #3a1a1a;border-radius:8px;margin:20px;max-width:600px'; d.textContent='Image failed to load. URL: '+selPlan.file_url; e.target.parentNode.appendChild(d);}}
+                  draggable={false}/>
                 <svg ref={svgRef} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',cursor:toolCursor}} onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
                   {renderMeasurements()}
                   {renderActive()}
