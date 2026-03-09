@@ -3008,10 +3008,9 @@ function PreconTab({ project }) {
   const handleImgLoad=()=>{
     const img=imgRef.current;
     if(!img) return;
-    // naturalWidth/Height = actual image pixels
-    // offsetWidth/Height = CSS layout size (unscaled by transform) — use for SVG coordinate space
     setImgNat({w:img.naturalWidth, h:img.naturalHeight});
     setImgDisp({w:img.offsetWidth||img.naturalWidth, h:img.offsetHeight||img.naturalHeight});
+    // Image plans: DPI stays at user-set value (planDpi)
   };
 
   const renderPdfPage = async (doc, pageN=1) => {
@@ -3035,6 +3034,7 @@ function PreconTab({ project }) {
       await page.render({canvasContext: ctx, viewport}).promise;
       setImgNat({w:viewport.width, h:viewport.height});
       setImgDisp({w:viewport.width, h:viewport.height});
+      setPlanDpi(144); // PDF.js at scale:2 × 72pt/in = 144px/in
     } catch(e){ console.error('renderPdfPage error', e); }
     setRendering(false);
   };
@@ -4012,6 +4012,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [zoom, setZoom] = useState(1);
   const [showScalePicker, setShowScalePicker] = useState(false);
   const [presetScale, setPresetScale] = useState('');
+  const [planDpi, setPlanDpi] = useState(150); // scan DPI for image plans (PDFs auto-set to 144)
   const [showAssembly, setShowAssembly] = useState(false);
   const [showUnitCosts, setShowUnitCosts] = useState(false);
   const [showBidSummary, setShowBidSummary] = useState(false);
@@ -4076,10 +4077,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const handleImgLoad=()=>{
     const img=imgRef.current;
     if(!img) return;
-    // naturalWidth/Height = actual image pixels
-    // offsetWidth/Height = CSS layout size (unscaled by transform) — use for SVG coordinate space
     setImgNat({w:img.naturalWidth, h:img.naturalHeight});
     setImgDisp({w:img.offsetWidth||img.naturalWidth, h:img.offsetHeight||img.naturalHeight});
+    // Image plans: DPI stays at user-set value (planDpi)
   };
 
   const renderPdfPage = async (doc, pageN=1) => {
@@ -4103,6 +4103,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       await page.render({canvasContext: ctx, viewport}).promise;
       setImgNat({w:viewport.width, h:viewport.height});
       setImgDisp({w:viewport.width, h:viewport.height});
+      setPlanDpi(144); // PDF.js at scale:2 × 72pt/in = 144px/in
     } catch(e){ console.error('renderPdfPage error', e); }
     setRendering(false);
   };
@@ -4267,7 +4268,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       if(parsed.found&&parsed.scale){
         const match=CONSTRUCTION_SCALES.find(s=>s.label===parsed.scale||s.label.replace('ft',"'")===parsed.scale);
         if(match){
-          const pxPerFt=96/(match.ratio/12);
+          const pxPerFt=(planDpi*12)/match.ratio;
           setScale(pxPerFt); setPresetScale(match.label);
           if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
           alert('✓ Scale detected: '+match.label);
@@ -4800,9 +4801,8 @@ Return ONLY a valid JSON array, no markdown:
                 if(val==='auto'){autoDetectScale();return;}
                 const s=CONSTRUCTION_SCALES.find(x=>x.label===val);
                 if(!s) return;
-                // pxPerFt assumes 96px/in screen resolution (standard CSS px)
-                // For scanned images use ⊕ Calibrate to override
-                const pxPerFt=(96*12)/s.ratio; // ratio = real_in per drawn_in
+                // planDpi = px per drawn inch (144 for PDF, user-set for scans)
+                const pxPerFt=(planDpi*12)/s.ratio; // pxPerFt = (px/in × 12in/ft) / (real_in/drawn_in)
                 setScale(pxPerFt); setPresetScale(s.label);
                 if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
               }} style={{...inputStyle,width:'100%',fontSize:11,marginBottom:14}}>
@@ -4813,7 +4813,23 @@ Return ONLY a valid JSON array, no markdown:
                 <optgroup label="Architectural">{CONSTRUCTION_SCALES.filter(s=>s.group==='arch').map(s=><option key={s.label+s.group} value={s.label}>{s.label}</option>)}</optgroup>
                 <optgroup label="Detail">{CONSTRUCTION_SCALES.filter(s=>s.group==='detail').map(s=><option key={s.label+s.group} value={s.label}>{s.label}</option>)}</optgroup>
               </select>
-              {scale&&<div style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginBottom:14}}>✓ Scale set: {presetScale||'Calibrated'}</div>}
+              {scale&&<div style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginBottom:8}}>✓ Scale set: {presetScale||'Calibrated'} · {Math.round(scale*10)/10} px/ft</div>}
+              {!isPdfPlan&&(
+                <div style={{marginBottom:14}}>
+                  <div style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",marginBottom:4}}>Scan DPI <span style={{color:'#F59E0B'}}>⚠ set before picking scale</span></div>
+                  <select value={planDpi} onChange={e=>setPlanDpi(Number(e.target.value))} style={{...inputStyle,width:'100%',fontSize:11}}>
+                    <option value={72}>72 dpi (screen/web)</option>
+                    <option value={96}>96 dpi (screen)</option>
+                    <option value={100}>100 dpi</option>
+                    <option value={150}>150 dpi (low-res scan)</option>
+                    <option value={200}>200 dpi (standard scan)</option>
+                    <option value={300}>300 dpi (high-res scan)</option>
+                    <option value={400}>400 dpi</option>
+                    <option value={600}>600 dpi (fine detail)</option>
+                  </select>
+                </div>
+              )}
+              {isPdfPlan&&<div style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginBottom:14}}>PDF @ 144px/in — preset scales accurate</div>}
               <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,marginBottom:8}}>UNIT COSTS</div>
               <button onClick={()=>setShowUnitCosts(true)} style={{width:'100%',background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'7px 0',borderRadius:5,cursor:'pointer',fontSize:11,marginBottom:14}}>$ Edit Rates</button>
               <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,marginBottom:8}}>ASSEMBLIES</div>
