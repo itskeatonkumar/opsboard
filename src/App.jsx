@@ -4178,6 +4178,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const panRef = useRef({active:false, startX:0, startY:0, scrollX:0, scrollY:0});
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [activeCondId, setActiveCondId] = useState(null); // condition currently armed for drawing
+  const [estSaving, setEstSaving] = useState(null); // item id currently saving in estimate
+  const [estHover, setEstHover] = useState(null);   // item id hovered in estimate grid
 
 
   useEffect(()=>{
@@ -5307,48 +5309,148 @@ Return ONLY a valid JSON array, no markdown:
           {/* Body — two columns */}
           <div style={{flex:1,overflow:'hidden',display:'flex',gap:0}}>
 
-            {/* Left — Cost breakdown by category */}
-            <div style={{flex:1,overflowY:'auto',padding:'20px 24px',borderRight:`1px solid ${t.border}`}}>
-              <div style={{fontSize:10,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginBottom:14}}>COST BREAKDOWN</div>
+            {/* Left — Spreadsheet-style editable estimate */}
+            <div style={{flex:1,overflowY:'auto',borderRight:`1px solid ${t.border}`,display:'flex',flexDirection:'column'}}>
+
+              {/* Column headers */}
+              <div style={{display:'grid',gridTemplateColumns:'28px 1fr 80px 56px 90px 90px 90px 28px',alignItems:'center',padding:'6px 8px',background:t.bg2,borderBottom:`2px solid ${t.border}`,position:'sticky',top:0,zIndex:2,flexShrink:0}}>
+                <span/>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.8}}>DESCRIPTION</span>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",textAlign:'right',letterSpacing:0.8}}>QTY</span>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",textAlign:'center',letterSpacing:0.8}}>UNIT</span>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",textAlign:'right',letterSpacing:0.8}}>UNIT COST</span>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",textAlign:'right',letterSpacing:0.8}}>CATEGORY</span>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",textAlign:'right',letterSpacing:0.8}}>TOTAL</span>
+                <span/>
+              </div>
 
               {allCatGroups.length===0&&(
-                <div style={{textAlign:'center',padding:'60px 0',color:t.text4,fontSize:13,fontFamily:"'DM Mono',monospace"}}>
+                <div style={{textAlign:'center',padding:'60px 0',color:t.text4,fontSize:13,fontFamily:"'DM Mono',monospace",flex:1}}>
                   No takeoff items yet
                 </div>
               )}
 
+              {/* Rows — one per item, spreadsheet style */}
               {allCatGroups.map(cat=>{
                 const pct=totalEst>0?Math.round(cat.subtotal/totalEst*100):0;
                 return(
-                  <div key={cat.id} style={{marginBottom:20}}>
-                    {/* Category header */}
-                    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:6,padding:'7px 10px',background:`${cat.color}12`,borderRadius:6,borderLeft:`4px solid ${cat.color}`}}>
-                      <span style={{fontSize:11,fontWeight:800,color:cat.color,flex:1,letterSpacing:0.5}}>{cat.label.toUpperCase()}</span>
-                      <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{pct}%</span>
-                      <span style={{fontSize:14,fontWeight:800,color:t.text,fontFamily:"'DM Mono',monospace"}}>${cat.subtotal.toLocaleString()}</span>
+                  <div key={cat.id}>
+                    {/* Category group header */}
+                    <div style={{display:'grid',gridTemplateColumns:'28px 1fr 80px 56px 90px 90px 90px 28px',alignItems:'center',padding:'5px 8px',background:`${cat.color}10`,borderLeft:`3px solid ${cat.color}`,borderBottom:`1px solid ${cat.color}25`}}>
+                      <span style={{fontSize:9,color:cat.color}}>{pct}%</span>
+                      <span style={{fontSize:10,fontWeight:800,color:cat.color,letterSpacing:0.5}}>{cat.label.toUpperCase()}</span>
+                      <span/><span/><span/>
+                      <span/>
+                      <span style={{fontSize:11,fontWeight:800,color:cat.color,fontFamily:"'DM Mono',monospace",textAlign:'right'}}>${cat.subtotal.toLocaleString()}</span>
+                      <span/>
                     </div>
-                    {/* Bar */}
-                    <div style={{height:4,background:t.bg3,borderRadius:2,marginBottom:8,overflow:'hidden'}}>
-                      <div style={{height:'100%',width:`${pct}%`,background:cat.color,borderRadius:2,transition:'width 0.4s'}}/>
-                    </div>
-                    {/* Line items */}
-                    {cat.items.map(it=>{
+
+                    {cat.items.map((it,rowIdx)=>{
+                      const cellKey = `${it.id}`;
+                      const isSaving = estSaving===it.id;
+                      // Shared cell style
+                      const cellBase = {
+                        background:'transparent',border:'none',outline:'none',
+                        width:'100%',fontFamily:"'DM Mono',monospace",
+                        fontSize:11,color:t.text,padding:'2px 4px',
+                      };
+                      const saveField = async (field, val) => {
+                        const numVal = ['quantity','unit_cost'].includes(field) ? (parseFloat(val)||0) : val;
+                        const patch = {[field]: numVal};
+                        if(field==='quantity'||field==='unit_cost'){
+                          const qty = field==='quantity' ? numVal : (it.quantity||0);
+                          const uc  = field==='unit_cost' ? numVal : (it.unit_cost||0);
+                          patch.total_cost = qty * uc;
+                        }
+                        setEstSaving(it.id);
+                        await supabase.from('takeoff_items').update(patch).eq('id',it.id);
+                        setItems(prev=>prev.map(i=>i.id===it.id?{...i,...patch}:i));
+                        setEstSaving(null);
+                      };
                       const typeIcon = {area:'⬡',linear:'━',count:'✕',manual:'✎'}[it.measurement_type]||'✎';
                       return(
-                        <div key={it.id} style={{display:'flex',alignItems:'center',padding:'5px 10px 5px 14px',borderLeft:`2px solid ${cat.color}35`,marginLeft:2,marginBottom:2,borderRadius:'0 5px 5px 0',background:t.bg3}}>
-                          <span style={{fontSize:9,color:cat.color,marginRight:6,flexShrink:0}}>{typeIcon}</span>
-                          <span style={{flex:1,fontSize:11,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{it.description||'—'}</span>
-                          <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",marginLeft:10,flexShrink:0}}>{it.quantity} {it.unit}</span>
-                          <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",marginLeft:8,flexShrink:0}}>@ ${(it.unit_cost||0).toFixed(2)}</span>
-                          <span style={{fontSize:11,fontWeight:700,color:it.total_cost>0?t.text:t.text4,fontFamily:"'DM Mono',monospace",marginLeft:14,flexShrink:0,minWidth:70,textAlign:'right'}}>${(it.total_cost||0).toLocaleString()}</span>
-                          <button onClick={()=>{setRightTab('items');setTimeout(()=>setEditItem(it),50);}}
-                            style={{background:'none',border:'none',color:t.text4,cursor:'pointer',padding:'0 0 0 8px',fontSize:10,flexShrink:0,opacity:0.5}}>✎</button>
+                        <div key={it.id}
+                          style={{display:'grid',gridTemplateColumns:'28px 1fr 80px 56px 90px 90px 90px 28px',alignItems:'center',
+                            padding:'0 8px',minHeight:34,
+                            borderBottom:`1px solid ${t.border}`,
+                            background:estHover===it.id?`${cat.color}08`:'transparent',
+                            transition:'background 0.1s'}}
+                          onMouseEnter={()=>setEstHover(it.id)}
+                          onMouseLeave={()=>setEstHover(null)}>
+
+                          {/* Type icon */}
+                          <span style={{fontSize:9,color:cat.color,textAlign:'center'}}>{typeIcon}</span>
+
+                          {/* Description — editable */}
+                          <input
+                            defaultValue={it.description||''}
+                            onBlur={e=>{ if(e.target.value!==it.description) saveField('description',e.target.value); }}
+                            onKeyDown={e=>{ if(e.key==='Enter'||e.key==='Tab') e.target.blur(); }}
+                            style={{...cellBase,cursor:'text'}}
+                            title="Click to edit description"
+                          />
+
+                          {/* Qty — editable, right-align */}
+                          <input type="number"
+                            defaultValue={it.quantity||0}
+                            onBlur={e=>{ if(parseFloat(e.target.value)!==(it.quantity||0)) saveField('quantity',e.target.value); }}
+                            onKeyDown={e=>{ if(e.key==='Enter'||e.key==='Tab') e.target.blur(); }}
+                            style={{...cellBase,textAlign:'right',cursor:'text',color:it.quantity>0?t.text:t.text4}}
+                            title="Click to edit quantity"
+                          />
+
+                          {/* Unit — select */}
+                          <select
+                            defaultValue={it.unit||'SF'}
+                            onChange={e=>saveField('unit',e.target.value)}
+                            style={{...cellBase,textAlign:'center',cursor:'pointer',background:t.bg3,border:`1px solid ${t.border}`,borderRadius:3,padding:'2px'}}>
+                            {['SF','LF','CY','EA','LS','TN','LB','HR'].map(u=><option key={u} value={u}>{u}</option>)}
+                          </select>
+
+                          {/* Unit cost — editable */}
+                          <input type="number" step="0.01"
+                            defaultValue={(it.unit_cost||0).toFixed(2)}
+                            onBlur={e=>{ if(parseFloat(e.target.value)!==(it.unit_cost||0)) saveField('unit_cost',e.target.value); }}
+                            onKeyDown={e=>{ if(e.key==='Enter'||e.key==='Tab') e.target.blur(); }}
+                            style={{...cellBase,textAlign:'right',cursor:'text'}}
+                            title="Click to edit unit cost"
+                          />
+
+                          {/* Category — select */}
+                          <select
+                            defaultValue={it.category||'other'}
+                            onChange={e=>saveField('category',e.target.value)}
+                            style={{...cellBase,cursor:'pointer',background:t.bg3,border:`1px solid ${t.border}`,borderRadius:3,padding:'2px',fontSize:9}}>
+                            {TAKEOFF_CATS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                          </select>
+
+                          {/* Total — computed, not editable */}
+                          <span style={{fontSize:11,fontWeight:700,color:it.total_cost>0?'#10B981':t.text4,fontFamily:"'DM Mono',monospace",textAlign:'right',paddingRight:4}}>
+                            {isSaving?'…':'$'+(it.total_cost||0).toLocaleString()}
+                          </span>
+
+                          {/* Delete */}
+                          <button onClick={async()=>{
+                            if(!window.confirm('Delete '+it.description+'?')) return;
+                            await supabase.from('takeoff_items').delete().eq('id',it.id);
+                            setItems(prev=>prev.filter(i=>i.id!==it.id));
+                          }} style={{background:'none',border:'none',color:t.text4,cursor:'pointer',fontSize:11,opacity:estHover===it.id?0.6:0,transition:'opacity 0.1s',padding:0,textAlign:'center'}}>✕</button>
                         </div>
                       );
                     })}
                   </div>
                 );
               })}
+
+              {/* Footer total row */}
+              {allCatGroups.length>0&&(
+                <div style={{display:'grid',gridTemplateColumns:'28px 1fr 80px 56px 90px 90px 90px 28px',alignItems:'center',padding:'8px 8px',borderTop:`2px solid ${t.border2}`,background:t.bg2,position:'sticky',bottom:0,flexShrink:0}}>
+                  <span/><span style={{fontSize:10,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>TOTAL DIRECT COST</span>
+                  <span/><span/><span/><span/>
+                  <span style={{fontSize:14,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace",textAlign:'right'}}>${totalEst.toLocaleString()}</span>
+                  <span/>
+                </div>
+              )}
             </div>
 
             {/* Right — Summary panel */}
