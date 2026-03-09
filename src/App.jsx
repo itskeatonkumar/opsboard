@@ -3654,8 +3654,7 @@ function BidSummaryModal({ project, items, onClose }) {
         <tr class="grand-total"><td class="bold" style="padding:10px 8px">TOTAL BID PRICE</td><td class="right bold" style="padding:10px 8px;font-size:16px">$${total.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
       </tbody>
     </table>
-    ${notes?`<div class="notes"><strong>Clarifications / Exclusions:</strong><br/>${notes.replace(/
-/g,'<br/>')}</div>`:''}
+    ${notes?`<div class="notes"><strong>Clarifications / Exclusions:</strong><br/>${notes.split('\n').join('<br/>')}</div>`:''}
     <div style="margin-top:30px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:12px">This estimate is valid for 30 days from date of issue. Prices subject to material cost fluctuations. Does not include permits unless noted.</div>
     </body></html>`);
     win.document.close(); win.focus(); setTimeout(()=>win.print(),500);
