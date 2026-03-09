@@ -3990,6 +3990,64 @@ function TakeoffProjectModal({ project, apmProjects, onSave, onClose }) {
   );
 }
 
+// ── Inline Item Editor (expands in sidebar row) ──────────────────
+function InlineItemEditor({ item, cat, onSave, onDelete }) {
+  const { t } = useTheme();
+  const [form, setForm] = useState({
+    description: item.description||'',
+    category: item.category||'other',
+    quantity: item.quantity||'',
+    unit: item.unit||'SF',
+    unit_cost: item.unit_cost||0,
+  });
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const total = (Number(form.quantity)||0) * (Number(form.unit_cost)||0);
+  const inp = {background:t.bg5,border:`1px solid ${t.border2}`,color:t.text,borderRadius:4,padding:'4px 6px',fontSize:10,fontFamily:"'DM Mono',monospace",width:'100%',outline:'none'};
+  return(
+    <div style={{padding:'8px',background:t.bg3,borderTop:`1px solid ${cat.color}40`}}>
+      {/* Description */}
+      <input value={form.description} onChange={e=>set('description',e.target.value)}
+        placeholder="Description" autoFocus
+        style={{...inp,marginBottom:6,fontSize:11}}
+        onKeyDown={e=>e.key==='Enter'&&onSave(form)}/>
+      {/* Category */}
+      <select value={form.category} onChange={e=>{
+        const c=TAKEOFF_CATS.find(x=>x.id===e.target.value)||TAKEOFF_CATS[0];
+        set('category',e.target.value); set('unit',c.unit); set('unit_cost',c.defaultCost);
+      }} style={{...inp,marginBottom:6}}>
+        {TAKEOFF_CATS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+      </select>
+      {/* Qty / Unit / Rate row */}
+      <div style={{display:'grid',gridTemplateColumns:'1fr 60px 1fr',gap:4,marginBottom:6}}>
+        <div>
+          <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",marginBottom:2}}>QTY</div>
+          <input type="number" value={form.quantity} onChange={e=>set('quantity',e.target.value)}
+            style={{...inp}} onKeyDown={e=>e.key==='Enter'&&onSave(form)}/>
+        </div>
+        <div>
+          <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",marginBottom:2}}>UNIT</div>
+          <input value={form.unit} onChange={e=>set('unit',e.target.value)} style={{...inp}}/>
+        </div>
+        <div>
+          <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",marginBottom:2}}>$/UNIT</div>
+          <input type="number" value={form.unit_cost} onChange={e=>set('unit_cost',e.target.value)}
+            style={{...inp}} onKeyDown={e=>e.key==='Enter'&&onSave(form)}/>
+        </div>
+      </div>
+      {/* Total */}
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'4px 6px',background:t.bg5,borderRadius:4}}>
+        <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>TOTAL</span>
+        <span style={{fontSize:12,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+      </div>
+      {/* Actions */}
+      <div style={{display:'flex',gap:4}}>
+        <button onClick={()=>onSave(form)} style={{flex:1,background:'#10B981',border:'none',color:'#000',padding:'5px 0',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>✓ Save</button>
+        <button onClick={onDelete} style={{background:'rgba(239,68,68,0.12)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'5px 8px',borderRadius:4,cursor:'pointer',fontSize:10}}>✕</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Full Takeoff Workspace ────────────────────────────
 function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const { t } = useTheme();
@@ -4299,7 +4357,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const pid = project.id;
     const payload = {...itemData, project_id:pid, plan_id:selPlan?.id, unit_cost:uc, total_cost, color:catDef.color, ai_generated:false, sort_order:items.length};
     const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
-    if(data){setItems(prev=>[...prev,data]); setEditItem(data);}
+    if(data){
+      setItems(prev=>[...prev,data]);
+      // Auto-expand in sidebar for quick rename/recategorize — no floating modal
+      setEditItem(data);
+      setRightTab('items');
+    }
   };
 
   const handleSvgClick=(e)=>{
@@ -4737,85 +4800,172 @@ Return ONLY a valid JSON array, no markdown:
             ))}
           </div>
 
-          {/* Project tab */}
+          {/* Items tab — scoped to current sheet */}
           {rightTab==='items'&&(
-            <div style={{flex:1,overflowY:'auto',padding:8}}>
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'4px 2px'}}>
-                <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5}}>{items.filter(i=>i.ai_generated).length} AI · {items.filter(i=>!i.ai_generated).length} MANUAL</span>
-                <button onClick={()=>setEditItem({project_id:project.id,plan_id:selPlan?.id})} style={{background:'#F97316',border:'none',color:'#000',padding:'3px 8px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>+ Add</button>
+            <div style={{flex:1,overflowY:'auto',padding:'6px 8px'}}>
+              {/* Sheet scope header */}
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,padding:'4px 2px'}}>
+                <div>
+                  <div style={{fontSize:9,fontWeight:700,color:t.text3,fontFamily:"'DM Mono',monospace",letterSpacing:0.4}}>
+                    {selPlan?.name||'NO SHEET'} · {planItems.length} ITEMS
+                  </div>
+                  <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>
+                    {planItems.filter(i=>i.ai_generated).length} AI · {planItems.filter(i=>!i.ai_generated).length} manual
+                  </div>
+                </div>
+                <button onClick={()=>{
+                  if(!selPlan?.id){alert('Select a sheet first');return;}
+                  // Open a new-item form at top of items list
+                  setEditItem({_isNew:true,project_id:project.id,plan_id:selPlan.id,category:'concrete_slab',description:'',quantity:'',unit:'SF',unit_cost:''});
+                }} style={{background:'#F97316',border:'none',color:'#000',padding:'4px 9px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700,flexShrink:0}}>+ Add</button>
               </div>
-              {items.length===0&&(
-                <div style={{textAlign:'center',padding:'30px 0',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace"}}>
-                  {selPlan?'Use drawing tools or AI Takeoff':'Upload a plan to start'}
+
+              {/* New item quick-add form */}
+              {editItem?._isNew&&(
+                <div style={{marginBottom:8,border:`1px solid #F97316`,borderRadius:5,overflow:'hidden'}}>
+                  <div style={{padding:'4px 8px',background:'rgba(249,115,22,0.12)',fontSize:9,fontWeight:700,color:'#F97316',fontFamily:"'DM Mono',monospace",display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                    NEW ITEM
+                    <button onClick={()=>setEditItem(null)} style={{background:'none',border:'none',color:'#F97316',cursor:'pointer',fontSize:11,lineHeight:1}}>✕</button>
+                  </div>
+                  <InlineItemEditor item={editItem} cat={TAKEOFF_CATS[0]} onSave={async(form)=>{
+                    const catDef=TAKEOFF_CATS.find(c=>c.id===form.category)||TAKEOFF_CATS[0];
+                    const costs=(() => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} })();
+                    const uc=Number(form.unit_cost)||((costs[form.category]?.mat||0)+(costs[form.category]?.lab||0));
+                    const payload={...form,project_id:project.id,plan_id:selPlan.id,quantity:Number(form.quantity)||0,unit_cost:uc,total_cost:(Number(form.quantity)||0)*uc,color:catDef.color,ai_generated:false,sort_order:items.length};
+                    const {data}=await supabase.from('takeoff_items').insert([payload]).select().single();
+                    if(data){setItems(prev=>[...prev,data]);}
+                    setEditItem(null);
+                  }} onDelete={()=>setEditItem(null)}/>
                 </div>
               )}
+
+              {planItems.length===0&&!editItem?._isNew&&(
+                <div style={{textAlign:'center',padding:'24px 12px',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace",lineHeight:1.6}}>
+                  {!selPlan?'Upload a plan to start':!scale?'Set scale first, then
+use tools to measure':'Use Area ⬡ Linear ━
+Count ✕ or AI ✦'}
+                </div>
+              )}
+
               {TAKEOFF_CATS.map(cat=>{
-                const catItems=items.filter(i=>i.category===cat.id);
+                const catItems=planItems.filter(i=>i.category===cat.id);
                 if(!catItems.length) return null;
-                return(<div key={cat.id} style={{marginBottom:6}}>
-                  <div style={{display:'flex',alignItems:'center',gap:5,padding:'5px 4px',marginBottom:2,background:t.bg3,borderRadius:4}}>
-                    <span style={{width:7,height:7,borderRadius:2,background:cat.color,flexShrink:0}}/>
-                    <span style={{fontSize:9,fontWeight:700,color:t.text3,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,flex:1}}>{cat.label.toUpperCase()}</span>
-                    <span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",fontWeight:700}}>${catItems.reduce((s,i)=>s+(i.total_cost||0),0).toLocaleString()}</span>
-                  </div>
-                  {catItems.map(item=>(
-                    <div key={item.id}
-                      style={{borderLeft:`3px solid ${cat.color}`,borderRadius:'0 4px 4px 0',padding:'5px 7px',marginBottom:2,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'center',gap:4,position:'relative',marginLeft:4}}
-                      onMouseEnter={e=>{e.currentTarget.style.background=t.bg3;e.currentTarget.querySelector('.item-del').style.opacity='1';}}
-                      onMouseLeave={e=>{e.currentTarget.style.background='none';e.currentTarget.querySelector('.item-del').style.opacity='0';}}>
-                      <div style={{flex:1,minWidth:0}} onClick={()=>setEditItem(item)}>
-                        <div style={{fontSize:10,fontWeight:600,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>
-                        <div style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",display:'flex',gap:6}}>
-                          <span>{item.quantity} {item.unit}</span>
-                          {item.ai_generated&&<span style={{color:'#a855f7'}}>✦AI</span>}
-                        </div>
-                      </div>
-                      <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",flexShrink:0}} onClick={()=>setEditItem(item)}>${(item.total_cost||0).toLocaleString()}</span>
-                      <button className="item-del" onClick={async e=>{e.stopPropagation();await supabase.from('takeoff_items').delete().eq('id',item.id);setItems(prev=>prev.filter(i=>i.id!==item.id));}}
-                        style={{opacity:0,transition:'opacity 0.1s',background:'rgba(239,68,68,0.15)',border:'none',color:'#ef4444',cursor:'pointer',fontSize:10,padding:'1px 4px',borderRadius:3,lineHeight:1}}>✕</button>
+                const catTotal=catItems.reduce((s,i)=>s+(i.total_cost||0),0);
+                return(
+                  <div key={cat.id} style={{marginBottom:8}}>
+                    {/* Category header */}
+                    <div style={{display:'flex',alignItems:'center',gap:5,padding:'4px 6px',marginBottom:3,background:`${cat.color}18`,borderRadius:4,borderLeft:`3px solid ${cat.color}`}}>
+                      <span style={{fontSize:9,fontWeight:800,color:cat.color,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,flex:1}}>{cat.label.toUpperCase()}</span>
+                      <span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",fontWeight:700}}>${catTotal.toLocaleString()}</span>
                     </div>
-                  ))}
-                </div>);
+                    {/* Item rows */}
+                    {catItems.map(item=>{
+                      const typeIcon = {area:'⬡',perimeter:'⬠',linear:'━',count:'✕',manual:'✎'}[item.measurement_type]||'✎';
+                      const isExpanded = editItem?.id===item.id;
+                      return(
+                        <div key={item.id} style={{marginBottom:2,borderRadius:5,overflow:'hidden',border:`1px solid ${isExpanded?cat.color:t.border}`,transition:'border-color 0.15s'}}>
+                          {/* Row */}
+                          <div style={{display:'flex',alignItems:'center',gap:5,padding:'5px 7px',cursor:'pointer',background:isExpanded?`${cat.color}12`:'none'}}
+                            onClick={()=>setEditItem(isExpanded?null:item)}>
+                            <span style={{fontSize:9,color:cat.color,fontFamily:"'DM Mono',monospace",width:12,textAlign:'center',flexShrink:0}}>{typeIcon}</span>
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:10,fontWeight:600,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'—'}</div>
+                              <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>
+                                {item.quantity} {item.unit}
+                                {item.ai_generated&&<span style={{color:'#a855f7',marginLeft:4}}>✦ AI</span>}
+                              </div>
+                            </div>
+                            <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",flexShrink:0}}>${(item.total_cost||0).toLocaleString()}</span>
+                            <span style={{fontSize:8,color:t.text4,transform:isExpanded?'rotate(90deg)':'none',transition:'transform 0.15s'}}>▶</span>
+                          </div>
+                          {/* Inline expanded editor */}
+                          {isExpanded&&<InlineItemEditor item={item} cat={cat} onSave={async(updated)=>{
+                            await supabase.from('takeoff_items').update(updated).eq('id',item.id);
+                            const saved={...item,...updated,total_cost:(Number(updated.quantity)||0)*(Number(updated.unit_cost)||0)};
+                            setItems(prev=>prev.map(i=>i.id===item.id?saved:i));
+                            setEditItem(null);
+                          }} onDelete={async()=>{
+                            await supabase.from('takeoff_items').delete().eq('id',item.id);
+                            setItems(prev=>prev.filter(i=>i.id!==item.id));
+                            setEditItem(null);
+                          }}/>}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
               })}
             </div>
           )}
 
-          {/* Estimate tab */}
-          {rightTab==='estimate'&&(
-            <div style={{flex:1,overflowY:'auto',padding:8}}>
-              {catGroups.length===0&&<div style={{textAlign:'center',padding:'30px 0',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace"}}>No items yet</div>}
-              {catGroups.map(cat=>(
-                <div key={cat.id} style={{marginBottom:10}}>
-                  <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:3,padding:'5px 4px',background:t.bg3,borderRadius:4}}>
-                    <span style={{width:8,height:8,borderRadius:2,background:cat.color}}/>
-                    <span style={{fontSize:9,fontWeight:700,color:t.text2,fontFamily:"'DM Mono',monospace",flex:1,letterSpacing:0.3}}>{cat.label.toUpperCase()}</span>
-                    <span style={{fontSize:10,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${cat.subtotal.toLocaleString()}</span>
-                  </div>
-                  {cat.items.map(it=>(
-                    <div key={it.id} style={{display:'flex',padding:'3px 4px 3px 10px',fontSize:9,color:t.text3,gap:4,justifyContent:'space-between',alignItems:'center',borderLeft:`2px solid ${cat.color}`,marginLeft:4,marginBottom:2}}
-                      onMouseEnter={e=>e.currentTarget.querySelector('.del-btn').style.opacity='1'}
-                      onMouseLeave={e=>e.currentTarget.querySelector('.del-btn').style.opacity='0'}>
-                      <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,fontFamily:"'DM Mono',monospace",cursor:'pointer'}} onClick={()=>setEditItem(it)}>{it.description}</span>
-                      <span style={{color:t.text,fontFamily:"'DM Mono',monospace",flexShrink:0,fontWeight:600}}>${(it.total_cost||0).toLocaleString()}</span>
-                      <button className="del-btn" onClick={async()=>{await supabase.from('takeoff_items').delete().eq('id',it.id);setItems(prev=>prev.filter(i=>i.id!==it.id));}}
-                        style={{opacity:0,transition:'opacity 0.1s',background:'none',border:'none',color:'#ef4444',cursor:'pointer',fontSize:11,padding:'0 2px',flexShrink:0,lineHeight:1}}>✕</button>
-                    </div>
-                  ))}
+          {/* Estimate tab — all sheets scope for full bid */}
+          {rightTab==='estimate'&&(()=>{
+            const allCatGroups=TAKEOFF_CATS.map(cat=>{
+              const its=items.filter(i=>i.plan_id!=null&&i.category===cat.id);
+              return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
+            }).filter(Boolean);
+            const sheetTotal=planItems.reduce((s,i)=>s+(i.total_cost||0),0);
+            return(
+            <div style={{flex:1,overflowY:'auto',padding:'8px'}}>
+              {/* Sheet vs Project toggle indicator */}
+              <div style={{display:'flex',gap:4,marginBottom:10,background:t.bg3,padding:3,borderRadius:5}}>
+                <div style={{flex:1,textAlign:'center',padding:'4px 0',background:'none',borderRadius:3}}>
+                  <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>THIS SHEET</div>
+                  <div style={{fontSize:12,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${sheetTotal.toLocaleString()}</div>
                 </div>
-              ))}
-              {catGroups.length>0&&(
-                <div style={{borderTop:`2px solid ${t.border2}`,marginTop:8,paddingTop:10}}>
-                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:10}}>
-                    <span style={{fontSize:11,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>DIRECT COST</span>
-                    <span style={{fontSize:14,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</span>
+                <div style={{width:1,background:t.border}}/>
+                <div style={{flex:1,textAlign:'center',padding:'4px 0'}}>
+                  <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>ALL SHEETS</div>
+                  <div style={{fontSize:12,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</div>
+                </div>
+              </div>
+
+              {allCatGroups.length===0&&<div style={{textAlign:'center',padding:'30px 0',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace"}}>No items yet</div>}
+
+              {allCatGroups.map(cat=>{
+                const pct=totalEst>0?Math.round(cat.subtotal/totalEst*100):0;
+                return(
+                  <div key={cat.id} style={{marginBottom:10}}>
+                    <div style={{display:'flex',alignItems:'center',gap:5,marginBottom:4,padding:'5px 6px',background:`${cat.color}15`,borderRadius:4,borderLeft:`3px solid ${cat.color}`}}>
+                      <span style={{fontSize:9,fontWeight:800,color:cat.color,fontFamily:"'DM Mono',monospace",flex:1,letterSpacing:0.5}}>{cat.label.toUpperCase()}</span>
+                      <span style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{pct}%</span>
+                      <span style={{fontSize:10,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${cat.subtotal.toLocaleString()}</span>
+                    </div>
+                    {/* Cost bar */}
+                    <div style={{height:3,background:t.bg3,borderRadius:2,marginBottom:4,overflow:'hidden'}}>
+                      <div style={{height:'100%',width:`${pct}%`,background:cat.color,borderRadius:2,transition:'width 0.3s'}}/>
+                    </div>
+                    {cat.items.map(it=>(
+                      <div key={it.id} style={{display:'flex',padding:'3px 6px 3px 8px',fontSize:9,color:t.text3,gap:4,justifyContent:'space-between',alignItems:'center',borderLeft:`2px solid ${cat.color}40`,marginLeft:2,marginBottom:1,borderRadius:'0 3px 3px 0'}}>
+                        <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,fontFamily:"'DM Mono',monospace",cursor:'pointer'}} onClick={()=>{setRightTab('items');setEditItem(it);}}>
+                          {it.description}
+                          {it.quantity>0&&<span style={{color:t.text4,marginLeft:4}}>{it.quantity} {it.unit}</span>}
+                        </span>
+                        <span style={{color:it.total_cost>0?t.text:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0,fontWeight:600}}>${(it.total_cost||0).toLocaleString()}</span>
+                      </div>
+                    ))}
                   </div>
-                  {project.contract_value&&<div style={{fontSize:9,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace",textAlign:'right',marginBottom:10}}>{totalEst>(project.contract_value||0)?'▲ over':'▼ under'} contract by ${Math.abs(totalEst-(project.contract_value||0)).toLocaleString()}</div>}
-                  <button onClick={()=>setShowBidSummary(true)} style={{width:'100%',background:'linear-gradient(135deg,#10B981,#059669)',border:'none',color:'#000',padding:'8px 0',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700,marginBottom:6}}>📋 Bid Summary & Print</button>
-                  {project.apm_project_id&&<button onClick={pushToSOV} style={{width:'100%',background:'linear-gradient(135deg,#3b82f6,#1d4ed8)',border:'none',color:'#fff',padding:'8px 0',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700}}>⇒ Push to APM SOV</button>}
+                );
+              })}
+
+              {allCatGroups.length>0&&(
+                <div style={{borderTop:`2px solid ${t.border2}`,marginTop:10,paddingTop:12}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6}}>
+                    <span style={{fontSize:11,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>DIRECT COST</span>
+                    <span style={{fontSize:16,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</span>
+                  </div>
+                  {project.contract_value&&(
+                    <div style={{fontSize:9,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace",textAlign:'right',marginBottom:10,padding:'4px 6px',background:totalEst>(project.contract_value||0)?'rgba(239,68,68,0.08)':'rgba(16,185,129,0.08)',borderRadius:4}}>
+                      {totalEst>(project.contract_value||0)?'▲ OVER':'▼ UNDER'} CONTRACT BY ${Math.abs(totalEst-(project.contract_value||0)).toLocaleString()}
+                    </div>
+                  )}
+                  <button onClick={()=>setShowBidSummary(true)} style={{width:'100%',background:'linear-gradient(135deg,#10B981,#059669)',border:'none',color:'#000',padding:'9px 0',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700,marginBottom:6}}>📋 Bid Summary & Print</button>
+                  {project.apm_project_id&&<button onClick={pushToSOV} style={{width:'100%',background:'linear-gradient(135deg,#3b82f6,#1d4ed8)',border:'none',color:'#fff',padding:'9px 0',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700}}>⇒ Push to APM SOV</button>}
                 </div>
               )}
             </div>
-          )}
+            );
+          })()}
 
           {/* Settings tab */}
           {rightTab==='settings'&&(
