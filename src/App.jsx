@@ -4461,59 +4461,22 @@ Return ONLY a valid JSON array, no markdown:
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
 
       {/* ── Top Bar ── */}
-      <div style={{display:'flex',alignItems:'center',gap:0,height:42,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
-        {/* Back */}
-        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:12,padding:'0 14px',height:'100%',display:'flex',alignItems:'center',gap:5,flexShrink:0,whiteSpace:'nowrap'}}>← Back</button>
-
-        {/* Sheet tabs */}
-        <div style={{display:'flex',alignItems:'center',height:'100%',flex:1,overflowX:'auto',gap:0,minWidth:0}}>
-          {plans.map(p=>(
-            <button key={p.id} onClick={()=>{
-              const found=plans.find(x=>x.id===p.id);
-              setSelPlan(found||null);
-              if(found?.scale_px_per_ft) setScale(found.scale_px_per_ft); else {setScale(null);setPresetScale('');}
-            }}
-            onDoubleClick={async()=>{
-              const newName=window.prompt('Rename sheet:',p.name||'');
-              if(newName&&newName.trim()&&p.id&&p.id!=='preview'){
-                await supabase.from('precon_plans').update({name:newName.trim()}).eq('id',p.id);
-                setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:newName.trim()}:x));
-                if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:newName.trim()}));
-              }
-            }}
-            style={{height:'100%',padding:'0 14px',border:'none',borderRight:`1px solid ${t.border}`,background:selPlan?.id===p.id?t.bg:'none',color:selPlan?.id===p.id?t.text:t.text4,cursor:'pointer',fontSize:11,fontWeight:selPlan?.id===p.id?700:400,whiteSpace:'nowrap',flexShrink:0,borderBottom:selPlan?.id===p.id?`2px solid #10B981`:'2px solid transparent',fontFamily:selPlan?.id===p.id?"'DM Mono',monospace":'inherit'}}>
-              {p.name}
-            </button>
-          ))}
-          <button onClick={()=>fileRef.current?.click()} disabled={uploading}
-            style={{height:'100%',padding:'0 14px',border:'none',borderRight:`1px solid ${t.border}`,background:'none',color:uploading?t.text4:'#10B981',cursor:'pointer',fontSize:12,flexShrink:0,whiteSpace:'nowrap',display:'flex',alignItems:'center',gap:5}}>
-            {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block',fontSize:10}}>◌</span>Processing…</>:<><span style={{fontSize:16,fontWeight:300}}>+</span>Upload</>}
-          </button>
-          <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
+      <div style={{display:'flex',alignItems:'center',height:42,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
+        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:12,padding:'0 14px',height:'100%',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>← Back</button>
+        <CompanyBadge companyId={project.company} small/>
+        <div style={{flex:1,padding:'0 12px',overflow:'hidden'}}>
+          <div style={{fontSize:13,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
+          {project.bid_date&&<div style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>Bid: {fmtDate(project.bid_date)} · <span style={{color:STATUS_COLORS_BID[project.status]||'#555'}}>{(project.status||'').replace(/_/g,' ').toUpperCase()}</span></div>}
         </div>
-
-        {/* Project info */}
-        <div style={{display:'flex',alignItems:'center',gap:8,padding:'0 14px',borderLeft:`1px solid ${t.border}`,flexShrink:0,height:'100%'}}>
-          <CompanyBadge companyId={project.company} small/>
-          <div style={{maxWidth:200,overflow:'hidden'}}>
-            <div style={{fontSize:12,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
-            {project.bid_date&&<div style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>Bid {fmtDate(project.bid_date)}</div>}
-          </div>
-          <span style={{fontSize:9,padding:'2px 7px',borderRadius:8,background:STATUS_COLORS_BID[project.status]+'20',color:STATUS_COLORS_BID[project.status]||'#555',fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0}}>{(project.status||'').replace(/_/g,' ').toUpperCase()}</span>
-          <button onClick={()=>setEditProject(true)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'3px 8px',borderRadius:4,cursor:'pointer',fontSize:10,flexShrink:0}}>Edit</button>
-        </div>
-
-        {/* Zoom controls */}
+        <button onClick={()=>setEditProject(true)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'4px 10px',borderRadius:4,cursor:'pointer',fontSize:10,flexShrink:0,marginRight:8}}>Edit</button>
         <div style={{display:'flex',alignItems:'center',gap:2,padding:'0 10px',borderLeft:`1px solid ${t.border}`,height:'100%',flexShrink:0}}>
-          <button onClick={()=>setZoom(z=>Math.max(z-0.25,0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+          <button onClick={()=>setZoom(z=>Math.max(z-0.1,0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
           <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
-          <button onClick={()=>setZoom(z=>Math.min(z+0.25,4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
-          <button onClick={()=>setZoom(1)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",marginLeft:2}}>FIT</button>
+          <button onClick={()=>setZoom(z=>Math.min(z+0.1,4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+          <button onClick={()=>setZoom(1)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",marginLeft:2}}>1:1</button>
         </div>
-
-        {/* Bid Summary button */}
         <button onClick={()=>setShowBidSummary(true)} disabled={!items.length}
-          style={{height:'100%',padding:'0 14px',border:'none',borderLeft:`1px solid ${t.border}`,background:items.length?'linear-gradient(135deg,#10B981,#059669)':'none',color:items.length?'#000':t.text4,cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0,opacity:items.length?1:0.4}}>
+          style={{height:'100%',padding:'0 16px',border:'none',borderLeft:`1px solid ${t.border}`,background:items.length?'linear-gradient(135deg,#10B981,#059669)':'none',color:items.length?'#000':t.text4,cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0,opacity:items.length?1:0.4}}>
           📋 Bid Summary
         </button>
       </div>
@@ -4521,13 +4484,52 @@ Return ONLY a valid JSON array, no markdown:
       {/* ── Main Body ── */}
       <div style={{display:'flex',flex:1,overflow:'hidden'}}>
 
-        {/* ── Left Panel ── */}
-        <div style={{width:260,flexShrink:0,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,background:t.bg2,overflow:'hidden'}}>
-          {/* Left tabs */}
+        {/* ── Left Sidebar ── */}
+        <div style={{width:240,flexShrink:0,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,background:t.bg2,overflow:'hidden'}}>
+
+          {/* SHEETS section — top half */}
+          <div style={{display:'flex',flexDirection:'column',borderBottom:`2px solid ${t.border}`,flexShrink:0}}>
+            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px 6px',flexShrink:0}}>
+              <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.8}}>SHEETS ({plans.length})</span>
+              <button onClick={()=>fileRef.current?.click()} disabled={uploading}
+                style={{background:'#10B981',border:'none',color:'#000',padding:'3px 9px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700,display:'flex',alignItems:'center',gap:4}}>
+                {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span></>:<>+ Upload</>}
+              </button>
+              <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
+            </div>
+            {uploading&&<div style={{padding:'4px 10px 6px',fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",display:'flex',alignItems:'center',gap:4}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing PDF pages…</div>}
+            <div style={{maxHeight:220,overflowY:'auto',padding:'0 6px 6px'}}>
+              {plans.length===0&&<div style={{padding:'12px 6px',fontSize:11,color:t.text4,textAlign:'center',fontFamily:"'DM Mono',monospace"}}>No sheets yet</div>}
+              {plans.map((p,i)=>(
+                <div key={p.id}
+                  onClick={()=>{setSelPlan(p);if(p.scale_px_per_ft)setScale(p.scale_px_per_ft);else{setScale(null);setPresetScale('');} }}
+                  onDoubleClick={async()=>{
+                    const newName=window.prompt('Rename sheet:',p.name||'');
+                    if(newName&&newName.trim()&&p.id&&p.id!=='preview'){
+                      await supabase.from('precon_plans').update({name:newName.trim()}).eq('id',p.id);
+                      setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:newName.trim()}:x));
+                      if(selPlan?.id===p.id)setSelPlan(prev=>({...prev,name:newName.trim()}));
+                    }
+                  }}
+                  style={{display:'flex',alignItems:'center',gap:7,padding:'6px 8px',borderRadius:5,marginBottom:2,cursor:'pointer',background:selPlan?.id===p.id?'rgba(16,185,129,0.12)':'none',border:selPlan?.id===p.id?'1px solid rgba(16,185,129,0.3)':`1px solid transparent`}}>
+                  {/* Thumbnail */}
+                  <div style={{width:36,height:28,borderRadius:3,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`,display:'flex',alignItems:'center',justifyContent:'center'}}>
+                    <img src={p.file_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
+                  </div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10,fontWeight:selPlan?.id===p.id?700:500,color:selPlan?.id===p.id?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+                    <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{p.scale_px_per_ft?'⇔ scaled':'no scale'} · {items.filter(it=>it.plan_id===p.id).length} items</div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* TAKEOFF DATA section — bottom, tabbed */}
           <div style={{display:'flex',borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
-            {[['items','Project'],['estimate','Estimate'],['settings','Settings']].map(([id,lbl])=>(
+            {[['items','Items'],['estimate','Estimate'],['settings','Settings']].map(([id,lbl])=>(
               <button key={id} onClick={()=>setRightTab(id)}
-                style={{flex:1,padding:'8px 0',border:'none',background:'none',cursor:'pointer',fontSize:10,fontWeight:700,color:rightTab===id?t.text:t.text4,borderBottom:rightTab===id?`2px solid #10B981`:'2px solid transparent',fontFamily:"'DM Mono',monospace",letterSpacing:0.3}}>
+                style={{flex:1,padding:'7px 0',border:'none',background:'none',cursor:'pointer',fontSize:10,fontWeight:700,color:rightTab===id?'#10B981':t.text4,borderBottom:rightTab===id?'2px solid #10B981':'2px solid transparent',fontFamily:"'DM Mono',monospace"}}>
                 {lbl}
               </button>
             ))}
@@ -4636,14 +4638,8 @@ Return ONLY a valid JSON array, no markdown:
               {scale&&<div style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginBottom:14}}>✓ Scale set: {presetScale||'Calibrated'}</div>}
               <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,marginBottom:8}}>UNIT COSTS</div>
               <button onClick={()=>setShowUnitCosts(true)} style={{width:'100%',background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'7px 0',borderRadius:5,cursor:'pointer',fontSize:11,marginBottom:14}}>$ Edit Rates</button>
-              <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,marginBottom:8}}>SHEETS</div>
-              {plans.map(p=>(
-                <div key={p.id} style={{display:'flex',alignItems:'center',gap:6,padding:'5px 6px',borderRadius:4,marginBottom:2,background:selPlan?.id===p.id?t.bg3:'none',cursor:'pointer'}} onClick={()=>{setSelPlan(p);if(p.scale_px_per_ft)setScale(p.scale_px_per_ft);else{setScale(null);setPresetScale('');}}}>
-                  <span style={{fontSize:11}}>{p.file_type?.includes('pdf')?'📄':'🖼'}</span>
-                  <span style={{fontSize:10,color:t.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</span>
-                  {p.scale_px_per_ft&&<span style={{fontSize:8,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>⇔</span>}
-                </div>
-              ))}
+              <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,marginBottom:8}}>ASSEMBLIES</div>
+              <button onClick={()=>setShowAssembly(true)} style={{width:'100%',background:'none',border:`1px solid rgba(139,92,246,0.4)`,color:'#8B5CF6',padding:'7px 0',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700,marginBottom:4}}>⬡ Open Assembly Library</button>
             </div>
           )}
         </div>
@@ -4702,7 +4698,6 @@ Return ONLY a valid JSON array, no markdown:
                   </>
                 ):(
                   <img ref={imgRef} src={selPlan.file_url} alt="Plan"
-                    crossOrigin="anonymous"
                     style={{display:'block',maxWidth:'none',userSelect:'none',minWidth:400,minHeight:300}}
                     onLoad={handleImgLoad}
                     onError={(e)=>{console.error('Image load failed:',selPlan.file_url);e.target.style.border='2px solid #ef4444';}}
