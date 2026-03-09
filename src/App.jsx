@@ -3445,6 +3445,1066 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
   );
 }
 
+
+// ══════════════════════════════════════════════════════
+// ██████╗ ██████╗ ███████╗ ██████╗ ██████╗ ███╗   ██╗
+// ██╔══██╗██╔══██╗██╔════╝██╔════╝██╔═══██╗████╗  ██║
+// ██████╔╝██████╔╝█████╗  ██║     ██║   ██║██╔██╗ ██║
+// ██╔═══╝ ██╔══██╗██╔══╝  ██║     ██║   ██║██║╚██╗██║
+// ██║     ██║  ██║███████╗╚██████╗╚██████╔╝██║ ╚████║
+//  STANDALONE TAKEOFF SOFTWARE
+// ══════════════════════════════════════════════════════
+
+const UNIT_COSTS_DEFAULT = {
+  concrete_slab:    { mat: 4.50, lab: 2.00, unit:'SF'  },
+  concrete_footing: { mat: 85,   lab: 40,   unit:'CY'  },
+  concrete_wall:    { mat: 95,   lab: 55,   unit:'CY'  },
+  masonry_cmu:      { mat: 12,   lab: 6,    unit:'SF'  },
+  masonry_brick:    { mat: 14,   lab: 8,    unit:'SF'  },
+  rebar:            { mat: 0.85, lab: 0.35, unit:'LB'  },
+  formwork:         { mat: 2.50, lab: 2.00, unit:'SF'  },
+  excavation:       { mat: 0,    lab: 8,    unit:'CY'  },
+  flatwork:         { mat: 3.50, lab: 2.50, unit:'SF'  },
+  grout:            { mat: 140,  lab: 60,   unit:'CY'  },
+  other:            { mat: 0,    lab: 0,    unit:'LS'  },
+};
+
+const ASSEMBLIES = [
+  { id:'sog_4in',    label:'4" Slab on Grade',    items:[
+    {category:'concrete_slab',    description:'Concrete slab 4"',  qty_factor:1,    unit:'SF'},
+    {category:'rebar',            description:'Rebar #4 @ 16" OC', qty_factor:1.5,  unit:'LB'},
+    {category:'formwork',         description:'Edge forms',         qty_factor:0.05, unit:'SF'},
+    {category:'excavation',       description:'Sub-base prep',      qty_factor:0.012,unit:'CY'},
+  ]},
+  { id:'sog_6in',    label:'6" Slab on Grade',    items:[
+    {category:'concrete_slab',    description:'Concrete slab 6"',  qty_factor:1,    unit:'SF'},
+    {category:'rebar',            description:'Rebar #4 @ 12" OC', qty_factor:2.2,  unit:'LB'},
+    {category:'formwork',         description:'Edge forms',         qty_factor:0.05, unit:'SF'},
+    {category:'excavation',       description:'Sub-base prep',      qty_factor:0.018,unit:'CY'},
+  ]},
+  { id:'strip_fnd',  label:'Strip Footing',        items:[
+    {category:'concrete_footing', description:'Strip footing concrete', qty_factor:1,   unit:'CY'},
+    {category:'rebar',            description:'Rebar longitudinal',     qty_factor:120,  unit:'LB'},
+    {category:'formwork',         description:'Footing forms',          qty_factor:18,   unit:'SF'},
+    {category:'excavation',       description:'Footing excavation',     qty_factor:1.15, unit:'CY'},
+  ]},
+  { id:'cmu_wall',   label:'CMU Block Wall',        items:[
+    {category:'masonry_cmu',      description:'8" CMU block',           qty_factor:1,    unit:'SF'},
+    {category:'grout',            description:'Grout fill cells',       qty_factor:0.005,unit:'CY'},
+    {category:'rebar',            description:'Vertical rebar #4',      qty_factor:0.6,  unit:'LB'},
+  ]},
+  { id:'flatwork',   label:'Concrete Flatwork',     items:[
+    {category:'flatwork',         description:'Concrete flatwork 4"',   qty_factor:1,    unit:'SF'},
+    {category:'rebar',            description:'WWF 6x6 W2.9',           qty_factor:0.9,  unit:'LB'},
+    {category:'formwork',         description:'Perimeter forms',        qty_factor:0.04, unit:'SF'},
+  ]},
+];
+
+// ── Unit Cost Editor ──────────────────────────────────
+function UnitCostEditor({ onClose }) {
+  const { t } = useTheme();
+  const [costs, setCosts] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('unitCosts')||'{}'); } catch{ return {}; }
+  });
+  const merged = {...UNIT_COSTS_DEFAULT,...costs};
+  const set = (cat, field, val) => setCosts(prev => ({...prev, [cat]:{...merged[cat],[field]:Number(val)||0}}));
+  const save = () => { localStorage.setItem('unitCosts', JSON.stringify(costs)); onClose(); };
+  const dynInput = {...inputStyle, fontSize:12, padding:'4px 8px', background:t.input, borderColor:t.inputBorder, color:t.inputText};
+
+  return (
+    <APMModal title="Unit Cost Database" onClose={onClose} width={620}>
+      <div style={{fontSize:11,color:t.text3,marginBottom:12,fontFamily:"'DM Mono',monospace"}}>Edit your material and labor rates. Changes apply to all new estimates.</div>
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr',gap:6,marginBottom:8}}>
+        {['Category','Mat $/unit','Lab $/unit','Unit'].map(h=>(
+          <div key={h} style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,padding:'0 4px'}}>{h}</div>
+        ))}
+      </div>
+      <div style={{maxHeight:340,overflowY:'auto',display:'flex',flexDirection:'column',gap:4}}>
+        {TAKEOFF_CATS.map(cat => {
+          const c = merged[cat.id]||{mat:0,lab:0,unit:cat.unit};
+          return (
+            <div key={cat.id} style={{display:'grid',gridTemplateColumns:'2fr 1fr 1fr 1fr',gap:6,alignItems:'center',padding:'5px 4px',borderRadius:5,background:t.bg4}}>
+              <div style={{display:'flex',alignItems:'center',gap:6}}>
+                <span style={{width:8,height:8,borderRadius:2,background:cat.color,flexShrink:0}}/>
+                <span style={{fontSize:11,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{cat.label}</span>
+              </div>
+              <input type="number" value={c.mat} onChange={e=>set(cat.id,'mat',e.target.value)} style={{...dynInput}}/>
+              <input type="number" value={c.lab} onChange={e=>set(cat.id,'lab',e.target.value)} style={{...dynInput}}/>
+              <input value={c.unit||cat.unit} onChange={e=>set(cat.id,'unit',e.target.value)} style={{...dynInput}}/>
+            </div>
+          );
+        })}
+      </div>
+      <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'flex-end'}}>
+        <button onClick={onClose} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13}}>Cancel</button>
+        <button onClick={save} style={{background:'#F97316',border:'none',color:'#000',padding:'8px 22px',borderRadius:6,cursor:'pointer',fontSize:13,fontWeight:700}}>Save Rates</button>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Assembly Picker ───────────────────────────────────
+function AssemblyPicker({ onApply, onClose }) {
+  const { t } = useTheme();
+  const [sel, setSel] = useState(null);
+  const [qty, setQty] = useState('');
+
+  const apply = () => {
+    if(!sel||!qty) return;
+    const asm = ASSEMBLIES.find(a=>a.id===sel);
+    if(!asm) return;
+    const costs = (() => { try { return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; } catch{ return UNIT_COSTS_DEFAULT; } })();
+    const items = asm.items.map(it => {
+      const q = Number(qty) * it.qty_factor;
+      const c = costs[it.category]||UNIT_COSTS_DEFAULT[it.category]||{mat:0,lab:0};
+      const uc = (c.mat||0)+(c.lab||0);
+      return { category:it.category, description:it.description, quantity:Math.round(q*10)/10, unit:it.unit, unit_cost:uc, total_cost:Math.round(q*uc*100)/100, measurement_type:'manual', ai_generated:false };
+    });
+    onApply(items);
+  };
+
+  return (
+    <APMModal title="Assembly Library" onClose={onClose} width={480}>
+      <div style={{display:'flex',flexDirection:'column',gap:10}}>
+        {ASSEMBLIES.map(asm=>(
+          <div key={asm.id} onClick={()=>setSel(asm.id)}
+            style={{border:`1px solid ${sel===asm.id?'#F97316':t.border}`,borderRadius:8,padding:'10px 12px',cursor:'pointer',background:sel===asm.id?'rgba(249,115,22,0.06)':t.bg4,transition:'all 0.1s'}}>
+            <div style={{fontSize:13,fontWeight:700,color:sel===asm.id?'#F97316':t.text,marginBottom:4}}>{asm.label}</div>
+            <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{asm.items.map(i=>i.description).join(' · ')}</div>
+          </div>
+        ))}
+      </div>
+      {sel&&(
+        <div style={{marginTop:14,display:'flex',alignItems:'center',gap:10}}>
+          <div style={{flex:1}}>
+            <label style={labelStyle}>Base Quantity ({ASSEMBLIES.find(a=>a.id===sel)?.items[0]?.unit||'SF'})</label>
+            <input type="number" value={qty} onChange={e=>setQty(e.target.value)} placeholder="e.g. 2500" style={{...inputStyle,fontSize:14,width:'100%'}} autoFocus/>
+          </div>
+        </div>
+      )}
+      <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'flex-end'}}>
+        <button onClick={onClose} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13}}>Cancel</button>
+        <button onClick={apply} disabled={!sel||!qty} style={{background:'#F97316',border:'none',color:'#000',padding:'8px 22px',borderRadius:6,cursor:'pointer',fontSize:13,fontWeight:700,opacity:sel&&qty?1:0.4}}>Apply Assembly</button>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Bid Summary Modal ─────────────────────────────────
+function BidSummaryModal({ project, items, onClose }) {
+  const { t } = useTheme();
+  const [overhead, setOverhead] = useState(10);
+  const [markup, setMarkup] = useState(8);
+  const [bond, setBond] = useState(1.5);
+  const [notes, setNotes] = useState('');
+
+  const subtotal = items.reduce((s,i)=>s+(i.total_cost||0),0);
+  const overheadAmt = subtotal * (overhead/100);
+  const bondAmt = (subtotal+overheadAmt) * (bond/100);
+  const markupAmt = (subtotal+overheadAmt+bondAmt) * (markup/100);
+  const total = subtotal+overheadAmt+bondAmt+markupAmt;
+
+  const catGroups = TAKEOFF_CATS.map(cat=>{
+    const its = items.filter(i=>i.category===cat.id);
+    return its.length?{...cat,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
+  }).filter(Boolean);
+
+  const printBid = () => {
+    const win = window.open('','_blank');
+    win.document.write(`<!DOCTYPE html><html><head><title>Bid Estimate - ${project.name}</title>
+    <style>
+      body{font-family:'Arial',sans-serif;max-width:800px;margin:40px auto;color:#111;font-size:13px}
+      h1{font-size:22px;margin:0 0 4px}h2{font-size:15px;margin:20px 0 8px;color:#333;border-bottom:1px solid #ddd;padding-bottom:4px}
+      .header{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:24px;padding-bottom:16px;border-bottom:2px solid #F97316}
+      .logo{font-size:18px;font-weight:800;color:#F97316}.sub{font-size:11px;color:#666;margin-top:2px}
+      table{width:100%;border-collapse:collapse;margin-bottom:16px}th{text-align:left;padding:6px 8px;font-size:11px;color:#666;border-bottom:2px solid #eee;text-transform:uppercase;letter-spacing:0.5px}
+      td{padding:6px 8px;border-bottom:1px solid #f0f0f0;font-size:12px}.right{text-align:right}.bold{font-weight:700}
+      .total-row{background:#f9f9f9;font-weight:700}.grand-total{background:#F97316;color:#000;font-size:15px}
+      .notes{background:#fffdf7;border:1px solid #F9731640;border-radius:6px;padding:12px;margin-top:16px;font-size:12px;color:#555}
+      @media print{body{margin:20px}}
+    </style></head><body>
+    <div class="header">
+      <div>
+        <div class="logo">${project.company==='fcg'?'Foundation Construction Group LLC':project.company==='brc'?'BR Concrete Inc.':'P4S Corp'}</div>
+        <div class="sub">Concrete & Masonry Contractor</div>
+      </div>
+      <div style="text-align:right">
+        <div class="bold" style="font-size:16px">BID ESTIMATE</div>
+        <div class="sub">Date: ${new Date().toLocaleDateString('en-US',{month:'long',day:'numeric',year:'numeric'})}</div>
+        <div class="sub">Bid #: ${Date.now().toString().slice(-6)}</div>
+      </div>
+    </div>
+    <h1>${project.name}</h1>
+    <div class="sub">${project.address||''} ${project.gc_name?'· GC: '+project.gc_name:''}</div>
+    <h2>Cost Breakdown by Division</h2>
+    <table>
+      <thead><tr><th>Division</th><th class="right">Amount</th></tr></thead>
+      <tbody>
+        ${catGroups.map(c=>`<tr><td>${c.label}</td><td class="right">$${c.subtotal.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>`).join('')}
+        <tr class="total-row"><td class="bold">Direct Cost Subtotal</td><td class="right bold">$${subtotal.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+      </tbody>
+    </table>
+    <h2>Bid Summary</h2>
+    <table>
+      <tbody>
+        <tr><td>Direct Cost Subtotal</td><td class="right">$${subtotal.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+        <tr><td>Overhead & General Conditions (${overhead}%)</td><td class="right">$${overheadAmt.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+        <tr><td>Bond (${bond}%)</td><td class="right">$${bondAmt.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+        <tr><td>Markup / Profit (${markup}%)</td><td class="right">$${markupAmt.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+        <tr class="grand-total"><td class="bold" style="padding:10px 8px">TOTAL BID PRICE</td><td class="right bold" style="padding:10px 8px;font-size:16px">$${total.toLocaleString('en-US',{minimumFractionDigits:2})}</td></tr>
+      </tbody>
+    </table>
+    ${notes?`<div class="notes"><strong>Clarifications / Exclusions:</strong><br/>${notes.replace(/
+/g,'<br/>')}</div>`:''}
+    <div style="margin-top:30px;font-size:10px;color:#999;border-top:1px solid #eee;padding-top:12px">This estimate is valid for 30 days from date of issue. Prices subject to material cost fluctuations. Does not include permits unless noted.</div>
+    </body></html>`);
+    win.document.close(); win.focus(); setTimeout(()=>win.print(),500);
+  };
+
+  const dynInput = {...inputStyle,fontSize:13,width:'70px',textAlign:'right',padding:'5px 8px'};
+
+  return (
+    <APMModal title="Bid Summary" onClose={onClose} width={560}>
+      <div style={{display:'flex',flexDirection:'column',gap:0}}>
+        {/* Cost breakdown */}
+        <div style={{background:t.bg4,borderRadius:8,padding:14,marginBottom:12}}>
+          <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,marginBottom:10}}>DIVISION COSTS</div>
+          {catGroups.map(cat=>(
+            <div key={cat.id} style={{display:'flex',justifyContent:'space-between',padding:'4px 0',borderBottom:`1px solid ${t.border}`}}>
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{width:8,height:8,borderRadius:2,background:cat.color}}/>
+                <span style={{fontSize:12,color:t.text}}>{cat.label}</span>
+              </div>
+              <span style={{fontSize:12,fontWeight:600,color:t.text,fontFamily:"'DM Mono',monospace"}}>${cat.subtotal.toLocaleString()}</span>
+            </div>
+          ))}
+          <div style={{display:'flex',justifyContent:'space-between',paddingTop:8,marginTop:4}}>
+            <span style={{fontSize:12,fontWeight:700,color:t.text}}>Direct Cost Subtotal</span>
+            <span style={{fontSize:13,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${subtotal.toLocaleString()}</span>
+          </div>
+        </div>
+
+        {/* Adjustments */}
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10,marginBottom:12}}>
+          {[['Overhead %',overhead,setOverhead],['Bond %',bond,setBond],['Markup %',markup,setMarkup]].map(([lbl,val,setter])=>(
+            <APMField key={lbl} label={lbl}>
+              <input type="number" value={val} onChange={e=>setter(Number(e.target.value)||0)} style={{...dynInput,width:'100%'}}/>
+            </APMField>
+          ))}
+        </div>
+
+        {/* Total */}
+        <div style={{background:'linear-gradient(135deg,#F97316,#ea580c)',borderRadius:8,padding:'14px 18px',display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+          <span style={{fontSize:13,fontWeight:700,color:'#000'}}>TOTAL BID PRICE</span>
+          <span style={{fontSize:22,fontWeight:800,color:'#000',fontFamily:"'DM Mono',monospace"}}>${total.toLocaleString('en-US',{minimumFractionDigits:0})}</span>
+        </div>
+
+        <APMField label="Clarifications / Exclusions">
+          <textarea value={notes} onChange={e=>setNotes(e.target.value)} placeholder="e.g. Does not include permits, demo, or haul-off..." style={{...inputStyle,minHeight:70,resize:'vertical',fontSize:13}}/>
+        </APMField>
+      </div>
+      <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'flex-end'}}>
+        <button onClick={onClose} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13}}>Close</button>
+        <button onClick={printBid} style={{background:'#111',border:'1px solid #333',color:'#fff',padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13,fontWeight:700}}>🖨 Print / PDF</button>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Takeoff Project Modal ─────────────────────────────
+function TakeoffProjectModal({ project, apmProjects, onSave, onClose }) {
+  const { t } = useTheme();
+  const isNew = !project?.id;
+  const [form, setForm] = useState({
+    name:'', company:'fcg', address:'', gc_name:'', bid_date:'', contract_value:'', apm_project_id:null, status:'estimating',
+    ...(project||{})
+  });
+  const [saving, setSaving] = useState(false);
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const dynInput = {...inputStyle,background:'var(--inp)',borderColor:'var(--inpbd)',color:'var(--inptx)',fontSize:13};
+
+  const handleSave = async () => {
+    if (!form.name.trim()) return;
+    setSaving(true);
+    const payload = {...form, contract_value: form.contract_value?Number(form.contract_value):null};
+    delete payload.id; delete payload.created_at;
+    if (isNew) {
+      const {data} = await supabase.from('precon_plans').select('id').eq('project_id',-1).limit(0);
+      // Use takeoff_projects table - we'll create entries in precon_plans with project_id=null
+      // Actually store in a local approach using precon metadata stored in plan records
+      // For now store as APM project with a takeoff flag, or use a separate lightweight approach
+      onSave({...form, id: Date.now(), isLocal: true}, true);
+    } else {
+      onSave({...project,...form}, false);
+    }
+    setSaving(false);
+  };
+
+  return (
+    <APMModal title={isNew?'New Takeoff Project':'Edit Project'} onClose={onClose} width={500}>
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <APMField label="Project Name"><input value={form.name} onChange={e=>set('name',e.target.value)} style={{...dynInput,fontSize:15}} autoFocus/></APMField>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <APMField label="Company">
+            <select value={form.company} onChange={e=>set('company',e.target.value)} style={{...dynInput}}>
+              {COMPANIES.filter(c=>c.id!=='all').map(c=><option key={c.id} value={c.id}>{c.name}</option>)}
+            </select>
+          </APMField>
+          <APMField label="Status">
+            <select value={form.status} onChange={e=>set('status',e.target.value)} style={{...dynInput}}>
+              {['estimating','bid_submitted','awarded','lost','hold'].map(s=><option key={s} value={s}>{s.replace(/_/g,' ').toUpperCase()}</option>)}
+            </select>
+          </APMField>
+        </div>
+        <APMField label="Address"><input value={form.address||''} onChange={e=>set('address',e.target.value)} style={{...dynInput}}/></APMField>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12}}>
+          <APMField label="GC / Owner"><input value={form.gc_name||''} onChange={e=>set('gc_name',e.target.value)} style={{...dynInput}}/></APMField>
+          <APMField label="Bid Due Date"><input type="date" value={form.bid_date||''} onChange={e=>set('bid_date',e.target.value)} style={{...dynInput}}/></APMField>
+        </div>
+        <APMField label="Estimated Contract Value"><input type="number" value={form.contract_value||''} onChange={e=>set('contract_value',e.target.value)} placeholder="0" style={{...dynInput}}/></APMField>
+        {apmProjects?.length>0&&(
+          <APMField label="Link to APM Project (optional)">
+            <select value={form.apm_project_id||''} onChange={e=>set('apm_project_id',e.target.value||null)} style={{...dynInput}}>
+              <option value="">— None —</option>
+              {apmProjects.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </APMField>
+        )}
+      </div>
+      <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'space-between'}}>
+        {!isNew&&<button onClick={()=>onSave(null,'delete')} style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'8px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Delete</button>}
+        <div style={{display:'flex',gap:8,marginLeft:'auto'}}>
+          <button onClick={onClose} style={{background:'none',border:`1px solid var(--bd2)`,color:'var(--tx3)',padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13}}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||!form.name.trim()} style={{background:'#F97316',border:'none',color:'#000',padding:'8px 22px',borderRadius:6,cursor:'pointer',fontSize:13,fontWeight:700}}>{saving?'Saving...':isNew?'Create':'Save'}</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+// ── Full Takeoff Workspace ────────────────────────────
+function TakeoffWorkspace({ project, onBack, apmProjects }) {
+  const { t } = useTheme();
+  const [plans, setPlans] = useState([]);
+  const [selPlan, setSelPlan] = useState(null);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [tool, setTool] = useState('select');
+  const [activePts, setActivePts] = useState([]);
+  const [hoverPt, setHoverPt] = useState(null);
+  const [scale, setScale] = useState(null);
+  const [scaleStep, setScaleStep] = useState(null);
+  const [scalePts, setScalePts] = useState([]);
+  const [scaleDist, setScaleDist] = useState('');
+  const [scaleUnit, setScaleUnit] = useState('ft');
+  const [imgNat, setImgNat] = useState({w:1,h:1});
+  const [imgDisp, setImgDisp] = useState({w:1,h:1});
+  const [editItem, setEditItem] = useState(null);
+  const [planB64, setPlanB64] = useState(null);
+  const [planMime, setPlanMime] = useState('image/png');
+  const [rightTab, setRightTab] = useState('items');
+  const [zoom, setZoom] = useState(1);
+  const [showAssembly, setShowAssembly] = useState(false);
+  const [showUnitCosts, setShowUnitCosts] = useState(false);
+  const [showBidSummary, setShowBidSummary] = useState(false);
+  const [editProject, setEditProject] = useState(false);
+  const imgRef = useRef();
+  const svgRef = useRef();
+  const fileRef = useRef();
+  const containerRef = useRef();
+
+  const projectId = project.apm_project_id || project.id;
+
+  useEffect(()=>{
+    const pid = project.apm_project_id;
+    if (!pid) { setLoading(false); return; }
+    Promise.all([
+      supabase.from('precon_plans').select('*').eq('project_id',pid).order('created_at'),
+      supabase.from('takeoff_items').select('*').eq('project_id',pid).order('sort_order'),
+    ]).then(([{data:p},{data:i}])=>{
+      const pl=p||[]; setPlans(pl); setItems(i||[]);
+      if(pl.length>0){setSelPlan(pl[0]); if(pl[0].scale_px_per_ft) setScale(pl[0].scale_px_per_ft);}
+      setLoading(false);
+    });
+  },[project.id]);
+
+  const toNorm=(x,y)=>({x:x/imgDisp.w,y:y/imgDisp.h});
+  const toPx=(nx,ny)=>({x:nx*imgDisp.w,y:ny*imgDisp.h});
+  const toNat=(nx,ny)=>({x:nx*imgNat.w,y:ny*imgNat.h});
+
+  const getSvgPos=(e)=>{
+    const r=svgRef.current?.getBoundingClientRect();
+    if(!r) return {x:0,y:0};
+    return {x:(e.clientX-r.left)/zoom,y:(e.clientY-r.top)/zoom};
+  };
+
+  const calcArea=(pts)=>{
+    if(!scale||pts.length<3) return 0;
+    let a=0;
+    for(let i=0;i<pts.length;i++){
+      const j=(i+1)%pts.length;
+      const pi=toNat(pts[i].x,pts[i].y);
+      const pj=toNat(pts[j].x,pts[j].y);
+      a+=pi.x*pj.y; a-=pj.x*pi.y;
+    }
+    return Math.abs(a)/2/(scale*scale);
+  };
+
+  const calcLinear=(p1,p2)=>{
+    if(!scale) return 0;
+    const n1=toNat(p1.x,p1.y); const n2=toNat(p2.x,p2.y);
+    return Math.sqrt((n2.x-n1.x)**2+(n2.y-n1.y)**2)/scale;
+  };
+
+  const handleImgLoad=()=>{
+    if(!imgRef.current) return;
+    setImgNat({w:imgRef.current.naturalWidth,h:imgRef.current.naturalHeight});
+    const r=imgRef.current.getBoundingClientRect();
+    setImgDisp({w:r.width,h:r.height});
+  };
+
+  const getUnitCosts = () => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} };
+
+  const saveItem = async (itemData) => {
+    const catDef = TAKEOFF_CATS.find(c=>c.id===itemData.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
+    const costs = getUnitCosts();
+    const uc = itemData.unit_cost ?? ((costs[itemData.category]?.mat||0)+(costs[itemData.category]?.lab||0));
+    const total_cost = (itemData.quantity||0)*uc;
+    const apmId = project.apm_project_id;
+    if (!apmId) { alert('Link this project to an APM project first to save measurements.'); return; }
+    const payload = {...itemData, project_id:apmId, plan_id:selPlan?.id, unit_cost:uc, total_cost, color:catDef.color, ai_generated:false, sort_order:items.length};
+    const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
+    if(data){setItems(prev=>[...prev,data]); setEditItem(data);}
+  };
+
+  const handleSvgClick=(e)=>{
+    if(!selPlan) return;
+    const pos=getSvgPos(e);
+    const norm=toNorm(pos.x,pos.y);
+    if(tool==='scale'&&scaleStep==='picking'){
+      const npts=[...scalePts,norm];
+      setScalePts(npts);
+      if(npts.length===2) setScaleStep('entering');
+      return;
+    }
+    if(tool==='count'){ saveItem({category:'other',description:'Count',quantity:1,unit:'EA',measurement_type:'count',points:[norm]}); return; }
+    if(tool==='linear'){
+      const npts=[...activePts,norm];
+      if(npts.length===2){
+        const len=Math.round(calcLinear(npts[0],npts[1])*10)/10;
+        saveItem({category:'other',description:'Linear measurement',quantity:len,unit:'LF',measurement_type:'linear',points:npts});
+        setActivePts([]);
+      } else setActivePts(npts);
+      return;
+    }
+    if(tool==='area'){
+      if(activePts.length>=3){
+        const fp=toPx(activePts[0].x,activePts[0].y);
+        if(Math.sqrt((pos.x-fp.x)**2+(pos.y-fp.y)**2)<14){
+          const area=Math.round(calcArea(activePts)*10)/10;
+          saveItem({category:'concrete_slab',description:'Area',quantity:area,unit:'SF',measurement_type:'area',points:activePts});
+          setActivePts([]); return;
+        }
+      }
+      setActivePts(prev=>[...prev,norm]);
+    }
+  };
+
+  const handleSvgMove=(e)=>{ setHoverPt(toNorm(getSvgPos(e).x, getSvgPos(e).y)); };
+
+  const confirmScale=async()=>{
+    if(!scaleDist||scalePts.length<2) return;
+    const p1=toNat(scalePts[0].x,scalePts[0].y);
+    const p2=toNat(scalePts[1].x,scalePts[1].y);
+    const pxDist=Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2);
+    const realFt=Number(scaleDist)*(scaleUnit==='in'?1/12:1);
+    const pxPerFt=pxDist/realFt;
+    setScale(pxPerFt); setScaleStep(null); setScalePts([]); setScaleDist(''); setTool('select');
+    if(selPlan) await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+  };
+
+  const handleUpload=async(file)=>{
+    if(!file) return;
+    const apmId = project.apm_project_id;
+    if (!apmId) { alert('Link this project to an APM project first to upload plans.'); return; }
+    setUploading(true);
+    const ext=file.name.split('.').pop();
+    const path=`precon/${apmId}/${Date.now()}.${ext}`;
+    const {error}=await supabase.storage.from('attachments').upload(path,file,{upsert:true});
+    if(error){setUploading(false);alert('Upload failed: '+error.message);return;}
+    const {data:ud}=supabase.storage.from('attachments').getPublicUrl(path);
+    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:apmId,name:file.name,file_url:ud.publicUrl,file_type:file.type}]).select().single();
+    if(plan){setPlans(prev=>[...prev,plan]);setSelPlan(plan);}
+    const reader=new FileReader();
+    reader.onload=ev=>{setPlanB64(ev.target.result.split(',')[1]);setPlanMime(file.type);};
+    reader.readAsDataURL(file);
+    setUploading(false);
+  };
+
+  const runAITakeoff=async()=>{
+    if(!selPlan) return;
+    setAnalyzing(true);
+    let b64=planB64; let mime=planMime;
+    if(!b64){
+      try{
+        const res=await fetch(selPlan.file_url);
+        const blob=await res.blob(); mime=blob.type||'image/png';
+        b64=await new Promise(resolve=>{const r=new FileReader();r.onload=e=>resolve(e.target.result.split(',')[1]);r.readAsDataURL(blob);});
+      }catch(e){setAnalyzing(false);alert('Could not load plan');return;}
+    }
+    const isImg=mime.startsWith('image/');
+    const block=isImg?{type:'image',source:{type:'base64',media_type:mime,data:b64}}:{type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}};
+    const costs = getUnitCosts();
+    const res=await fetch('/api/claude',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3000,
+        messages:[{role:'user',content:[block,{type:'text',text:`You are a senior concrete and masonry construction estimator. Analyze this plan drawing extremely carefully.
+
+Project: "${project.name}" | GC: ${project.gc_name||'N/A'} | Est. Value: ${project.contract_value?'$'+project.contract_value:'TBD'}
+
+Your job: Extract EVERY quantifiable scope item for a concrete/masonry subcontractor bidding this job.
+
+Instructions:
+- Read ALL dimension strings visible on the plan
+- Identify every concrete element: slabs, footings, walls, columns, piers, curbs
+- Identify masonry: CMU block walls, brick, stone
+- Calculate or estimate quantities from dimensions shown
+- If dimensions aren't visible, estimate from drawing scale and context
+- Separate different areas into individual line items (e.g. "Slab Area A - 2,400 SF", "Slab Area B - 800 SF")
+- Include rebar, formwork, and excavation as separate items
+
+Return ONLY a valid JSON array, no markdown:
+[{"category":"concrete_slab|concrete_footing|concrete_wall|masonry_cmu|masonry_brick|rebar|formwork|excavation|flatwork|grout|other","description":"specific item with location/reference","quantity":number,"unit":"SF|CY|LF|LB|EA|LS","measurement_type":"area|linear|count|manual","confidence":"high|medium|low"}]`}]}]})
+    });
+    const json=await res.json();
+    const text=json?.content?.find(b=>b.type==='text')?.text||'';
+    try{
+      const aiItems=JSON.parse(text.replace(/```json|```/g,'').trim());
+      const apmId=project.apm_project_id;
+      if(!apmId){alert('Link to APM project first to save items.');setAnalyzing(false);return;}
+      const toInsert=aiItems.map((it,i)=>{
+        const catDef=TAKEOFF_CATS.find(c=>c.id===it.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
+        const uc=(costs[it.category]?.mat||0)+(costs[it.category]?.lab||0)||catDef.defaultCost;
+        return {project_id:apmId,plan_id:selPlan?.id,category:it.category||'other',description:it.description,quantity:it.quantity||0,unit:it.unit||catDef.unit,unit_cost:uc,total_cost:(it.quantity||0)*uc,measurement_type:it.measurement_type||'manual',points:null,color:catDef.color,ai_generated:true,sort_order:items.length+i};
+      });
+      const {data}=await supabase.from('takeoff_items').insert(toInsert).select();
+      if(data) setItems(prev=>[...prev,...data]);
+    }catch(e){alert('AI parse failed: '+e.message);}
+    setAnalyzing(false);
+  };
+
+  const applyAssembly = async (assemblyItems) => {
+    const apmId = project.apm_project_id;
+    if(!apmId){alert('Link to APM project first.');return;}
+    const toInsert = assemblyItems.map((it,i)=>({...it,project_id:apmId,plan_id:selPlan?.id,measurement_type:'manual',points:null,color:TAKEOFF_CATS.find(c=>c.id===it.category)?.color||'#555',ai_generated:false,sort_order:items.length+i}));
+    const {data}=await supabase.from('takeoff_items').insert(toInsert).select();
+    if(data) setItems(prev=>[...prev,...data]);
+    setShowAssembly(false);
+  };
+
+  const deleteItem = async (id) => {
+    await supabase.from('takeoff_items').delete().eq('id',id);
+    setItems(prev=>prev.filter(i=>i.id!==id));
+  };
+
+  const pushToSOV = async () => {
+    const apmId=project.apm_project_id;
+    if(!apmId||!items.length) return;
+    const grouped={};
+    items.forEach(it=>{ const cat=TAKEOFF_CATS.find(c=>c.id===it.category); const key=cat?.label||it.category; if(!grouped[key])grouped[key]={desc:key,total:0}; grouped[key].total+=(it.total_cost||0); });
+    const sovRows=Object.values(grouped).map((g,i)=>({project_id:apmId,item_no:String(i+1),description:g.desc,scheduled_value:Math.round(g.total),sort_order:i}));
+    await supabase.from('sov_items').delete().eq('project_id',apmId);
+    await supabase.from('sov_items').insert(sovRows);
+    alert('✓ SOV updated in APM! Go to the linked project → Pay Apps to review.');
+  };
+
+  // SVG
+  const renderMeasurements=()=>items.filter(it=>it.points?.length).map(it=>{
+    const pts=it.points.map(p=>toPx(p.x,p.y));
+    const c=it.color||'#F97316';
+    if(it.measurement_type==='area'&&pts.length>=3){
+      const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')+' Z';
+      const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+      const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
+      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+        <path d={d} fill={c+'30'} stroke={c} strokeWidth={2.5}/>
+        <rect x={cx-28} y={cy-10} width={56} height={20} rx={4} fill="rgba(0,0,0,0.65)"/>
+        <text x={cx} y={cy+4} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
+      </g>);
+    }
+    if(it.measurement_type==='linear'&&pts.length>=2){
+      const mx=(pts[0].x+pts[1].x)/2; const my=(pts[0].y+pts[1].y)/2;
+      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+        <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={3} strokeDasharray="8,4"/>
+        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={6} fill={c} stroke="#fff" strokeWidth={1.5}/>)}
+        <rect x={mx-22} y={my-18} width={44} height={18} rx={4} fill="rgba(0,0,0,0.65)"/>
+        <text x={mx} y={my-5} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity}{it.unit}</text>
+      </g>);
+    }
+    if(it.measurement_type==='count'&&pts[0]){
+      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+        <circle cx={pts[0].x} cy={pts[0].y} r={10} fill={c} stroke="#fff" strokeWidth={1.5}/>
+        <text x={pts[0].x} y={pts[0].y+4} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
+      </g>);
+    }
+    return null;
+  });
+
+  const renderActive=()=>{
+    const pts=(tool==='scale'&&scaleStep==='picking')?scalePts:activePts;
+    if(!pts.length) return null;
+    const c=tool==='scale'?'#10B981':tool==='area'?'#F59E0B':'#06B6D4';
+    const disp=pts.map(p=>toPx(p.x,p.y));
+    const hover=hoverPt?toPx(hoverPt.x,hoverPt.y):null;
+    const all=hover?[...disp,hover]:disp;
+    return(<>
+      {all.length>=2&&<polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={2.5} strokeDasharray={tool==='area'?'none':'6,3'} opacity={0.9}/>}
+      {disp.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?10:5} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={2} opacity={0.95}/>)}
+      {hover&&<circle cx={hover.x} cy={hover.y} r={4} fill={c} opacity={0.5}/>}
+      {tool==='area'&&pts.length>=3&&<text x={disp[0].x+14} y={disp[0].y-10} fontSize={10} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>← close</text>}
+    </>);
+  };
+
+  const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0);
+  const catGroups=TAKEOFF_CATS.map(cat=>{
+    const its=items.filter(i=>i.category===cat.id);
+    return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
+  }).filter(Boolean);
+  const toolCursor={select:'default',area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
+
+  const co = COMPANIES.find(c=>c.id===project.company)||COMPANIES[1];
+  const STATUS_COLORS_BID = {estimating:'#F59E0B',bid_submitted:'#3B82F6',awarded:'#10B981',lost:'#EF4444',hold:'#555'};
+
+  return (
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+      {/* Header */}
+      <div style={{display:'flex',alignItems:'center',gap:10,padding:'10px 16px',borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,flexWrap:'wrap'}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:t.text3,cursor:'pointer',fontSize:13,padding:'4px 8px 4px 0',display:'flex',alignItems:'center',gap:4}}>← Back</button>
+        <div style={{width:1,height:20,background:t.border}}/>
+        <CompanyBadge companyId={project.company} small/>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{fontSize:14,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
+          <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{project.address||''}{project.gc_name?' · '+project.gc_name:''}</div>
+        </div>
+        <span style={{fontSize:10,padding:'3px 8px',borderRadius:10,background:STATUS_COLORS_BID[project.status]+'20',color:STATUS_COLORS_BID[project.status]||'#555',fontFamily:"'DM Mono',monospace",fontWeight:700}}>{(project.status||'').replace(/_/g,' ').toUpperCase()}</span>
+        {project.bid_date&&<span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>📅 Bid: {fmtDate(project.bid_date)}</span>}
+        <button onClick={()=>setEditProject(true)} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'5px 10px',borderRadius:5,cursor:'pointer',fontSize:11}}>Edit</button>
+        <button onClick={()=>setShowBidSummary(true)} disabled={!items.length} style={{background:'linear-gradient(135deg,#10B981,#059669)',border:'none',color:'#000',padding:'5px 12px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700,opacity:items.length?1:0.4}}>📋 Bid Summary</button>
+      </div>
+
+      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+        {/* ── Plan Viewer ── */}
+        <div style={{flex:1,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,overflow:'hidden',minWidth:0}}>
+
+          {/* Plan toolbar */}
+          <div style={{display:'flex',gap:6,padding:'7px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,alignItems:'center',background:t.bg2,flexWrap:'wrap'}}>
+            <div style={{display:'flex',gap:6,alignItems:'center',flex:1,minWidth:0}}>
+              {plans.length>0&&(
+                <select value={selPlan?.id||''} onChange={e=>{
+                  const p=plans.find(x=>x.id===Number(e.target.value));
+                  setSelPlan(p||null); if(p?.scale_px_per_ft)setScale(p.scale_px_per_ft);else setScale(null);
+                }} style={{...inputStyle,fontSize:11,padding:'3px 8px',maxWidth:160}}>
+                  {plans.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                </select>
+              )}
+              <button onClick={()=>fileRef.current?.click()} disabled={uploading}
+                style={{background:'none',border:`1px solid ${t.border2}`,color:t.text2,padding:'4px 9px',borderRadius:5,cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',gap:4,flexShrink:0,whiteSpace:'nowrap'}}>
+                {uploading?'⟳ Uploading…':'📎 Upload Sheet'}
+              </button>
+              <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
+            </div>
+            <div style={{display:'flex',gap:4,alignItems:'center',flexShrink:0}}>
+              {scale&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 6px',borderRadius:3}}>⇔ SCALED</span>}
+              <button onClick={()=>setZoom(z=>Math.min(z+0.25,3))} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>+</button>
+              <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",minWidth:32,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
+              <button onClick={()=>setZoom(z=>Math.max(z-0.25,0.25))} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text3,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:12}}>−</button>
+              <button onClick={()=>setZoom(1)} style={{background:t.bg4,border:`1px solid ${t.border}`,color:t.text4,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:10,fontFamily:"'DM Mono',monospace"}}>FIT</button>
+            </div>
+            {selPlan&&<button onClick={runAITakeoff} disabled={analyzing}
+              style={{background:'linear-gradient(135deg,#7c3aed,#a855f7)',border:'none',color:'#fff',padding:'5px 11px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+              {analyzing?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>Analyzing…</>:<><span>✦</span>AI Takeoff</>}
+            </button>}
+          </div>
+
+          {/* Drawing toolbar */}
+          {selPlan&&(
+            <div style={{display:'flex',gap:3,padding:'5px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg,alignItems:'center',overflowX:'auto'}}>
+              {[
+                {id:'select',icon:'↖',label:'Select',color:'var(--tx3)'},
+                {id:'area',icon:'⬡',label:'Area',color:'#F59E0B'},
+                {id:'linear',icon:'━',label:'Linear',color:'#06B6D4'},
+                {id:'count',icon:'✕',label:'Count',color:'#10B981'},
+                {id:'scale',icon:'⇔',label:'Set Scale',color:'#10B981'},
+              ].map(tb=>(
+                <button key={tb.id}
+                  onClick={()=>{setTool(tb.id);setActivePts([]);if(tb.id==='scale'){setScaleStep('picking');setScalePts([]);}else setScaleStep(null);}}
+                  title={tb.label}
+                  style={{padding:'4px 9px',borderRadius:4,border:tool===tb.id?`1.5px solid ${tb.color}`:`1px solid ${t.border}`,background:tool===tb.id?tb.color+'18':'none',color:tool===tb.id?tb.color:t.text4,cursor:'pointer',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',flexShrink:0}}>
+                  <span style={{fontSize:13}}>{tb.icon}</span><span style={{fontSize:10}}>{tb.label}</span>
+                </button>
+              ))}
+              <div style={{width:1,height:18,background:t.border,margin:'0 4px',flexShrink:0}}/>
+              <button onClick={()=>setShowAssembly(true)} style={{padding:'4px 9px',borderRadius:4,border:`1px solid ${t.border}`,background:'none',color:'#8B5CF6',cursor:'pointer',fontSize:10,fontWeight:700,flexShrink:0,display:'flex',alignItems:'center',gap:3}}>
+                <span>⬡</span>Assembly
+              </button>
+              <button onClick={()=>setShowUnitCosts(true)} style={{padding:'4px 9px',borderRadius:4,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer',fontSize:10,flexShrink:0,display:'flex',alignItems:'center',gap:3}}>
+                <span>$</span>Rates
+              </button>
+              {tool==='area'&&activePts.length>0&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace",marginLeft:4,flexShrink:0}}>{activePts.length} pts{activePts.length>=3?' · click 1st pt to close':''}</span>}
+              {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginLeft:4,flexShrink:0}}>Click 2 known points ({scalePts.length}/2)</span>}
+            </div>
+          )}
+
+          {/* Plan canvas */}
+          <div ref={containerRef} style={{flex:1,overflow:'auto',background:t.bg,position:'relative'}}>
+            {!selPlan?(
+              <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:40}}>
+                <div style={{fontSize:48,marginBottom:16}}>📐</div>
+                <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:6}}>No plans uploaded</div>
+                <div style={{fontSize:12,color:t.text3,fontFamily:"'DM Mono',monospace",marginBottom:24,textAlign:'center'}}>Upload PDFs or images of your plans<br/>to start measuring and quantifying</div>
+                {!project.apm_project_id&&<div style={{fontSize:11,color:'#F59E0B',background:'rgba(245,158,11,0.1)',border:'1px solid rgba(245,158,11,0.2)',borderRadius:6,padding:'8px 14px',marginBottom:16,textAlign:'center'}}>⚠ Link to an APM project to save takeoff data</div>}
+                <button onClick={()=>fileRef.current?.click()}
+                  style={{background:'#F97316',border:'none',color:'#000',padding:'10px 24px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>📎 Upload Plans</button>
+              </div>
+            ):(
+              <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative'}}>
+                <img ref={imgRef} src={selPlan.file_url} alt="Plan" style={{display:'block',maxWidth:'none',userSelect:'none'}} onLoad={handleImgLoad} draggable={false}/>
+                <svg ref={svgRef} style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',cursor:toolCursor}} onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
+                  {renderMeasurements()}
+                  {renderActive()}
+                  {scalePts.length>=2&&(()=>{
+                    const p1=toPx(scalePts[0].x,scalePts[0].y);const p2=toPx(scalePts[1].x,scalePts[1].y);
+                    return(<g><line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#10B981" strokeWidth={2.5} strokeDasharray="6,3"/><circle cx={p1.x} cy={p1.y} r={6} fill="#10B981"/><circle cx={p2.x} cy={p2.y} r={6} fill="#10B981"/></g>);
+                  })()}
+                </svg>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Right Panel ── */}
+        <div style={{width:300,flexShrink:0,display:'flex',flexDirection:'column',overflow:'hidden',background:t.bg2}}>
+          <div style={{display:'flex',borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
+            {[['items',`Items (${items.length})`],['estimate','Estimate']].map(([id,lbl])=>(
+              <button key={id} onClick={()=>setRightTab(id)}
+                style={{flex:1,padding:'9px 0',border:'none',background:'none',cursor:'pointer',fontSize:11,fontWeight:700,color:rightTab===id?'#F97316':t.text3,borderBottom:rightTab===id?'2px solid #F97316':'2px solid transparent',fontFamily:"'DM Mono',monospace"}}>
+                {lbl}
+              </button>
+            ))}
+          </div>
+
+          {rightTab==='items'&&(
+            <div style={{flex:1,overflowY:'auto',padding:8}}>
+              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8,padding:'0 2px'}}>
+                <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5}}>{items.filter(i=>i.ai_generated).length} AI · {items.filter(i=>!i.ai_generated).length} MANUAL</span>
+                <div style={{display:'flex',gap:5}}>
+                  <button onClick={()=>setShowAssembly(true)} style={{background:'rgba(139,92,246,0.1)',border:'1px solid rgba(139,92,246,0.3)',color:'#8B5CF6',padding:'3px 8px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>⬡ Assembly</button>
+                  <button onClick={()=>setEditItem({project_id:project.apm_project_id,plan_id:selPlan?.id})} style={{background:'#F97316',border:'none',color:'#000',padding:'3px 8px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>+ Add</button>
+                </div>
+              </div>
+              {items.length===0&&(
+                <div style={{textAlign:'center',padding:'30px 0',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace"}}>
+                  {selPlan?'Use drawing tools or AI Takeoff':'Upload a plan to start'}
+                </div>
+              )}
+              {TAKEOFF_CATS.map(cat=>{
+                const catItems=items.filter(i=>i.category===cat.id);
+                if(!catItems.length) return null;
+                return(<div key={cat.id} style={{marginBottom:8}}>
+                  <div style={{display:'flex',alignItems:'center',gap:5,padding:'4px 2px',marginBottom:3}}>
+                    <span style={{width:7,height:7,borderRadius:2,background:cat.color,flexShrink:0}}/>
+                    <span style={{fontSize:9,fontWeight:700,color:t.text3,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,flex:1}}>{cat.label.toUpperCase()}</span>
+                    <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{catItems.length}</span>
+                  </div>
+                  {catItems.map(item=>(
+                    <div key={item.id} onClick={()=>setEditItem(item)}
+                      style={{background:t.bg3,borderLeft:`3px solid ${cat.color}`,borderRadius:5,padding:'6px 8px',marginBottom:3,cursor:'pointer',display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6}}
+                      onMouseEnter={e=>e.currentTarget.style.background=t.bg4}
+                      onMouseLeave={e=>e.currentTarget.style.background=t.bg3}>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:11,fontWeight:600,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>
+                        <div style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:1,display:'flex',gap:6}}>
+                          <span>{item.quantity} {item.unit}</span>
+                          {item.ai_generated&&<span style={{color:'#a855f7'}}>✦AI</span>}
+                        </div>
+                      </div>
+                      <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",flexShrink:0}}>${(item.total_cost||0).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>);
+              })}
+            </div>
+          )}
+
+          {rightTab==='estimate'&&(
+            <div style={{flex:1,overflowY:'auto',padding:8}}>
+              {catGroups.length===0&&<div style={{textAlign:'center',padding:'30px 0',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace"}}>No items yet</div>}
+              {catGroups.map(cat=>(
+                <div key={cat.id} style={{marginBottom:12}}>
+                  <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:5}}>
+                    <span style={{width:8,height:8,borderRadius:2,background:cat.color}}/>
+                    <span style={{fontSize:10,fontWeight:700,color:t.text2,fontFamily:"'DM Mono',monospace",flex:1,letterSpacing:0.3}}>{cat.label.toUpperCase()}</span>
+                    <span style={{fontSize:11,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${cat.subtotal.toLocaleString()}</span>
+                  </div>
+                  {cat.items.map(it=>(
+                    <div key={it.id} style={{display:'flex',padding:'2px 0 2px 12px',fontSize:10,color:t.text3,gap:4,justifyContent:'space-between'}}>
+                      <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,fontFamily:"'DM Mono',monospace"}}>{it.description}</span>
+                      <span style={{color:t.text2,fontFamily:"'DM Mono',monospace",flexShrink:0,whiteSpace:'nowrap'}}>{it.quantity}{it.unit} × ${it.unit_cost} = <span style={{color:t.text,fontWeight:600}}>${(it.total_cost||0).toLocaleString()}</span></span>
+                    </div>
+                  ))}
+                </div>
+              ))}
+              {catGroups.length>0&&(
+                <div style={{borderTop:`2px solid ${t.border2}`,marginTop:8,paddingTop:10}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:12}}>
+                    <span style={{fontSize:11,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>DIRECT COST</span>
+                    <span style={{fontSize:15,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</span>
+                  </div>
+                  {project.contract_value&&<div style={{fontSize:10,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace",textAlign:'right',marginBottom:12}}>{totalEst>(project.contract_value||0)?'▲ over':'▼ under'} est. contract by ${Math.abs(totalEst-(project.contract_value||0)).toLocaleString()}</div>}
+                  <button onClick={()=>setShowBidSummary(true)} style={{width:'100%',background:'linear-gradient(135deg,#10B981,#059669)',border:'none',color:'#000',padding:'9px 0',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700,marginBottom:8}}>📋 Bid Summary & Print</button>
+                  {project.apm_project_id&&<button onClick={pushToSOV} style={{width:'100%',background:'linear-gradient(135deg,#3b82f6,#1d4ed8)',border:'none',color:'#fff',padding:'8px 0',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700}}>⇒ Push to APM SOV</button>}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Modals */}
+      {scaleStep==='entering'&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}} onClick={()=>{setScaleStep(null);setScalePts([]);}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:t.bg3,border:`1px solid ${t.border2}`,borderRadius:12,padding:28,width:320}}>
+            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:12}}>⇔ Calibrate Scale</div>
+            <div style={{fontSize:12,color:t.text3,marginBottom:14,fontFamily:"'DM Mono',monospace"}}>Real-world distance between your 2 points?</div>
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              <input type="number" value={scaleDist} onChange={e=>setScaleDist(e.target.value)} placeholder="Distance" style={{...inputStyle,flex:1,fontSize:14}} autoFocus onKeyDown={e=>e.key==='Enter'&&confirmScale()}/>
+              <select value={scaleUnit} onChange={e=>setScaleUnit(e.target.value)} style={{...inputStyle,width:60}}>
+                <option value="ft">ft</option><option value="in">in</option>
+              </select>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={()=>{setScaleStep(null);setScalePts([]);}} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'7px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Cancel</button>
+              <button onClick={confirmScale} disabled={!scaleDist} style={{background:'#10B981',border:'none',color:'#000',padding:'7px 18px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700,opacity:scaleDist?1:0.4}}>Set Scale</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {editItem&&<TakeoffItemModal item={editItem} onSave={(data,type)=>{
+        if(type==='delete'){setItems(prev=>prev.filter(i=>i.id!==editItem.id));}
+        else if(type===true){setItems(prev=>[...prev.filter(i=>i.id!==data.id),data]);}
+        else{setItems(prev=>prev.map(i=>i.id===data.id?data:i));}
+        setEditItem(null);
+      }} onClose={()=>setEditItem(null)}/>}
+      {showAssembly&&<AssemblyPicker onApply={applyAssembly} onClose={()=>setShowAssembly(false)}/>}
+      {showUnitCosts&&<UnitCostEditor onClose={()=>setShowUnitCosts(false)}/>}
+      {showBidSummary&&<BidSummaryModal project={project} items={items} onClose={()=>setShowBidSummary(false)}/>}
+      {editProject&&<TakeoffProjectModal project={project} apmProjects={apmProjects} onSave={(data,type)=>{setEditProject(false);}} onClose={()=>setEditProject(false)}/>}
+    </div>
+  );
+}
+
+// ── PreconSection (top-level) ─────────────────────────
+function FCGEstimating({ onExit }) {
+  const { t } = useTheme();
+  const [estiPage, setEstiPage] = useState('projects'); // 'projects' | 'rates' | 'assemblies'
+  const [projects, setProjects] = useState(() => {
+    try{ return JSON.parse(localStorage.getItem('preconProjects')||'[]'); }catch{return [];}
+  });
+  const [apmProjects, setApmProjects] = useState([]);
+  const [selProject, setSelProject] = useState(null);
+  const [newModal, setNewModal] = useState(false);
+  const [filterCo, setFilterCo] = useState('all');
+  const [filterStatus, setFilterStatus] = useState('all');
+
+  useEffect(()=>{
+    supabase.from('projects').select('id,name,company,address,gc_name,contract_value').order('created_at',{ascending:false}).then(({data})=>setApmProjects(data||[]));
+  },[]);
+
+  const saveProjects = (list) => {
+    setProjects(list);
+    localStorage.setItem('preconProjects', JSON.stringify(list));
+  };
+
+  const handleSave = (data, type) => {
+    if (type==='delete') { saveProjects(projects.filter(p=>p.id!==data?.id)); setNewModal(false); return; }
+    if (type===true) { saveProjects([data,...projects]); }
+    else { saveProjects(projects.map(p=>p.id===data.id?data:p)); }
+    setNewModal(false);
+  };
+
+  const filtered = projects.filter(p=>{
+    const matchCo = filterCo==='all'||p.company===filterCo;
+    const matchSt = filterStatus==='all'||p.status===filterStatus;
+    return matchCo && matchSt;
+  });
+
+  const STATUS_COLORS_BID = {estimating:'#F59E0B',bid_submitted:'#3B82F6',awarded:'#10B981',lost:'#EF4444',hold:'#555'};
+  const totalBidValue = filtered.reduce((s,p)=>s+(Number(p.contract_value)||0),0);
+  const awardedVal = filtered.filter(p=>p.status==='awarded').reduce((s,p)=>s+(Number(p.contract_value)||0),0);
+
+  const projectsView = selProject
+    ? <TakeoffWorkspace project={selProject} onBack={()=>setSelProject(null)} apmProjects={apmProjects}/>
+    : (
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+      {/* Header */}
+      <div style={{padding:'12px 20px',borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
+        <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:10}}>
+          <div>
+            <div style={{fontSize:16,fontWeight:800,color:t.text,letterSpacing:-0.3}}>Precon / Estimating</div>
+            <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>TAKEOFF · BID MANAGEMENT · ESTIMATE BUILDER</div>
+          </div>
+          <button onClick={()=>setNewModal(true)} style={{background:'#F97316',border:'none',color:'#000',padding:'8px 16px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700}}>+ New Bid</button>
+        </div>
+
+        {/* Summary stats */}
+        <div style={{display:'flex',gap:12,marginBottom:10,flexWrap:'wrap'}}>
+          {[
+            {label:'Total Bids',val:filtered.length,color:t.text2},
+            {label:'Estimating',val:filtered.filter(p=>p.status==='estimating').length,color:'#F59E0B'},
+            {label:'Submitted',val:filtered.filter(p=>p.status==='bid_submitted').length,color:'#3B82F6'},
+            {label:'Awarded',val:filtered.filter(p=>p.status==='awarded').length,color:'#10B981'},
+            {label:'Bid Volume',val:'$'+totalBidValue.toLocaleString(),color:t.text,isText:true},
+            {label:'Awarded $',val:'$'+awardedVal.toLocaleString(),color:'#10B981',isText:true},
+          ].map(s=>(
+            <div key={s.label} style={{display:'flex',alignItems:'baseline',gap:5}}>
+              <span style={{fontSize:s.isText?13:16,fontWeight:800,color:s.color,fontFamily:"'DM Mono',monospace"}}>{s.val}</span>
+              <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.5}}>{s.label.toUpperCase()}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Filters */}
+        <div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+          {['all','estimating','bid_submitted','awarded','lost','hold'].map(s=>(
+            <button key={s} onClick={()=>setFilterStatus(s)}
+              style={{padding:'4px 10px',borderRadius:20,border:filterStatus===s?`1px solid ${STATUS_COLORS_BID[s]||'#F97316'}60`:'1px solid var(--bd)',background:filterStatus===s?(STATUS_COLORS_BID[s]||'#F97316')+'15':'var(--bg3)',color:filterStatus===s?(STATUS_COLORS_BID[s]||'#F97316'):'var(--tx3)',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:"'DM Mono',monospace",textTransform:'uppercase'}}>
+              {s.replace(/_/g,' ')}
+            </button>
+          ))}
+          <div style={{width:1,height:18,background:t.border,margin:'0 2px',alignSelf:'center'}}/>
+          {COMPANIES.filter(c=>c.id!=='all').map(co=>(
+            <button key={co.id} onClick={()=>setFilterCo(f=>f===co.id?'all':co.id)}
+              style={{padding:'4px 10px',borderRadius:20,border:filterCo===co.id?`1px solid ${co.color}60`:'1px solid var(--bd)',background:filterCo===co.id?co.color+'15':'var(--bg3)',color:filterCo===co.id?co.color:'var(--tx3)',fontSize:10,fontWeight:700,cursor:'pointer',fontFamily:"'DM Mono',monospace"}}>
+              {co.short}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Project grid */}
+      <div style={{flex:1,overflowY:'auto',padding:20}}>
+        {filtered.length===0&&(
+          <div style={{textAlign:'center',padding:60}}>
+            <div style={{fontSize:40,marginBottom:12}}>📐</div>
+            <div style={{fontSize:15,fontWeight:700,color:t.text,marginBottom:6}}>No bids yet</div>
+            <div style={{fontSize:12,color:t.text3,fontFamily:"'DM Mono',monospace",marginBottom:24}}>Create a new bid to start your takeoff and estimate</div>
+            <button onClick={()=>setNewModal(true)} style={{background:'#F97316',border:'none',color:'#000',padding:'10px 24px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>+ New Bid</button>
+          </div>
+        )}
+        <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(300px,1fr))',gap:14}}>
+          {filtered.map(p=>{
+            const co=COMPANIES.find(c=>c.id===p.company)||COMPANIES[1];
+            const statusColor=STATUS_COLORS_BID[p.status]||'#555';
+            const apmLinked=apmProjects.find(a=>a.id===p.apm_project_id);
+            return(
+              <div key={p.id} onClick={()=>setSelProject(p)}
+                style={{background:t.bg2,border:`1px solid ${t.border}`,borderRadius:10,padding:16,cursor:'pointer',transition:'all 0.12s',position:'relative',overflow:'hidden'}}
+                onMouseEnter={e=>{e.currentTarget.style.borderColor='#F97316';e.currentTarget.style.transform='translateY(-1px)';}}
+                onMouseLeave={e=>{e.currentTarget.style.borderColor=t.border;e.currentTarget.style.transform='translateY(0)';}}>
+                <div style={{position:'absolute',top:0,left:0,right:0,height:3,background:`linear-gradient(90deg,${co.color},${co.color}88)`}}/>
+                <div style={{display:'flex',alignItems:'flex-start',justifyContent:'space-between',gap:8,marginBottom:8}}>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:13,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+                    <div style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",marginTop:2,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.address||p.gc_name||'No address'}</div>
+                  </div>
+                  <span style={{fontSize:9,padding:'3px 7px',borderRadius:8,background:statusColor+'20',color:statusColor,fontFamily:"'DM Mono',monospace",fontWeight:700,flexShrink:0,whiteSpace:'nowrap'}}>{(p.status||'').replace(/_/g,' ').toUpperCase()}</span>
+                </div>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:apmLinked?8:0}}>
+                  <div>
+                    {p.contract_value&&<div style={{fontSize:15,fontWeight:800,color:t.text,fontFamily:"'DM Mono',monospace"}}>${Number(p.contract_value).toLocaleString()}</div>}
+                    {p.gc_name&&<div style={{fontSize:10,color:t.text4}}>GC: {p.gc_name}</div>}
+                  </div>
+                  <div style={{textAlign:'right'}}>
+                    <CompanyBadge companyId={p.company} small/>
+                    {p.bid_date&&<div style={{fontSize:9,color:p.bid_date<new Date().toISOString().slice(0,10)?'#EF4444':'#F59E0B',fontFamily:"'DM Mono',monospace",marginTop:3}}>📅 {fmtDate(p.bid_date)}</div>}
+                  </div>
+                </div>
+                {apmLinked&&<div style={{fontSize:9,color:'#3B82F6',fontFamily:"'DM Mono',monospace",background:'rgba(59,130,246,0.08)',padding:'3px 8px',borderRadius:4,display:'inline-block'}}>↗ APM: {apmLinked.name}</div>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {newModal&&<TakeoffProjectModal project={null} apmProjects={apmProjects} onSave={handleSave} onClose={()=>setNewModal(false)}/>}
+    </div>
+  );
+
+  return (
+    <div style={{display:'flex',height:'100vh',width:'100vw',position:'fixed',inset:0,background:'var(--bg)',fontFamily:"'Syne', sans-serif",zIndex:10,overflow:'hidden'}}>
+
+      {/* ── FCG Estimating Sidebar ── */}
+      <div style={{width:220,flexShrink:0,background:'#0a0f0a',borderRight:'1px solid #1a2e1a',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+
+        {/* Logo */}
+        <div style={{padding:'18px 16px 14px',borderBottom:'1px solid #1a2e1a'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
+            <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg,#10B981,#059669)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>📐</div>
+            <div>
+              <div style={{fontSize:13,fontWeight:800,color:'#e5e5e5',letterSpacing:-0.3,lineHeight:1.1}}>FCG Estimating</div>
+              <div style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",letterSpacing:0.5}}>TAKEOFF · BID · ESTIMATE</div>
+            </div>
+          </div>
+        </div>
+
+        {/* Nav */}
+        <div style={{padding:'10px 8px',flex:1}}>
+          {[
+            {id:'projects',icon:'⊞',label:'Projects'},
+            {id:'assemblies',icon:'⬡',label:'Assembly Library'},
+            {id:'rates',icon:'$',label:'Unit Cost Rates'},
+          ].map(item=>(
+            <button key={item.id} onClick={()=>{ if(item.id==='rates'){/* handled below */} setEstiPage(item.id); if(selProject) setSelProject(null); }}
+              style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:'8px 10px',borderRadius:6,cursor:'pointer',background:estiPage===item.id?'rgba(16,185,129,0.12)`:'none',border:estiPage===item.id?'1px solid rgba(16,185,129,0.25)`:'1px solid transparent',marginBottom:2,textAlign:'left'}}>
+              <span style={{fontSize:14,color:estiPage===item.id?'#10B981':'#4a6a4a'}}>{item.icon}</span>
+              <span style={{fontSize:12,fontWeight:600,color:estiPage===item.id?'#e5e5e5':'#6a8a6a'}}>{item.label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Stats */}
+        <div style={{padding:'12px 14px',borderTop:'1px solid #1a2e1a'}}>
+          {[
+            {label:'Total Bids',val:projects.length},
+            {label:'Estimating',val:projects.filter(p=>p.status==='estimating').length,color:'#F59E0B'},
+            {label:'Awarded',val:projects.filter(p=>p.status==='awarded').length,color:'#10B981'},
+          ].map(s=>(
+            <div key={s.label} style={{display:'flex',justifyContent:'space-between',padding:'3px 0'}}>
+              <span style={{fontSize:10,color:'#4a6a4a',fontFamily:"'DM Mono',monospace"}}>{s.label}</span>
+              <span style={{fontSize:10,fontWeight:700,color:s.color||'#e5e5e5',fontFamily:"'DM Mono',monospace"}}>{s.val}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Back to OPS */}
+        <div style={{padding:'10px 8px',borderTop:'1px solid #1a2e1a'}}>
+          <button onClick={onExit} style={{width:'100%',padding:'7px 10px',borderRadius:6,border:'1px solid #1a2e1a',background:'none',color:'#4a6a4a',cursor:'pointer',fontSize:11,fontFamily:"'DM Mono',monospace",display:'flex',alignItems:'center',gap:6}}>
+            ← Back to OPS Board
+          </button>
+        </div>
+      </div>
+
+      {/* ── Main Content ── */}
+      <div style={{flex:1,overflow:'hidden',display:'flex',flexDirection:'column'}}>
+        {estiPage==='projects' && projectsView}
+        {estiPage==='assemblies' && <div style={{padding:32}}><AssemblyPicker onApply={()=>{}} onClose={()=>setEstiPage('projects')}/></div>}
+        {estiPage==='rates' && <div style={{padding:32}}><UnitCostEditor onClose={()=>setEstiPage('projects')}/></div>}
+      </div>
+    </div>
+  );
+}
 // ── Project Detail ─────────────────────────────────────
 function ProjectDetail({ project, onBack, onEdit }) {
   const [tab, setTab] = useState("logs");
@@ -3484,7 +4544,6 @@ function ProjectDetail({ project, onBack, onEdit }) {
   const totalMaterials = materials.reduce((sum,m)=>sum+(m.total_cost||0),0);
 
   const TABS = [
-    { id:"precon", label:"Precon", count:0 },
     { id:"schedule", label:"Schedule", count:scheduleItems.length },
     { id:"logs", label:"Daily Logs", count:logs.length },
     { id:"rfis", label:"RFIs", count:rfis.length },
@@ -3546,7 +4605,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
         {loading ? <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div> : (
           <>
             {/* Add button */}
-            {tab !== "financials" && tab !== "subcontracts" && tab !== "payapps" && tab !== "schedule" && tab !== "precon" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+            {tab !== "financials" && tab !== "subcontracts" && tab !== "payapps" && tab !== "schedule" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
               <button onClick={()=>setModal({type:tab,item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>
                 {tab==="financials" ? null : ("+ Add " + (tab==="logs"?"Log":tab==="rfis"?"RFI":tab==="submittals"?"Submittal":tab==="cos"?"Change Order":"Order"))}
               </button>
@@ -3683,7 +4742,6 @@ function ProjectDetail({ project, onBack, onEdit }) {
             )}
 
             {/* Financials */}
-            {tab==="precon" && <PreconTab project={project} />}
             {tab==="schedule" && <ScheduleTab project={project} />}
             {tab==="subcontracts" && <SubcontractsTab project={project} />}
             {tab==="payapps" && <PayAppTab project={project} />}
@@ -3888,7 +4946,7 @@ function AppInner() {
   const isMobile = useIsMobile();
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [appSection, setAppSection] = useState("ops"); // "ops" or "apm"
+  const [appSection, setAppSection] = useState("ops"); // "ops" | "apm" | "precon"
   const [tasks, setTasks] = useState([]);
   const [team, setTeam] = useState([]);
   const [attachmentCounts, setAttachmentCounts] = useState({});
@@ -4064,6 +5122,11 @@ function AppInner() {
   if (authLoading) return <div style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", color: "#333", fontFamily: "monospace" }}>◌</div>;
   if (!user) return <LoginScreen />;
 
+  // FCG Estimating — full-screen takeover
+  if (appSection === "precon") {
+    return <FCGEstimating onExit={() => setAppSection("ops")} />;
+  }
+
   if (isMobile) {
     return (
       <>
@@ -4091,6 +5154,7 @@ function AppInner() {
               <div style={{ display: "flex", background: "var(--bg5)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
                 <button onClick={() => setAppSection("ops")} style={{ padding: "4px 10px", background: appSection === "ops" ? "#F9731620" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "var(--tx3)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
                 <button onClick={() => setAppSection("apm")} style={{ padding: "4px 10px", background: appSection === "apm" ? "#3B82F620" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "var(--tx3)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
+                <button onClick={() => setAppSection("precon")} style={{ padding: "4px 10px", background: appSection === "precon" ? "#10B98120" : "none", border: "none", color: appSection === "precon" ? "#10B981" : "var(--tx3)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>ESTIMATE</button>
               </div>
             </div>
             {appSection === "ops" && <button onClick={() => setAiOpen(true)} style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", color: "#fff", padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✦ AI</button>}
@@ -4142,6 +5206,7 @@ function AppInner() {
               <APMSection />
             </div>
           )}
+
 
           {appSection === "ops" && <>
 
@@ -4232,6 +5297,7 @@ function AppInner() {
             <div style={{ display: "flex", background: "var(--bg4)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
               <button onClick={() => setAppSection("ops")} style={{ flex: 1, padding: "6px 0", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS BOARD</button>
               <button onClick={() => setAppSection("apm")} style={{ flex: 1, padding: "6px 0", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
+              <button onClick={() => setAppSection("precon")} style={{ flex: 1, padding: "6px 0", background: appSection === "precon" ? "#10B98118" : "none", border: "none", color: appSection === "precon" ? "#10B981" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>ESTIMATE</button>
             </div>
           </div>
 
@@ -4304,6 +5370,7 @@ function AppInner() {
             <div style={{ display: "flex", background: "var(--bg4)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
               <button onClick={() => setAppSection("ops")} style={{ padding: "5px 12px", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
               <button onClick={() => setAppSection("apm")} style={{ padding: "5px 12px", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
+              <button onClick={() => setAppSection("precon")} style={{ padding: "5px 12px", background: appSection === "precon" ? "#10B98118" : "none", border: "none", color: appSection === "precon" ? "#10B981" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>ESTIMATE</button>
             </div>
             <div style={{ flex: 1 }}>
               {appSection === "ops" && page === "tasks" && activeCompany !== "all" && <CompanyBadge companyId={activeCompany} />}
@@ -4347,7 +5414,11 @@ function AppInner() {
           )}
 
           {/* PAGE */}
-          {appSection === "apm" ? (
+          {appSection === "precon" ? (
+            <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+              <FCGEstimating />
+            </div>
+          ) : appSection === "apm" ? (
             <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
               <APMSection />
             </div>
