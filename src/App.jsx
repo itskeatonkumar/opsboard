@@ -1115,6 +1115,7 @@ function ProjectModal({ project, onSave, onClose }) {
     ...(project||{})
   });
   const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
   const handleSave = async () => {
@@ -1164,10 +1165,16 @@ function ProjectModal({ project, onSave, onClose }) {
           </div>
         </div>
       </div>
-      <div style={{ display:"flex", justifyContent:"flex-end", gap:8, marginTop:20 }}>
-        <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
-        <button onClick={handleSave} disabled={saving||!form.name.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.name.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Create Project":"Save"}</button>
+      <div style={{ display:"flex", justifyContent:"space-between", gap:8, marginTop:20 }}>
+        <div>
+          {!isNew && <button onClick={()=>setConfirming(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete Project</button>}
+        </div>
+        <div style={{ display:"flex", gap:8 }}>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={handleSave} disabled={saving||!form.name.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.name.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Create Project":"Save"}</button>
+        </div>
       </div>
+      {confirming && <ConfirmDialog message={`Delete "${form.name}"? This will permanently remove the project and all associated data.`} onConfirm={async()=>{ await supabase.from("projects").delete().eq("id",project.id); onSave(null,"delete"); }} onCancel={()=>setConfirming(false)} />}
     </APMModal>
   );
 }
@@ -1177,6 +1184,7 @@ function DailyLogModal({ log, projectId, onSave, onClose }) {
   const isNew = !log?.id;
   const [form, setForm] = useState({ log_date:new Date().toISOString().slice(0,10), weather:"", crew_count:"", work_performed:"", issues:"", ...(log||{}), project_id:projectId });
   const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
   const handleSave = async () => {
@@ -1209,17 +1217,34 @@ function DailyLogModal({ log, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={async()=>{ await supabase.from("daily_logs").delete().eq("id",log.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Add Log":"Save"}</button>
         </div>
       </div>
+
+      {delConfirm && <ConfirmDialog message="Delete this Daily Log? This cannot be undone." onConfirm={async()=>{ await supabase.from("daily_logs").delete().eq("id",log.id); setDelConfirm(false); onSave(null,true); }} onCancel={()=>setDelConfirm(false)} />}
     </APMModal>
   );
 }
 
-// ── RFI Modal ──────────────────────────────────────────
+// ── Confirm Dialog ────────────────────────────────────
+function ConfirmDialog({ message, onConfirm, onCancel, danger=true }) {
+  return (
+    <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999 }}
+      onClick={onCancel}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:12, padding:28, maxWidth:360, width:"90%", boxShadow:"0 20px 60px rgba(0,0,0,0.6)" }}>
+        <div style={{ fontSize:14, color:"#e5e5e5", marginBottom:22, lineHeight:1.5 }}>{message}</div>
+        <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
+          <button onClick={onCancel} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"8px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onConfirm} style={{ background:danger?"#1a0a0a":"#0a1a0a", border:danger?"1px solid #3a1a1a":"1px solid #1a3a1a", color:danger?"#ef4444":"#10B981", padding:"8px 20px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>Delete</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Reusable File Upload Zone ─────────────────────────
 function FileUploadZone({ fileUrl, fileName, folder, onUploaded, accept="image/*,application/pdf,.doc,.docx" }) {
   const [uploading, setUploading] = useState(false);
@@ -1275,6 +1300,7 @@ function RFIModal({ rfi, projectId, onSave, onClose }) {
   const isNew = !rfi?.id;
   const [form, setForm] = useState({ rfi_number:"", subject:"", sent_to:"", date_sent:new Date().toISOString().slice(0,10), date_due:"", status:"open", response:"", file_url:"", file_name:"", ...(rfi||{}), project_id:projectId });
   const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
   const handleSave = async () => {
@@ -1311,12 +1337,14 @@ function RFIModal({ rfi, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={async()=>{ await supabase.from("rfis").delete().eq("id",rfi.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.subject.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.subject.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add RFI":"Save"}</button>
         </div>
       </div>
+
+      {delConfirm && <ConfirmDialog message="Delete this RFI? This cannot be undone." onConfirm={async()=>{ await supabase.from("rfis").delete().eq("id",rfi.id); setDelConfirm(false); onSave(null,true); }} onCancel={()=>setDelConfirm(false)} />}
     </APMModal>
   );
 }
@@ -1326,6 +1354,7 @@ function SubmittalModal({ submittal, projectId, onSave, onClose }) {
   const isNew = !submittal?.id;
   const [form, setForm] = useState({ submittal_number:"", description:"", sent_to:"", date_sent:new Date().toISOString().slice(0,10), date_due:"", status:"pending", file_url:"", file_name:"", ...(submittal||{}), project_id:projectId });
   const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
   const handleSave = async () => {
@@ -1359,12 +1388,14 @@ function SubmittalModal({ submittal, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={async()=>{ await supabase.from("submittals").delete().eq("id",submittal.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.description.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.description.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Submittal":"Save"}</button>
         </div>
       </div>
+
+      {delConfirm && <ConfirmDialog message="Delete this Submittal? This cannot be undone." onConfirm={async()=>{ await supabase.from("submittals").delete().eq("id",submittal.id); setDelConfirm(false); onSave(null,true); }} onCancel={()=>setDelConfirm(false)} />}
     </APMModal>
   );
 }
@@ -1374,6 +1405,7 @@ function COModal({ co, projectId, onSave, onClose }) {
   const isNew = !co?.id;
   const [form, setForm] = useState({ co_number:"", description:"", amount:"", status:"proposed", date_submitted:new Date().toISOString().slice(0,10), date_approved:"", file_url:"", file_name:"", ...(co||{}), project_id:projectId });
   const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
   const handleSave = async () => {
@@ -1407,12 +1439,14 @@ function COModal({ co, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={async()=>{ await supabase.from("change_orders").delete().eq("id",co.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.description.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.description.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add CO":"Save"}</button>
         </div>
       </div>
+
+      {delConfirm && <ConfirmDialog message="Delete this Change Order? This cannot be undone." onConfirm={async()=>{ await supabase.from("change_orders").delete().eq("id",co.id); setDelConfirm(false); onSave(null,true); }} onCancel={()=>setDelConfirm(false)} />}
     </APMModal>
   );
 }
@@ -1422,6 +1456,7 @@ function MaterialModal({ material, projectId, onSave, onClose }) {
   const isNew = !material?.id;
   const [form, setForm] = useState({ item:"", supplier:"", quantity:"", unit_cost:"", total_cost:"", order_date:new Date().toISOString().slice(0,10), eta:"", status:"pending", notes:"", ...(material||{}), project_id:projectId });
   const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
   const handleSave = async () => {
@@ -1454,12 +1489,14 @@ function MaterialModal({ material, projectId, onSave, onClose }) {
         <APMField label="Notes"><textarea value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Any notes..." style={{...inputStyle,minHeight:60,resize:"vertical",fontSize:14}} /></APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={async()=>{ await supabase.from("material_orders").delete().eq("id",material.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.item.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.item.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Order":"Save"}</button>
         </div>
       </div>
+
+      {delConfirm && <ConfirmDialog message="Delete this Material Order? This cannot be undone." onConfirm={async()=>{ await supabase.from("material_orders").delete().eq("id",material.id); setDelConfirm(false); onSave(null,true); }} onCancel={()=>setDelConfirm(false)} />}
     </APMModal>
   );
 }
@@ -1639,6 +1676,7 @@ function SubcontractModal({ sub, projectId, onSave, onClose }) {
     ...(sub||{}), project_id: projectId
   });
   const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [extracting, setExtracting] = useState(false);
   const fileRef = useRef();
@@ -1787,16 +1825,17 @@ function SubcontractModal({ sub, projectId, onSave, onClose }) {
         </div>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={async()=>{ await supabase.from("subcontracts").delete().eq("id",sub.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||uploading||extracting||!form.sub_name.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.sub_name.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Sub/PO":"Save"}</button>
         </div>
       </div>
+
+      {delConfirm && <ConfirmDialog message="Delete this Subcontract? This cannot be undone." onConfirm={async()=>{ await supabase.from("subcontracts").delete().eq("id",sub.id); setDelConfirm(false); onSave(null,true); }} onCancel={()=>setDelConfirm(false)} />}
     </APMModal>
   );
 }
-
 function SubcontractsTab({ project }) {
   const { t } = useTheme();
   const [subs, setSubs] = useState([]);
@@ -1901,6 +1940,7 @@ function ScheduleItemModal({ item, projectId, onSave, onClose }) {
     ...(item||{}), project_id:projectId
   });
   const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const dynInput = { ...inputStyle, background:t.input, borderColor:t.inputBorder, color:t.inputText };
   const PHASES = ["Mobilization","Demolition","Excavation/Earthwork","Foundation","Slab on Grade","Structural Concrete","Masonry","Flatwork/Paving","MEP Rough-In","Waterproofing","Backfill/Site Work","Finishes","Punch List","Closeout"];
@@ -1957,10 +1997,11 @@ function ScheduleItemModal({ item, projectId, onSave, onClose }) {
           <button onClick={handleSave} disabled={saving||!form.title.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Add Item":"Save"}</button>
         </div>
       </div>
+
+      {delConfirm && <ConfirmDialog message="Delete this Schedule Item? This cannot be undone." onConfirm={async()=>{ await supabase.from("schedule_items").delete().eq("id",item.id); setDelConfirm(false); onSave(null,true); }} onCancel={()=>setDelConfirm(false)} />}
     </APMModal>
   );
 }
-
 function GanttChart({ items, onClickItem }) {
   const { t } = useTheme();
   if (!items.length) return null;
@@ -2135,6 +2176,7 @@ function ScheduleTab({ project }) {
   const [modal, setModal] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [gcPdf, setGcPdf] = useState(null);
+  const [clearConfirm, setClearConfirm] = useState(false);
   const gcRef = useRef();
 
   useEffect(()=>{
@@ -2207,6 +2249,7 @@ function ScheduleTab({ project }) {
           <button onClick={generateSchedule} disabled={generating} style={{ background:"linear-gradient(135deg,#7c3aed,#a855f7)", border:"none", color:"#fff", padding:"6px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
             {generating ? <><span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span> {gcPdf?"Extracting...":"Generating..."}</> : <><span>✦</span> {gcPdf?"Extract from PDF":"AI Generate"}</>}
           </button>
+          {items.length>0 && <button onClick={()=>setClearConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Clear All</button>}
           <button onClick={()=>setModal({item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"6px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>+ Add Task</button>
         </div>
       </div>
@@ -2245,6 +2288,7 @@ function ScheduleTab({ project }) {
       )}
 
       {modal && <ScheduleItemModal item={modal.item} projectId={project.id} onSave={handleSave} onClose={()=>setModal(null)} />}
+      {clearConfirm && <ConfirmDialog message="Clear all schedule items? This cannot be undone." onConfirm={async()=>{ await supabase.from("schedule_items").delete().eq("project_id",project.id); setItems([]); setClearConfirm(false); }} onCancel={()=>setClearConfirm(false)} />}
     </div>
   );
 }
@@ -2390,6 +2434,7 @@ function PayAppModal({ payApp, project, sovItems, onSave, onClose }) {
   });
   const [lineItems, setLineItems] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [delConfirm, setDelConfirm] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const dynInput = { ...inputStyle, background: t.input, borderColor: t.inputBorder, color: t.inputText };
 
@@ -2539,16 +2584,17 @@ function PayAppModal({ payApp, project, sovItems, onSave, onClose }) {
         </div>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={async()=>{ await supabase.from("pay_applications").delete().eq("id",payApp.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Create Pay App":"Save"}</button>
         </div>
       </div>
+
+      {delConfirm && <ConfirmDialog message="Delete this Pay Application? This cannot be undone." onConfirm={async()=>{ await supabase.from("pay_applications").delete().eq("id",payApp.id); setDelConfirm(false); onSave(null,true); }} onCancel={()=>setDelConfirm(false)} />}
     </APMModal>
   );
 }
-
 function PayAppTab({ project }) {
   const { t } = useTheme();
   const [sovItems, setSovItems] = useState([]);
@@ -3088,6 +3134,12 @@ function APMSection() {
   }, []);
 
   const handleProjectSave = (proj, isNew) => {
+    if (isNew === "delete") {
+      setProjects(prev => prev.filter(p=>p.id!==editingProject?.id));
+      setEditingProject(null);
+      setSelectedProject(null);
+      return;
+    }
     setProjects(prev => isNew ? [proj,...prev] : prev.map(p=>p.id===proj.id?proj:p));
     setEditingProject(null);
     if (isNew) setSelectedProject(proj);
