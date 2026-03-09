@@ -3089,14 +3089,10 @@ function PreconTab({ project }) {
     return ()=>{ window.removeEventListener('keydown',handleKey); window.removeEventListener('keyup',handleKeyUp); };
   },[]);
 
-  // Determine if pan mode: space held OR middle mouse OR tool=select while dragging
-  const isPanMode = (e) => spaceHeld || e?.button===1 || tool==='select';
-
   // Container callback ref — attaches wheel + pan handlers
   const containerCallbackRef = (el) => {
     if(containerRef.current){
       containerRef.current.removeEventListener('wheel', containerRef._wheelHandler);
-      containerRef.current.removeEventListener('mousedown', containerRef._panDown);
     }
     if(el){
       // Wheel zoom toward cursor
@@ -3117,32 +3113,9 @@ function PreconTab({ project }) {
           return newZoom;
         });
       };
-      // Pan on mousedown: space+drag or middle-click drag
-      const panDown = (e)=>{
-        const doingPan = e.button===1 || panRef.current._spaceHeld;
-        if(!doingPan) return;
-        if(e.button===1) e.preventDefault();
-        panRef.current = {...panRef.current, active:true, startX:e.clientX, startY:e.clientY, scrollX:el.scrollLeft, scrollY:el.scrollTop};
-        el.style.cursor='grabbing';
-        const onMove=(ev)=>{
-          if(!panRef.current.active) return;
-          el.scrollLeft = panRef.current.scrollX - (ev.clientX - panRef.current.startX);
-          el.scrollTop  = panRef.current.scrollY - (ev.clientY - panRef.current.startY);
-        };
-        const onUp=()=>{
-          panRef.current.active=false;
-          el.style.cursor='';
-          window.removeEventListener('mousemove',onMove);
-          window.removeEventListener('mouseup',onUp);
-        };
-        window.addEventListener('mousemove',onMove);
-        window.addEventListener('mouseup',onUp);
-      };
       el.addEventListener('wheel', wheelHandler, {passive:false});
-      el.addEventListener('mousedown', panDown);
       containerRef.current = el;
       containerRef._wheelHandler = wheelHandler;
-      containerRef._panDown = panDown;
     }
   };
 
@@ -3206,7 +3179,7 @@ function PreconTab({ project }) {
 
   const handleSvgClick=(e)=>{
     if(!selPlan) return;
-    if(spaceHeld || panRef.current.active) return; // panning — don't place points
+    if(spaceHeld || tool==='select') return; // pan mode — don't place points
     const pos=getSvgPos(e);
     const norm=toNorm(pos.x,pos.y);
 
@@ -3397,7 +3370,7 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
     return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
   }).filter(Boolean);
 
-  const toolCursor=spaceHeld?'grab':{select:'default',area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
+  const toolCursor=(spaceHeld||tool==='select')?'grab':{area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
 
   if(loading) return <div style={{textAlign:'center',padding:40,color:t.text4,fontSize:12,fontFamily:"'DM Mono',monospace"}}>Loading...</div>;
 
@@ -4157,14 +4130,10 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return ()=>{ window.removeEventListener('keydown',handleKey); window.removeEventListener('keyup',handleKeyUp); };
   },[]);
 
-  // Determine if pan mode: space held OR middle mouse OR tool=select while dragging
-  const isPanMode = (e) => spaceHeld || e?.button===1 || tool==='select';
-
   // Container callback ref — attaches wheel + pan handlers
   const containerCallbackRef = (el) => {
     if(containerRef.current){
       containerRef.current.removeEventListener('wheel', containerRef._wheelHandler);
-      containerRef.current.removeEventListener('mousedown', containerRef._panDown);
     }
     if(el){
       // Wheel zoom toward cursor
@@ -4185,32 +4154,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           return newZoom;
         });
       };
-      // Pan on mousedown: space+drag or middle-click drag
-      const panDown = (e)=>{
-        const doingPan = e.button===1 || panRef.current._spaceHeld;
-        if(!doingPan) return;
-        if(e.button===1) e.preventDefault();
-        panRef.current = {...panRef.current, active:true, startX:e.clientX, startY:e.clientY, scrollX:el.scrollLeft, scrollY:el.scrollTop};
-        el.style.cursor='grabbing';
-        const onMove=(ev)=>{
-          if(!panRef.current.active) return;
-          el.scrollLeft = panRef.current.scrollX - (ev.clientX - panRef.current.startX);
-          el.scrollTop  = panRef.current.scrollY - (ev.clientY - panRef.current.startY);
-        };
-        const onUp=()=>{
-          panRef.current.active=false;
-          el.style.cursor='';
-          window.removeEventListener('mousemove',onMove);
-          window.removeEventListener('mouseup',onUp);
-        };
-        window.addEventListener('mousemove',onMove);
-        window.addEventListener('mouseup',onUp);
-      };
       el.addEventListener('wheel', wheelHandler, {passive:false});
-      el.addEventListener('mousedown', panDown);
       containerRef.current = el;
       containerRef._wheelHandler = wheelHandler;
-      containerRef._panDown = panDown;
     }
   };
 
@@ -4319,7 +4265,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
   const handleSvgClick=(e)=>{
     if(!selPlan) return;
-    if(spaceHeld || panRef.current.active) return; // panning — don't place points
+    if(spaceHeld || tool==='select') return; // pan mode — don't place points
     const pt=getSvgPos(e); // raw SVG pixel coords
     if(tool==='scale'&&scaleStep==='picking'){
       const npts=[...scalePts,pt];
@@ -4371,7 +4317,34 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     }
   };
 
-  const handleSvgMove=(e)=>{ setHoverPt(getSvgPos(e)); };
+  const handleSvgMove=(e)=>{
+    if(panRef.current.active){ // dragging — update scroll
+      const c=containerRef.current;
+      if(c){
+        c.scrollLeft = panRef.current.scrollX - (e.clientX - panRef.current.startX);
+        c.scrollTop  = panRef.current.scrollY - (e.clientY - panRef.current.startY);
+      }
+      return;
+    }
+    setHoverPt(getSvgPos(e));
+  };
+
+  const handleSvgMouseDown=(e)=>{
+    // Pan: left-click in select mode, space+left, or middle-click
+    const doPan = e.button===1 || panRef.current._spaceHeld || tool==='select';
+    if(!doPan) return;
+    if(e.button===1) e.preventDefault();
+    e.stopPropagation();
+    const c=containerRef.current;
+    panRef.current = {...panRef.current, active:true, startX:e.clientX, startY:e.clientY,
+      scrollX:c?c.scrollLeft:0, scrollY:c?c.scrollTop:0};
+    const onUp=()=>{
+      // Only mark as "just panned" if actually moved
+      panRef.current.active=false;
+      window.removeEventListener('mouseup',onUp);
+    };
+    window.addEventListener('mouseup',onUp);
+  };
 
   const confirmScale=async()=>{
     if(!scaleDist||scalePts.length<2) return;
@@ -4618,7 +4591,7 @@ Return ONLY a valid JSON array, no markdown:
     const its=items.filter(i=>i.category===cat.id);
     return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
   }).filter(Boolean);
-  const toolCursor=spaceHeld?'grab':{select:'default',area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
+  const toolCursor=(spaceHeld||tool==='select')?'grab':{area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
 
   const co = COMPANIES.find(c=>c.id===project.company)||COMPANIES[1];
   const STATUS_COLORS_BID = {estimating:'#F59E0B',bid_submitted:'#3B82F6',awarded:'#10B981',lost:'#EF4444',hold:'#555'};
@@ -4890,7 +4863,8 @@ Return ONLY a valid JSON array, no markdown:
                     draggable={false}/>
                 ))}
                 <svg ref={svgRef}
-                  style={{position:'absolute',top:0,left:0,width:(isPdfPlan?(canvasRef.current?.width||imgDisp.w):imgDisp.w||800)+'px',height:(isPdfPlan?(canvasRef.current?.height||imgDisp.h):imgDisp.h||1100)+'px',cursor:toolCursor,pointerEvents:'all'}}
+                  style={{position:'absolute',top:0,left:0,width:(isPdfPlan?(canvasRef.current?.width||imgDisp.w):imgDisp.w||800)+'px',height:(isPdfPlan?(canvasRef.current?.height||imgDisp.h):imgDisp.h||1100)+'px',cursor:toolCursor,pointerEvents:'all',userSelect:'none'}}
+                  onMouseDown={handleSvgMouseDown}
                   onClick={handleSvgClick}
                   onDoubleClick={(e)=>{
                     if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
