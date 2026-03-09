@@ -2962,6 +2962,7 @@ function PreconTab({ project }) {
   const [imgNat, setImgNat] = useState({w:1,h:1});
   const [imgDisp, setImgDisp] = useState({w:1,h:1});
   const [editItem, setEditItem] = useState(null);
+  const [activeCondId, setActiveCondId] = useState(null); // item currently being measured into
   const [planB64, setPlanB64] = useState(null);
   const [planMime, setPlanMime] = useState('image/png');
   const [rightTab, setRightTab] = useState('items'); // 'items' | 'estimate'
@@ -3134,6 +3135,7 @@ function PreconTab({ project }) {
     // Reset scale
     if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
     else { setScale(null); setPresetScale(''); }
+    setActiveCondId(null); setTool('select'); setActivePts([]);
     pdfDocRef.current = null;
     setPdfDoc(null);
 
@@ -3990,6 +3992,95 @@ function TakeoffProjectModal({ project, apmProjects, onSave, onClose }) {
   );
 }
 
+// ── New Condition Creator ─────────────────────────────────────────
+// Fast: type name → pick measurement type → creates and arms
+function NewConditionRow({ selPlan, project, items, onCreated }) {
+  const { t } = useTheme();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [mt, setMt] = useState('area'); // measurement_type
+  const [cat, setCat] = useState('concrete_slab');
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef();
+
+  const MT = [
+    {id:'area',      icon:'⬡', label:'SF',  cat:'concrete_slab'},
+    {id:'perimeter', icon:'⬠', label:'LF',  cat:'formwork'},
+    {id:'linear',    icon:'━', label:'LF',  cat:'other'},
+    {id:'count',     icon:'✕', label:'EA',  cat:'other'},
+    {id:'manual',    icon:'✎', label:'LS',  cat:'other'},
+  ];
+  const selMT = MT.find(m=>m.id===mt)||MT[0];
+
+  const handleCreate = async () => {
+    if(!selPlan?.id||!name.trim()) return;
+    setSaving(true);
+    const catDef = TAKEOFF_CATS.find(c=>c.id===cat)||TAKEOFF_CATS[0];
+    const costs = (() => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} })();
+    const uc = (costs[cat]?.mat||0)+(costs[cat]?.lab||0)||catDef.defaultCost;
+    const payload = {
+      project_id: project.id, plan_id: selPlan.id,
+      category: cat, description: name.trim(),
+      quantity: 0, unit: selMT.label, unit_cost: uc, total_cost: 0,
+      measurement_type: mt, points: [], color: catDef.color,
+      ai_generated: false, sort_order: items.length,
+    };
+    const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
+    if(data){ onCreated(data); }
+    setName(''); setOpen(false); setSaving(false);
+  };
+
+  if(!open) return(
+    <div style={{padding:'6px 8px',borderBottom:`1px solid var(--bd1,#333)`,flexShrink:0}}>
+      <button onClick={()=>{setOpen(true);setTimeout(()=>inputRef.current?.focus(),50);}}
+        disabled={!selPlan?.id}
+        style={{width:'100%',background:'rgba(249,115,22,0.1)',border:'1px dashed rgba(249,115,22,0.5)',color:'#F97316',padding:'6px 0',borderRadius:5,cursor:selPlan?.id?'pointer':'not-allowed',fontSize:10,fontWeight:700,fontFamily:"'DM Mono',monospace",opacity:selPlan?.id?1:0.5}}>
+        + NEW CONDITION
+      </button>
+    </div>
+  );
+
+  return(
+    <div style={{padding:'8px',borderBottom:`1px solid #F97316`,background:'rgba(249,115,22,0.06)',flexShrink:0}}>
+      {/* Name input */}
+      <input ref={inputRef} value={name} onChange={e=>setName(e.target.value)}
+        placeholder="e.g. Slab on Grade, Footing, CMU Wall..."
+        onKeyDown={e=>{if(e.key==='Enter'&&name.trim()) handleCreate(); if(e.key==='Escape') setOpen(false);}}
+        style={{width:'100%',background:'rgba(0,0,0,0.3)',border:'1px solid rgba(249,115,22,0.5)',color:'#fff',borderRadius:4,padding:'5px 8px',fontSize:11,fontFamily:"'DM Mono',monospace",outline:'none',marginBottom:6,boxSizing:'border-box'}}/>
+
+      {/* Measurement type buttons */}
+      <div style={{display:'flex',gap:4,marginBottom:6}}>
+        {MT.map(m=>(
+          <button key={m.id} onClick={()=>{setMt(m.id);setCat(m.cat);}}
+            style={{flex:1,padding:'4px 0',border:`1px solid ${mt===m.id?'#F97316':'rgba(255,255,255,0.12)'}`,
+              background:mt===m.id?'rgba(249,115,22,0.2)':'none',
+              color:mt===m.id?'#F97316':'rgba(255,255,255,0.5)',
+              borderRadius:4,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",fontWeight:700}}>
+            <div style={{fontSize:11}}>{m.icon}</div>
+            <div>{m.label}</div>
+          </button>
+        ))}
+      </div>
+
+      {/* Category select */}
+      <select value={cat} onChange={e=>setCat(e.target.value)}
+        style={{width:'100%',background:'rgba(0,0,0,0.3)',border:'1px solid rgba(255,255,255,0.12)',color:'rgba(255,255,255,0.7)',borderRadius:4,padding:'4px 6px',fontSize:10,fontFamily:"'DM Mono',monospace",marginBottom:7,boxSizing:'border-box'}}>
+        {TAKEOFF_CATS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+      </select>
+
+      {/* Actions */}
+      <div style={{display:'flex',gap:5}}>
+        <button onClick={handleCreate} disabled={!name.trim()||saving}
+          style={{flex:1,background:'#F97316',border:'none',color:'#000',padding:'6px 0',borderRadius:4,cursor:name.trim()?'pointer':'not-allowed',fontSize:10,fontWeight:700,opacity:name.trim()?1:0.5}}>
+          {saving?'...':`⬡ Create & Arm ${selMT.label}`}
+        </button>
+        <button onClick={()=>setOpen(false)}
+          style={{background:'none',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.4)',padding:'6px 10px',borderRadius:4,cursor:'pointer',fontSize:10}}>✕</button>
+      </div>
+    </div>
+  );
+}
+
 // ── Inline Item Editor (expands in sidebar row) ──────────────────
 function InlineItemEditor({ item, cat, onSave, onDelete }) {
   const { t } = useTheme();
@@ -4267,6 +4358,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     if(!selPlan) return;
     if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
     else { setScale(null); setPresetScale(''); }
+    setActiveCondId(null); setTool('select'); setActivePts([]);
     pdfDocRef.current = null;
     setPdfDoc(null);
     setBlobUrl(null);
@@ -4365,52 +4457,87 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     }
   };
 
+  // appendMeasurement: add a drawn shape to the active condition.
+  // points stored as array-of-shapes: [ [{x,y},...], [{x,y},...] ]
+  // qty = sum of all shapes (area, linear, perimeter) or count of shapes (count)
+  const appendMeasurement = async (condId, newShape) => {
+    const item = items.find(i=>i.id===condId);
+    if(!item) return;
+    // Detect legacy flat points and upgrade
+    const existing = item.points;
+    let shapes = [];
+    if(!existing || existing.length===0) {
+      shapes = [];
+    } else if(Array.isArray(existing[0]) || (existing[0] && typeof existing[0].x === 'undefined')) {
+      shapes = existing; // already array-of-shapes
+    } else {
+      shapes = [existing]; // legacy flat → wrap
+    }
+    shapes = [...shapes, newShape];
+
+    // Recompute total quantity
+    let qty = 0;
+    if(item.measurement_type==='area'){
+      qty = shapes.reduce((s,sh)=>s+calcArea(sh),0);
+      qty = Math.round(qty*10)/10;
+    } else if(item.measurement_type==='perimeter'){
+      qty = shapes.reduce((s,sh)=>{
+        let p=0; for(let i=0;i<sh.length;i++) p+=calcLinear(sh[i],sh[(i+1)%sh.length]);
+        return s+p;
+      },0);
+      qty = Math.round(qty*10)/10;
+    } else if(item.measurement_type==='linear'){
+      qty = shapes.reduce((s,sh)=>s+(sh.length>=2?calcLinear(sh[0],sh[1]):0),0);
+      qty = Math.round(qty*10)/10;
+    } else if(item.measurement_type==='count'){
+      qty = shapes.length;
+    }
+
+    const total_cost = qty * (item.unit_cost||0);
+    const updated = {...item, points:shapes, quantity:qty, total_cost};
+    await supabase.from('takeoff_items').update({points:shapes, quantity:qty, total_cost}).eq('id',condId);
+    setItems(prev=>prev.map(i=>i.id===condId?updated:i));
+    // Keep tool armed — stay ready for more shapes
+  };
+
   const handleSvgClick=(e)=>{
     if(!selPlan) return;
-    if(spaceHeld || tool==='select') return; // pan mode — don't place points
-    const pt=getSvgPos(e); // raw SVG pixel coords
+    if(spaceHeld || tool==='select') return;
+    const pt=getSvgPos(e);
+
+    // Scale calibration
     if(tool==='scale'&&scaleStep==='picking'){
       const npts=[...scalePts,pt];
       setScalePts(npts);
       if(npts.length===2) setScaleStep('entering');
       return;
     }
-    if(tool==='count'){
-      const cnt=planItems.filter(i=>i.measurement_type==='count').length+1;
-      saveItem({category:'other',description:`Count ${cnt}`,quantity:1,unit:'EA',measurement_type:'count',points:[pt]});
+
+    // ── Condition-first drawing ──────────────────────────────────
+    // If an active condition is selected, append shapes into it.
+    // No active condition = no drawing (prompt user to create/select one).
+    if(!activeCondId) return;
+    const activeCond = items.find(i=>i.id===activeCondId);
+    if(!activeCond) return;
+    const mt = activeCond.measurement_type;
+
+    if(mt==='count'){
+      appendMeasurement(activeCondId, [pt]);
       return;
     }
-    if(tool==='linear'){
+    if(mt==='linear'){
       const npts=[...activePts,pt];
       if(npts.length===2){
-        const len=Math.round(calcLinear(npts[0],npts[1])*10)/10;
-        const cnt=planItems.filter(i=>i.measurement_type==='linear').length+1;
-        saveItem({category:'other',description:`Linear ${cnt}`,quantity:len,unit:'LF',measurement_type:'linear',points:npts});
+        appendMeasurement(activeCondId, npts);
         setActivePts([]);
       } else setActivePts(npts);
       return;
     }
-    if(tool==='area'){
-      if(activePts.length>=3){
-        const fp=activePts[0]; // first point in pixel space
-        if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
-          const area=Math.round(calcArea(activePts)*10)/10;
-          const cnt=planItems.filter(i=>i.measurement_type==='area').length+1;
-          saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});
-          setActivePts([]); return;
-        }
-      }
-      setActivePts(prev=>[...prev,pt]);
-      return;
-    }
-    if(tool==='perimeter'){
+    if(mt==='area'||mt==='perimeter'){
       if(activePts.length>=3){
         const fp=activePts[0];
         if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
-          let perim=0;
-          for(let i=0;i<activePts.length;i++) perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);
-          const cnt=planItems.filter(i=>i.measurement_type==='perimeter').length+1;
-          saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});
+          appendMeasurement(activeCondId, activePts);
           setActivePts([]); return;
         }
       }
@@ -4631,57 +4758,78 @@ Return ONLY a valid JSON array, no markdown:
     alert('✓ SOV updated in APM! Go to the linked project → Pay Apps to review.');
   };
 
-  // SVG — points are natural pixel coords, stored with strict plan_id.
-  // All visual sizes divided by zoom to stay constant across zoom levels.
+  // Normalize points to array-of-shapes format for rendering.
+  // Legacy: [{x,y},...] → wrap in outer array
+  // New: [[{x,y},...], ...] — multiple shapes per condition
+  const normalizeShapes = (pts) => {
+    if(!pts||pts.length===0) return [];
+    if(Array.isArray(pts[0])) return pts; // already multi-shape
+    if(pts[0] && typeof pts[0].x === 'number') return [pts]; // legacy single
+    return pts;
+  };
+
+  // SVG — condition-first model. Each item may have multiple shapes.
+  // Active condition gets a highlight ring.
   const renderMeasurements=()=>{
     if(!selPlan?.id) return [];
-    const sw=2.5/zoom, fs=11/zoom, r=6/zoom, rSm=3/zoom, pad=28/zoom, padH=10/zoom, padW=20/zoom;
+    const sw=2/zoom, fs=10/zoom, r=5/zoom, rSm=3/zoom, padH=9/zoom;
     return items
       .filter(it=> it.points?.length && it.plan_id===selPlan.id)
-      .map(it=>{
-        const pts=it.points;
-        const c=it.color||'#F97316';
-        const label=`${it.description||''} ${it.quantity||''} ${it.unit||''}`.trim();
-        if(it.measurement_type==='area'&&pts.length>=3){
-          const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z';
-          const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
-          const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
-          const lw=Math.max(label.length*fs*0.6,50/zoom);
-          return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
-            <path d={d} fill={c+'28'} stroke={c} strokeWidth={sw}/>
-            <rect x={cx-lw/2} y={cy-padH} width={lw} height={padH*2} rx={3/zoom} fill="rgba(0,0,0,0.72)"/>
-            <text x={cx} y={cy+fs*0.35} fontSize={fs} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
-          </g>);
-        }
-        if(it.measurement_type==='linear'&&pts.length>=2){
-          const mx=(pts[0].x+pts[1].x)/2; const my=(pts[0].y+pts[1].y)/2;
-          const lw=Math.max(label.length*fs*0.6,40/zoom);
-          return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
-            <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${8/zoom},${4/zoom}`}/>
-            {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r} fill={c} stroke="#fff" strokeWidth={sw*0.6}/>)}
-            <rect x={mx-lw/2} y={my-padH*1.8} width={lw} height={padH*1.8} rx={3/zoom} fill="rgba(0,0,0,0.72)"/>
-            <text x={mx} y={my-padH*0.6} fontSize={fs} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
-          </g>);
-        }
-        if(it.measurement_type==='count'&&pts[0]){
-          return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
-            <circle cx={pts[0].x} cy={pts[0].y} r={r*1.6} fill={c} stroke="#fff" strokeWidth={sw*0.6}/>
-            <text x={pts[0].x} y={pts[0].y+fs*0.4} fontSize={fs} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
-          </g>);
-        }
-        if(it.measurement_type==='perimeter'&&pts.length>=3){
-          const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z';
-          const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
-          const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
-          const lw=Math.max(label.length*fs*0.6,50/zoom);
-          return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
-            <path d={d} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={`${10/zoom},${4/zoom}`}/>
-            {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={rSm} fill={c}/>)}
-            <rect x={cx-lw/2} y={cy-padH} width={lw} height={padH*2} rx={3/zoom} fill="rgba(0,0,0,0.72)"/>
-            <text x={cx} y={cy+fs*0.35} fontSize={fs} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
-          </g>);
-        }
-        return null;
+      .flatMap(it=>{
+        const shapes = normalizeShapes(it.points);
+        if(!shapes.length) return [];
+        const c = it.id===activeCondId ? '#F97316' : (it.color||'#10B981');
+        const isActive = it.id===activeCondId;
+        const mt = it.measurement_type;
+
+        return shapes.map((pts, shapeIdx)=>{
+          const key = `${it.id}-${shapeIdx}`;
+          const onClick = ()=>{ setActiveCondId(it.id); setTool(mt==='area'?'area':mt==='perimeter'?'perimeter':mt==='linear'?'linear':mt==='count'?'count':'select'); };
+
+          if((mt==='area')&&pts.length>=3){
+            const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z';
+            const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+            const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
+            const shapeArea = Math.round(calcArea(pts)*10)/10;
+            return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
+              <path d={d} fill={c+'28'} stroke={c} strokeWidth={isActive?sw*1.6:sw}/>
+              {isActive&&<path d={d} fill="none" stroke="#fff" strokeWidth={sw*0.4} opacity={0.3}/>}
+              <rect x={cx-26/zoom} y={cy-padH} width={52/zoom} height={padH*2} rx={2/zoom} fill="rgba(0,0,0,0.75)"/>
+              <text x={cx} y={cy+fs*0.38} fontSize={fs} fill={isActive?'#F97316':'#fff'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{shapeArea} SF</text>
+            </g>);
+          }
+          if(mt==='linear'&&pts.length>=2){
+            const mx=(pts[0].x+pts[1].x)/2; const my=(pts[0].y+pts[1].y)/2;
+            const dist = Math.round(calcLinear(pts[0],pts[1])*10)/10;
+            return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
+              <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*1.4} strokeDasharray={`${7/zoom},${3/zoom}`}/>
+              {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r} fill={c} stroke="#fff" strokeWidth={sw*0.5}/>)}
+              <rect x={mx-22/zoom} y={my-padH*1.8} width={44/zoom} height={padH*1.8} rx={2/zoom} fill="rgba(0,0,0,0.75)"/>
+              <text x={mx} y={my-padH*0.5} fontSize={fs} fill={isActive?'#F97316':'#fff'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{dist} LF</text>
+            </g>);
+          }
+          if(mt==='count'&&pts[0]){
+            const p=pts[0];
+            return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
+              <circle cx={p.x} cy={p.y} r={r*1.8} fill={c} stroke="#fff" strokeWidth={sw*0.5}/>
+              <text x={p.x} y={p.y+fs*0.38} fontSize={fs*0.9} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
+            </g>);
+          }
+          if(mt==='perimeter'&&pts.length>=3){
+            const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z';
+            const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+            const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
+            let perim=0; for(let i=0;i<pts.length;i++) perim+=calcLinear(pts[i],pts[(i+1)%pts.length]);
+            perim=Math.round(perim*10)/10;
+            return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
+              <path d={d} fill="none" stroke={c} strokeWidth={isActive?sw*1.6:sw} strokeDasharray={`${9/zoom},${3/zoom}`}/>
+              {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={rSm} fill={c}/>)}
+              <rect x={cx-26/zoom} y={cy-padH} width={52/zoom} height={padH*2} rx={2/zoom} fill="rgba(0,0,0,0.75)"/>
+              <text x={cx} y={cy+fs*0.38} fontSize={fs} fill={isActive?'#F97316':'#fff'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{perim} LF</text>
+            </g>);
+          }
+          return null;
+        }).filter(Boolean);
       });
   };
 
@@ -4800,101 +4948,141 @@ Return ONLY a valid JSON array, no markdown:
             ))}
           </div>
 
-          {/* Items tab — scoped to current sheet */}
-          {rightTab==='items'&&(
-            <div style={{flex:1,overflowY:'auto',padding:'6px 8px'}}>
-              {/* Sheet scope header */}
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:6,padding:'4px 2px'}}>
-                <div>
-                  <div style={{fontSize:9,fontWeight:700,color:t.text3,fontFamily:"'DM Mono',monospace",letterSpacing:0.4}}>
-                    {selPlan?.name||'NO SHEET'} · {planItems.length} ITEMS
-                  </div>
-                  <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>
-                    {planItems.filter(i=>i.ai_generated).length} AI · {planItems.filter(i=>!i.ai_generated).length} manual
-                  </div>
-                </div>
-                <button onClick={()=>{
-                  if(!selPlan?.id){alert('Select a sheet first');return;}
-                  // Open a new-item form at top of items list
-                  setEditItem({_isNew:true,project_id:project.id,plan_id:selPlan.id,category:'concrete_slab',description:'',quantity:'',unit:'SF',unit_cost:''});
-                }} style={{background:'#F97316',border:'none',color:'#000',padding:'4px 9px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700,flexShrink:0}}>+ Add</button>
-              </div>
+          {/* Items tab — CONDITION-FIRST workflow */}
+          {rightTab==='items'&&(()=>{
+            const activeCond = items.find(i=>i.id===activeCondId);
+            // Measurement type config
+            const MT_OPTIONS = [
+              {id:'area',      icon:'⬡', label:'Area',      unit:'SF', defaultCat:'concrete_slab'},
+              {id:'perimeter', icon:'⬠', label:'Perim',     unit:'LF', defaultCat:'formwork'},
+              {id:'linear',    icon:'━', label:'Linear',    unit:'LF', defaultCat:'other'},
+              {id:'count',     icon:'✕', label:'Count',     unit:'EA', defaultCat:'other'},
+              {id:'manual',    icon:'✎', label:'Manual',    unit:'LS', defaultCat:'other'},
+            ];
+            return(
+            <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column'}}>
 
-              {/* New item quick-add form */}
-              {editItem?._isNew&&(
-                <div style={{marginBottom:8,border:`1px solid #F97316`,borderRadius:5,overflow:'hidden'}}>
-                  <div style={{padding:'4px 8px',background:'rgba(249,115,22,0.12)',fontSize:9,fontWeight:700,color:'#F97316',fontFamily:"'DM Mono',monospace",display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                    NEW ITEM
-                    <button onClick={()=>setEditItem(null)} style={{background:'none',border:'none',color:'#F97316',cursor:'pointer',fontSize:11,lineHeight:1}}>✕</button>
-                  </div>
-                  <InlineItemEditor item={editItem} cat={TAKEOFF_CATS[0]} onSave={async(form)=>{
-                    const catDef=TAKEOFF_CATS.find(c=>c.id===form.category)||TAKEOFF_CATS[0];
-                    const costs=(() => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} })();
-                    const uc=Number(form.unit_cost)||((costs[form.category]?.mat||0)+(costs[form.category]?.lab||0));
-                    const payload={...form,project_id:project.id,plan_id:selPlan.id,quantity:Number(form.quantity)||0,unit_cost:uc,total_cost:(Number(form.quantity)||0)*uc,color:catDef.color,ai_generated:false,sort_order:items.length};
-                    const {data}=await supabase.from('takeoff_items').insert([payload]).select().single();
-                    if(data){setItems(prev=>[...prev,data]);}
-                    setEditItem(null);
-                  }} onDelete={()=>setEditItem(null)}/>
-                </div>
-              )}
-
-              {planItems.length===0&&!editItem?._isNew&&(
-                <div style={{textAlign:'center',padding:'24px 12px',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace",lineHeight:1.6}}>
-                  {!selPlan?'Upload a plan to start':!scale?'Set scale first — then use tools':'Use Area ⬡  Linear ━  Count ✕  or AI ✦'}
-                </div>
-              )}
-
-              {TAKEOFF_CATS.map(cat=>{
-                const catItems=planItems.filter(i=>i.category===cat.id);
-                if(!catItems.length) return null;
-                const catTotal=catItems.reduce((s,i)=>s+(i.total_cost||0),0);
-                return(
-                  <div key={cat.id} style={{marginBottom:8}}>
-                    {/* Category header */}
-                    <div style={{display:'flex',alignItems:'center',gap:5,padding:'4px 6px',marginBottom:3,background:`${cat.color}18`,borderRadius:4,borderLeft:`3px solid ${cat.color}`}}>
-                      <span style={{fontSize:9,fontWeight:800,color:cat.color,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,flex:1}}>{cat.label.toUpperCase()}</span>
-                      <span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",fontWeight:700}}>${catTotal.toLocaleString()}</span>
+              {/* ── Active condition status bar ─────────────────── */}
+              {activeCond?(
+                <div style={{padding:'6px 10px',background:'rgba(249,115,22,0.12)',borderBottom:`1px solid rgba(249,115,22,0.3)`,display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                  <div style={{width:6,height:6,borderRadius:'50%',background:'#F97316',boxShadow:'0 0 6px #F97316',flexShrink:0,animation:'pulse 1.2s ease-in-out infinite'}}/>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{fontSize:10,fontWeight:700,color:'#F97316',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeCond.description||'Unnamed'}</div>
+                    <div style={{fontSize:8,color:'rgba(249,115,22,0.7)',fontFamily:"'DM Mono',monospace"}}>
+                      ARMED · {activeCond.measurement_type?.toUpperCase()} · {activeCond.unit} · click plan to measure
                     </div>
-                    {/* Item rows */}
-                    {catItems.map(item=>{
-                      const typeIcon = {area:'⬡',perimeter:'⬠',linear:'━',count:'✕',manual:'✎'}[item.measurement_type]||'✎';
-                      const isExpanded = editItem?.id===item.id;
-                      return(
-                        <div key={item.id} style={{marginBottom:2,borderRadius:5,overflow:'hidden',border:`1px solid ${isExpanded?cat.color:t.border}`,transition:'border-color 0.15s'}}>
-                          {/* Row */}
-                          <div style={{display:'flex',alignItems:'center',gap:5,padding:'5px 7px',cursor:'pointer',background:isExpanded?`${cat.color}12`:'none'}}
-                            onClick={()=>setEditItem(isExpanded?null:item)}>
-                            <span style={{fontSize:9,color:cat.color,fontFamily:"'DM Mono',monospace",width:12,textAlign:'center',flexShrink:0}}>{typeIcon}</span>
-                            <div style={{flex:1,minWidth:0}}>
-                              <div style={{fontSize:10,fontWeight:600,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'—'}</div>
-                              <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>
-                                {item.quantity} {item.unit}
-                                {item.ai_generated&&<span style={{color:'#a855f7',marginLeft:4}}>✦ AI</span>}
+                  </div>
+                  <button onClick={()=>{setActiveCondId(null);setTool('select');setActivePts([]);}}
+                    style={{background:'none',border:'1px solid rgba(249,115,22,0.4)',color:'#F97316',padding:'2px 6px',borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",flexShrink:0}}>DONE</button>
+                </div>
+              ):(
+                <div style={{padding:'5px 10px',background:t.bg3,borderBottom:`1px solid ${t.border}`,fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0}}>
+                  {!selPlan?'Upload a plan first':!scale?'⚠ Set scale in Settings':'Select or create a condition below'}
+                </div>
+              )}
+
+              {/* ── New Condition creator ─────────────────────────── */}
+              <NewConditionRow
+                selPlan={selPlan} project={project} items={items}
+                onCreated={(newItem)=>{
+                  setItems(prev=>[...prev,newItem]);
+                  setActiveCondId(newItem.id);
+                  setTool(newItem.measurement_type==='area'?'area':newItem.measurement_type==='perimeter'?'perimeter':newItem.measurement_type==='linear'?'linear':newItem.measurement_type==='count'?'count':'select');
+                  setActivePts([]);
+                }}
+              />
+
+              {/* ── Conditions list ─────────────────────────────── */}
+              <div style={{flex:1,overflowY:'auto',padding:'6px 8px'}}>
+                {planItems.length===0&&(
+                  <div style={{textAlign:'center',padding:'24px 8px',color:t.text4,fontSize:10,fontFamily:"'DM Mono',monospace",lineHeight:1.8}}>
+                    Create a condition above{'
+'}then tap the plan to measure
+                  </div>
+                )}
+
+                {TAKEOFF_CATS.map(cat=>{
+                  const catItems=planItems.filter(i=>i.category===cat.id);
+                  if(!catItems.length) return null;
+                  const catTotal=catItems.reduce((s,i)=>s+(i.total_cost||0),0);
+                  return(
+                    <div key={cat.id} style={{marginBottom:8}}>
+                      <div style={{display:'flex',alignItems:'center',gap:5,padding:'3px 6px',marginBottom:3,background:`${cat.color}15`,borderRadius:4,borderLeft:`3px solid ${cat.color}`}}>
+                        <span style={{fontSize:9,fontWeight:800,color:cat.color,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,flex:1}}>{cat.label.toUpperCase()}</span>
+                        <span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",fontWeight:700}}>${catTotal.toLocaleString()}</span>
+                      </div>
+
+                      {catItems.map(item=>{
+                        const isActive = item.id===activeCondId;
+                        const isEditing = editItem?.id===item.id && !isActive;
+                        const shapes = (() => {
+                          if(!item.points||!item.points.length) return [];
+                          if(Array.isArray(item.points[0])) return item.points;
+                          if(item.points[0]&&typeof item.points[0].x==='number') return [item.points];
+                          return item.points;
+                        })();
+                        const typeIcon = {area:'⬡',perimeter:'⬠',linear:'━',count:'✕',manual:'✎'}[item.measurement_type]||'✎';
+                        return(
+                          <div key={item.id} style={{marginBottom:3,borderRadius:5,overflow:'hidden',
+                            border:`1px solid ${isActive?'#F97316':isEditing?cat.color:t.border}`,
+                            transition:'border-color 0.12s',
+                            boxShadow:isActive?'0 0 0 1px rgba(249,115,22,0.2)':'none'}}>
+
+                            {/* Condition row */}
+                            <div style={{display:'flex',alignItems:'center',gap:6,padding:'6px 8px',
+                              background:isActive?'rgba(249,115,22,0.08)':isEditing?`${cat.color}0a`:'none',cursor:'pointer'}}
+                              onClick={()=>{
+                                if(isActive){
+                                  // Tap active → deselect
+                                  setActiveCondId(null); setTool('select'); setActivePts([]);
+                                } else {
+                                  // Select → arm tool
+                                  setActiveCondId(item.id);
+                                  setTool(item.measurement_type==='area'?'area':item.measurement_type==='perimeter'?'perimeter':item.measurement_type==='linear'?'linear':item.measurement_type==='count'?'count':'select');
+                                  setActivePts([]); setEditItem(null);
+                                }
+                              }}>
+                              {/* Armed indicator */}
+                              <span style={{fontSize:10,color:isActive?'#F97316':cat.color,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{typeIcon}</span>
+                              <div style={{flex:1,minWidth:0}}>
+                                <div style={{fontSize:10,fontWeight:600,color:isActive?'#F97316':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'Unnamed'}</div>
+                                <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",display:'flex',gap:6}}>
+                                  <span style={{color:item.quantity>0?t.text3:t.text4}}>{item.quantity||0} {item.unit}</span>
+                                  {shapes.length>0&&<span>· {shapes.length} shape{shapes.length!==1?'s':''}</span>}
+                                  {item.ai_generated&&<span style={{color:'#a855f7'}}>✦ AI</span>}
+                                </div>
+                              </div>
+                              <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+                                <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${(item.total_cost||0).toLocaleString()}</span>
+                                <button onClick={e=>{e.stopPropagation();setEditItem(isEditing?null:item);setActiveCondId(null);}}
+                                  style={{background:'none',border:`1px solid ${t.border2}`,color:t.text4,cursor:'pointer',fontSize:9,padding:'1px 5px',borderRadius:3,lineHeight:1.4}}>✎</button>
                               </div>
                             </div>
-                            <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",flexShrink:0}}>${(item.total_cost||0).toLocaleString()}</span>
-                            <span style={{fontSize:8,color:t.text4,transform:isExpanded?'rotate(90deg)':'none',transition:'transform 0.15s'}}>▶</span>
+
+                            {/* Inline editor (edit mode only) */}
+                            {isEditing&&<InlineItemEditor item={item} cat={cat} onSave={async(updated)=>{
+                              const qty=Number(updated.quantity)||item.quantity||0;
+                              const uc=Number(updated.unit_cost)||0;
+                              const payload={...updated,quantity:qty,total_cost:qty*uc};
+                              await supabase.from('takeoff_items').update(payload).eq('id',item.id);
+                              setItems(prev=>prev.map(i=>i.id===item.id?{...i,...payload}:i));
+                              setEditItem(null);
+                            }} onDelete={async()=>{
+                              await supabase.from('takeoff_items').delete().eq('id',item.id);
+                              setItems(prev=>prev.filter(i=>i.id!==item.id));
+                              if(activeCondId===item.id){setActiveCondId(null);setTool('select');}
+                              setEditItem(null);
+                            }}/>}
                           </div>
-                          {/* Inline expanded editor */}
-                          {isExpanded&&<InlineItemEditor item={item} cat={cat} onSave={async(updated)=>{
-                            await supabase.from('takeoff_items').update(updated).eq('id',item.id);
-                            const saved={...item,...updated,total_cost:(Number(updated.quantity)||0)*(Number(updated.unit_cost)||0)};
-                            setItems(prev=>prev.map(i=>i.id===item.id?saved:i));
-                            setEditItem(null);
-                          }} onDelete={async()=>{
-                            await supabase.from('takeoff_items').delete().eq('id',item.id);
-                            setItems(prev=>prev.filter(i=>i.id!==item.id));
-                            setEditItem(null);
-                          }}/>}
-                        </div>
-                      );
-                    })}
-                  </div>
-                );
-              })}
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* Estimate tab — all sheets scope for full bid */}
           {rightTab==='estimate'&&(()=>{
@@ -5790,7 +5978,7 @@ function LoginScreen() {
 
   return (
     <div style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Syne', sans-serif" }}>
-      <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap'); *{box-sizing:border-box;margin:0;padding:0} @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
+      <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap'); *{box-sizing:border-box;margin:0;padding:0} @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}} @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}`}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 40, justifyContent: "center" }}>
           <div style={{ width: 36, height: 36, borderRadius: 8, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⬡</div>
