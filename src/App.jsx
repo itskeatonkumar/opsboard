@@ -3065,6 +3065,11 @@ function PreconTab({ project }) {
     document.head.appendChild(s);
   });
 
+  // Cleanup blob URLs on unmount
+  useEffect(()=>{
+    return ()=>{ if(blobUrl&&blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl); };
+  },[blobUrl]);
+
   useEffect(()=>{
     const handleKey=(e)=>{
       if(e.key==='Escape'){
@@ -3096,29 +3101,54 @@ function PreconTab({ project }) {
     }
   };
 
-  // Compute isPdf synchronously in render — never use state for this
+  // Compute isPdf synchronously from file_type (blob URLs don't reveal type)
   const isPdfPlan = !!(selPlan && (
     selPlan.file_type?.includes('pdf')
-    || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
     || selPlan.file_url?.startsWith('data:application/pdf')
   ));
 
   useEffect(()=>{
     if(!selPlan) return;
+    // Reset scale
+    if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
+    else { setScale(null); setPresetScale(''); }
+    pdfDocRef.current = null;
+    setPdfDoc(null);
+
+    // If it's a local data: URL (just uploaded), use directly
+    if(selPlan.file_url?.startsWith('data:')){
+      setBlobUrl(selPlan.file_url);
+      return;
+    }
+
+    // Otherwise fetch as blob to bypass any CORS/cache issues
+    setLoadingPlan(true);
+    setBlobUrl(null);
+    fetch(selPlan.file_url)
+      .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.blob(); })
+      .then(blob=>{
+        const url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+        setLoadingPlan(false);
+      })
+      .catch(err=>{
+        console.error('Plan fetch failed:', err, selPlan.file_url);
+        // Fall back to direct URL
+        setBlobUrl(selPlan.file_url);
+        setLoadingPlan(false);
+      });
+  },[selPlan?.id, selPlan?.file_url]);
+
+  // When blobUrl is ready, load PDF if needed
+  useEffect(()=>{
+    if(!blobUrl || !selPlan) return;
     const isPdf = !!(
       selPlan.file_type?.includes('pdf')
       || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
       || selPlan.file_url?.startsWith('data:application/pdf')
     );
-    // Reset scale from saved value
-    if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
-    else { setScale(null); setPresetScale(''); }
-    pdfDocRef.current = null;
-    setPdfDoc(null);
-    if(isPdf){
-      loadPdf(selPlan.file_url);
-    }
-  },[selPlan?.id, selPlan?.file_url]);
+    if(isPdf) loadPdf(blobUrl);
+  },[blobUrl]);
 
   const saveItem=async(itemData)=>{
     const catDef=TAKEOFF_CATS.find(c=>c.id===itemData.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
@@ -3942,6 +3972,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   const [editProject, setEditProject] = useState(false);
   const [pdfDoc, setPdfDoc] = useState(null);
   const [rendering, setRendering] = useState(false);
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [loadingPlan, setLoadingPlan] = useState(false);
   const pdfDocRef = useRef(null);
   const imgRef = useRef();
   const canvasRef = useRef();
@@ -4047,6 +4079,11 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     document.head.appendChild(s);
   });
 
+  // Cleanup blob URLs on unmount
+  useEffect(()=>{
+    return ()=>{ if(blobUrl&&blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl); };
+  },[blobUrl]);
+
   useEffect(()=>{
     const handleKey=(e)=>{
       if(e.key==='Escape'){
@@ -4078,29 +4115,54 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     }
   };
 
-  // Compute isPdf synchronously in render — never use state for this
+  // Compute isPdf synchronously from file_type (blob URLs don't reveal type)
   const isPdfPlan = !!(selPlan && (
     selPlan.file_type?.includes('pdf')
-    || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
     || selPlan.file_url?.startsWith('data:application/pdf')
   ));
 
   useEffect(()=>{
     if(!selPlan) return;
+    // Reset scale
+    if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
+    else { setScale(null); setPresetScale(''); }
+    pdfDocRef.current = null;
+    setPdfDoc(null);
+
+    // If it's a local data: URL (just uploaded), use directly
+    if(selPlan.file_url?.startsWith('data:')){
+      setBlobUrl(selPlan.file_url);
+      return;
+    }
+
+    // Otherwise fetch as blob to bypass any CORS/cache issues
+    setLoadingPlan(true);
+    setBlobUrl(null);
+    fetch(selPlan.file_url)
+      .then(r=>{ if(!r.ok) throw new Error('HTTP '+r.status); return r.blob(); })
+      .then(blob=>{
+        const url = URL.createObjectURL(blob);
+        setBlobUrl(url);
+        setLoadingPlan(false);
+      })
+      .catch(err=>{
+        console.error('Plan fetch failed:', err, selPlan.file_url);
+        // Fall back to direct URL
+        setBlobUrl(selPlan.file_url);
+        setLoadingPlan(false);
+      });
+  },[selPlan?.id, selPlan?.file_url]);
+
+  // When blobUrl is ready, load PDF if needed
+  useEffect(()=>{
+    if(!blobUrl || !selPlan) return;
     const isPdf = !!(
       selPlan.file_type?.includes('pdf')
       || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
       || selPlan.file_url?.startsWith('data:application/pdf')
     );
-    // Reset scale from saved value
-    if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
-    else { setScale(null); setPresetScale(''); }
-    pdfDocRef.current = null;
-    setPdfDoc(null);
-    if(isPdf){
-      loadPdf(selPlan.file_url);
-    }
-  },[selPlan?.id, selPlan?.file_url]);
+    if(isPdf) loadPdf(blobUrl);
+  },[blobUrl]);
 
   const getUnitCosts = () => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} };
 
@@ -4691,18 +4753,26 @@ Return ONLY a valid JSON array, no markdown:
               </div>
             ):(
               <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative'}}>
+                {(loadingPlan||(!blobUrl&&selPlan))&&!isPdfPlan&&(
+                  <div style={{width:800,height:600,display:'flex',alignItems:'center',justifyContent:'center',background:'#1a1a1a',color:'#555',fontSize:13,gap:8,fontFamily:"'DM Mono',monospace"}}>
+                    <span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Loading plan…
+                  </div>
+                )}
                 {isPdfPlan?(
                   <>
                     {rendering&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.7)',zIndex:5,color:'#fff',fontSize:13,gap:8}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>Rendering…</div>}
                     <canvas ref={canvasRef} style={{display:'block',userSelect:'none'}}/>
                   </>
-                ):(
-                  <img ref={imgRef} src={selPlan.file_url} alt="Plan"
-                    style={{display:'block',maxWidth:'none',userSelect:'none',minWidth:400,minHeight:300}}
+                ):(blobUrl&&(
+                  <img ref={imgRef} src={blobUrl} alt=""
+                    style={{display:'block',maxWidth:'none',userSelect:'none'}}
                     onLoad={handleImgLoad}
-                    onError={(e)=>{console.error('Image load failed:',selPlan.file_url);e.target.style.border='2px solid #ef4444';}}
+                    onError={(e)=>{
+                      console.error('Blob img failed, trying direct URL');
+                      e.target.src = selPlan.file_url;
+                    }}
                     draggable={false}/>
-                )}
+                ))}
                 <svg ref={svgRef}
                   style={{position:'absolute',top:0,left:0,width:(canvasRef.current?.width||imgDisp.w||800)+'px',height:(canvasRef.current?.height||imgDisp.h||1100)+'px',cursor:toolCursor}}
                   onClick={handleSvgClick}
