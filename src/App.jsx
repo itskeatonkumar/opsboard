@@ -4178,6 +4178,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const containerRef = useRef();
   const panRef = useRef({active:false, startX:0, startY:0, scrollX:0, scrollY:0});
   const [spaceHeld, setSpaceHeld] = useState(false);
+  const [activeCondId, setActiveCondId] = useState(null); // condition currently armed for drawing
 
 
   useEffect(()=>{
