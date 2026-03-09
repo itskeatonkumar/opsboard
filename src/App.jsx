@@ -4048,11 +4048,14 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const toPx=(x,y)=>({x,y});
 
   const getSvgPos=(e)=>{
-    const r=svgRef.current?.getBoundingClientRect();
-    if(!r) return {x:0,y:0};
-    // SVG is inside transform:scale(zoom) div. BoundingClientRect gives scaled screen pos.
-    // Dividing by zoom converts back to unscaled SVG pixel coords.
-    return {x:(e.clientX-r.left)/zoom, y:(e.clientY-r.top)/zoom};
+    const c=containerRef.current;
+    if(!c) return {x:0,y:0};
+    const cr=c.getBoundingClientRect();
+    // Mouse offset from container top-left, plus scroll, divided by zoom = SVG pixel coord
+    return {
+      x:(e.clientX - cr.left + c.scrollLeft) / zoom,
+      y:(e.clientY - cr.top  + c.scrollTop)  / zoom,
+    };
   };
 
   const calcArea=(pts)=>{
@@ -4376,8 +4379,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const pxDist=Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2);
     const realFt=Number(scaleDist)*(scaleUnit==='in'?1/12:1);
     const pxPerFt=pxDist/realFt;
-    setScale(pxPerFt); setScaleStep(null); setScalePts([]); setScaleDist(''); setTool('select');
-    if(selPlan) await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+    setScale(pxPerFt); setPresetScale(''); setScaleStep(null); setScalePts([]); setScaleDist(''); setTool('select');
+    if(selPlan){
+      await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+      setSelPlan(prev=>({...prev,scale_px_per_ft:pxPerFt}));
+      setPlans(prev=>prev.map(p=>p.id===selPlan.id?{...p,scale_px_per_ft:pxPerFt}:p));
+    }
   };
 
   const autoNameSheet = (filename, existingPlans) => {
