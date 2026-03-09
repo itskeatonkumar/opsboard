@@ -3101,7 +3101,8 @@ function PreconTab({ project }) {
         const contentX = scrollLeft + mouseX;
         const contentY = scrollTop + mouseY;
         setZoom(prev => {
-          const newZoom = Math.min(4, Math.max(0.1, Math.round(prev * factor * 20) / 20));
+          const raw = prev * factor;
+          const newZoom = Math.min(4, Math.max(0.05, parseFloat(raw.toFixed(2))));
           requestAnimationFrame(()=>{
             el.scrollLeft = contentX * (newZoom / prev) - mouseX;
             el.scrollTop  = contentY * (newZoom / prev) - mouseY;
@@ -3955,7 +3956,7 @@ function TakeoffProjectModal({ project, apmProjects, onSave, onClose }) {
 }
 
 // ── Full Takeoff Workspace ────────────────────────────
-function TakeoffWorkspace({ project, onBack, apmProjects }) {
+function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const { t } = useTheme();
   const [plans, setPlans] = useState([]);
   const [selPlan, setSelPlan] = useState(null);
@@ -4130,7 +4131,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
         const contentX = scrollLeft + mouseX;
         const contentY = scrollTop + mouseY;
         setZoom(prev => {
-          const newZoom = Math.min(4, Math.max(0.1, Math.round(prev * factor * 20) / 20));
+          const raw = prev * factor;
+          const newZoom = Math.min(4, Math.max(0.05, parseFloat(raw.toFixed(2))));
           requestAnimationFrame(()=>{
             el.scrollLeft = contentX * (newZoom / prev) - mouseX;
             el.scrollTop  = contentY * (newZoom / prev) - mouseY;
@@ -4557,7 +4559,8 @@ Return ONLY a valid JSON array, no markdown:
 
       {/* ── Top Bar ── */}
       <div style={{display:'flex',alignItems:'center',height:42,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
-        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:12,padding:'0 14px',height:'100%',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>← Back</button>
+        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:12,padding:'0 14px',height:'100%',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>← Projects</button>
+        {onExitToOps&&<button onClick={onExitToOps} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:'#F97316',cursor:'pointer',fontSize:11,padding:'0 12px',height:'100%',display:'flex',alignItems:'center',gap:4,flexShrink:0,fontWeight:700}}>⊞ OPS</button>}
         <CompanyBadge companyId={project.company} small/>
         <div style={{flex:1,padding:'0 12px',overflow:'hidden'}}>
           <div style={{fontSize:13,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
@@ -4881,7 +4884,7 @@ Return ONLY a valid JSON array, no markdown:
 }
 
 // ── PreconSection (top-level) ─────────────────────────
-function FCGEstimating({ onExit }) {
+function FCGEstimating({ onExit, deepLinkProjectId }) {
   const { t } = useTheme();
   const [estiPage, setEstiPage] = useState('projects'); // 'projects' | 'rates' | 'assemblies'
   const [projects, setProjects] = useState([]);
@@ -4897,11 +4900,25 @@ function FCGEstimating({ onExit }) {
       supabase.from('precon_projects').select('*').order('created_at',{ascending:false}),
       supabase.from('projects').select('id,name,company,address,gc_name,contract_value').order('created_at',{ascending:false}),
     ]).then(([{data:pp},{data:ap}])=>{
-      setProjects(pp||[]);
+      const allP = pp||[];
+      setProjects(allP);
       setApmProjects(ap||[]);
       setLoadingProjects(false);
+      // Deep link: restore project from URL hash
+      if(deepLinkProjectId){
+        const found = allP.find(p=>p.id===deepLinkProjectId);
+        if(found){ setSelProject(found); window.location.hash='/estimate/'+found.id; }
+      } else {
+        window.location.hash='/estimate';
+      }
     });
   },[]);
+
+  // Write hash whenever selProject changes
+  useEffect(()=>{
+    if(selProject) window.location.hash='/estimate/'+selProject.id;
+    else if(!loadingProjects) window.location.hash='/estimate';
+  },[selProject]);
 
   const handleSave = async (data, type) => {
     if (type==='delete') {
@@ -4925,7 +4942,7 @@ function FCGEstimating({ onExit }) {
   const awardedVal = filtered.filter(p=>p.status==='awarded').reduce((s,p)=>s+(Number(p.contract_value)||0),0);
 
   const projectsView = selProject
-    ? <TakeoffWorkspace project={selProject} onBack={()=>setSelProject(null)} apmProjects={apmProjects}/>
+    ? <TakeoffWorkspace project={selProject} onBack={()=>{ setSelProject(null); window.location.hash='/estimate'; }} apmProjects={apmProjects} onExitToOps={onExit}/>
     : (
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
       {/* Header */}
@@ -5526,7 +5543,17 @@ function AppInner() {
   const isMobile = useIsMobile();
   const [user, setUser] = useState(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [appSection, setAppSection] = useState("ops"); // "ops" | "apm" | "precon"
+  // ── URL hash routing ──────────────────────────────────────────────────────
+  const parseHash = () => {
+    const h = window.location.hash.replace('#','');
+    if(h.startsWith('/estimate/')) return {section:'precon', projectId: parseInt(h.split('/')[2])||null};
+    if(h === '/estimate') return {section:'precon', projectId:null};
+    if(h === '/apm') return {section:'apm', projectId:null};
+    return {section:'ops', projectId:null};
+  };
+  const initHash = parseHash();
+  const [appSection, setAppSection] = useState(initHash.section); // "ops" | "apm" | "precon"
+  const [deepLinkProjectId] = useState(initHash.projectId); // used by FCGEstimating on mount
   const [tasks, setTasks] = useState([]);
   const [team, setTeam] = useState([]);
   const [attachmentCounts, setAttachmentCounts] = useState({});
@@ -5545,6 +5572,12 @@ function AppInner() {
 
   const dragState = useRef({ active: false, task: null, startX: 0, startY: 0, moved: false });
   const [ghostPos, setGhostPos] = useState(null);
+
+  // Sync hash → appSection
+  useEffect(()=>{
+    if(appSection==='precon') return; // FCGEstimating manages sub-hash itself
+    window.location.hash = appSection==='apm' ? '/apm' : '/ops';
+  },[appSection]);
 
   // Auth
   useEffect(() => {
@@ -5704,7 +5737,7 @@ function AppInner() {
 
   // FCG Estimating — full-screen takeover
   if (appSection === "precon") {
-    return <FCGEstimating onExit={() => setAppSection("ops")} />;
+    return <FCGEstimating onExit={() => setAppSection("ops")} deepLinkProjectId={deepLinkProjectId}/>;
   }
 
   if (isMobile) {
@@ -5996,7 +6029,7 @@ function AppInner() {
           {/* PAGE */}
           {appSection === "precon" ? (
             <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
-              <FCGEstimating />
+              <FCGEstimating onExit={()=>setAppSection("ops")} deepLinkProjectId={deepLinkProjectId}/>
             </div>
           ) : appSection === "apm" ? (
             <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
