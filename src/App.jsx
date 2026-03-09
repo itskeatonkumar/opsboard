@@ -3069,11 +3069,6 @@ function PreconTab({ project }) {
     document.head.appendChild(s);
   });
 
-  // Cleanup blob URLs on unmount
-  useEffect(()=>{
-    return ()=>{ if(blobUrl&&blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl); };
-  },[blobUrl]);
-
   // Sync spaceHeld into panRef so mousedown handler (non-closure) can read it
   useEffect(()=>{ panRef.current._spaceHeld = spaceHeld; },[spaceHeld]);
 
@@ -4354,6 +4349,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     || selPlan.file_url?.startsWith('data:application/pdf')
   ));
 
+  // prevBlobUrl ref — used to revoke the old URL only after the new one is set
+  const prevBlobUrlRef = useRef(null);
+
   useEffect(()=>{
     if(!selPlan) return;
     if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
@@ -4361,12 +4359,15 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     setActiveCondId(null); setTool('select'); setActivePts([]);
     pdfDocRef.current = null;
     setPdfDoc(null);
-    setBlobUrl(null);
     setPlanErr(null);
-    setImgDisp({w:1,h:1});
-    setImgNat({w:1,h:1});
+    // NOTE: do NOT reset blobUrl/imgNat here — keep the previous plan visible
+    // while the new one downloads. We swap atomically when ready.
 
     if(selPlan.file_url?.startsWith('data:')){
+      // Revoke old blob if any
+      if(prevBlobUrlRef.current?.startsWith('blob:')) URL.revokeObjectURL(prevBlobUrlRef.current);
+      prevBlobUrlRef.current = null;
+      setImgNat({w:1,h:1});
       setBlobUrl(selPlan.file_url);
       return;
     }
@@ -4386,11 +4387,18 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
             setLoadingPlan(false);
             return;
           }
+          // Revoke old blob URL now that we have the new one
+          if(prevBlobUrlRef.current?.startsWith('blob:')) URL.revokeObjectURL(prevBlobUrlRef.current);
           const url = URL.createObjectURL(data);
+          prevBlobUrlRef.current = url;
+          setImgNat({w:1,h:1}); // reset dims only now, right before new img loads
           setBlobUrl(url);
           setLoadingPlan(false);
         });
     } else {
+      if(prevBlobUrlRef.current?.startsWith('blob:')) URL.revokeObjectURL(prevBlobUrlRef.current);
+      prevBlobUrlRef.current = null;
+      setImgNat({w:1,h:1});
       setBlobUrl(selPlan.file_url);
       setLoadingPlan(false);
     }
