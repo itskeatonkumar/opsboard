@@ -3728,13 +3728,13 @@ function TakeoffProjectModal({ project, apmProjects, onSave, onClose }) {
     const payload = {...form, contract_value: form.contract_value?Number(form.contract_value):null};
     delete payload.id; delete payload.created_at;
     if (isNew) {
-      const {data} = await supabase.from('precon_plans').select('id').eq('project_id',-1).limit(0);
-      // Use takeoff_projects table - we'll create entries in precon_plans with project_id=null
-      // Actually store in a local approach using precon metadata stored in plan records
-      // For now store as APM project with a takeoff flag, or use a separate lightweight approach
-      onSave({...form, id: Date.now(), isLocal: true}, true);
+      const {data, error} = await supabase.from('precon_projects').insert([payload]).select().single();
+      if (error) { alert('Error creating project: ' + error.message); setSaving(false); return; }
+      if (data) onSave(data, true);
     } else {
-      onSave({...project,...form}, false);
+      const {data, error} = await supabase.from('precon_projects').update(payload).eq('id', project.id).select().single();
+      if (error) { alert('Error saving: ' + error.message); setSaving(false); return; }
+      onSave({...project,...(data||form)}, false);
     }
     setSaving(false);
   };
@@ -3771,7 +3771,7 @@ function TakeoffProjectModal({ project, apmProjects, onSave, onClose }) {
         )}
       </div>
       <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'space-between'}}>
-        {!isNew&&<button onClick={()=>onSave(null,'delete')} style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'8px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Delete</button>}
+        {!isNew&&<button onClick={()=>onSave(project,'delete')} style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'8px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Delete</button>}
         <div style={{display:'flex',gap:8,marginLeft:'auto'}}>
           <button onClick={onClose} style={{background:'none',border:`1px solid var(--bd2)`,color:'var(--tx3)',padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13}}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.name.trim()} style={{background:'#F97316',border:'none',color:'#000',padding:'8px 22px',borderRadius:6,cursor:'pointer',fontSize:13,fontWeight:700}}>{saving?'Saving...':isNew?'Create':'Save'}</button>
@@ -4293,7 +4293,7 @@ Return ONLY a valid JSON array, no markdown:
       {showAssembly&&<AssemblyPicker onApply={applyAssembly} onClose={()=>setShowAssembly(false)}/>}
       {showUnitCosts&&<UnitCostEditor onClose={()=>setShowUnitCosts(false)}/>}
       {showBidSummary&&<BidSummaryModal project={project} items={items} onClose={()=>setShowBidSummary(false)}/>}
-      {editProject&&<TakeoffProjectModal project={project} apmProjects={apmProjects} onSave={(data,type)=>{setEditProject(false);}} onClose={()=>setEditProject(false)}/>}
+      {editProject&&<TakeoffProjectModal project={project} apmProjects={apmProjects} onSave={async(data,type)=>{ if(type!=='delete'&&data){ const {data:updated}=await supabase.from('precon_projects').update({name:data.name,company:data.company,address:data.address,gc_name:data.gc_name,bid_date:data.bid_date,contract_value:data.contract_value,status:data.status,apm_project_id:data.apm_project_id}).eq('id',data.id).select().single(); if(updated) onBack(); } else { onBack(); } setEditProject(false); }} onClose={()=>setEditProject(false)}/>}
     </div>
   );
 }
@@ -4302,28 +4302,33 @@ Return ONLY a valid JSON array, no markdown:
 function FCGEstimating({ onExit }) {
   const { t } = useTheme();
   const [estiPage, setEstiPage] = useState('projects'); // 'projects' | 'rates' | 'assemblies'
-  const [projects, setProjects] = useState(() => {
-    try{ return JSON.parse(localStorage.getItem('preconProjects')||'[]'); }catch{return [];}
-  });
+  const [projects, setProjects] = useState([]);
   const [apmProjects, setApmProjects] = useState([]);
+  const [loadingProjects, setLoadingProjects] = useState(true);
   const [selProject, setSelProject] = useState(null);
   const [newModal, setNewModal] = useState(false);
   const [filterCo, setFilterCo] = useState('all');
   const [filterStatus, setFilterStatus] = useState('all');
 
   useEffect(()=>{
-    supabase.from('projects').select('id,name,company,address,gc_name,contract_value').order('created_at',{ascending:false}).then(({data})=>setApmProjects(data||[]));
+    Promise.all([
+      supabase.from('precon_projects').select('*').order('created_at',{ascending:false}),
+      supabase.from('projects').select('id,name,company,address,gc_name,contract_value').order('created_at',{ascending:false}),
+    ]).then(([{data:pp},{data:ap}])=>{
+      setProjects(pp||[]);
+      setApmProjects(ap||[]);
+      setLoadingProjects(false);
+    });
   },[]);
 
-  const saveProjects = (list) => {
-    setProjects(list);
-    localStorage.setItem('preconProjects', JSON.stringify(list));
-  };
-
-  const handleSave = (data, type) => {
-    if (type==='delete') { saveProjects(projects.filter(p=>p.id!==data?.id)); setNewModal(false); return; }
-    if (type===true) { saveProjects([data,...projects]); }
-    else { saveProjects(projects.map(p=>p.id===data.id?data:p)); }
+  const handleSave = async (data, type) => {
+    if (type==='delete') {
+      await supabase.from('precon_projects').delete().eq('id', data?.id);
+      setProjects(prev=>prev.filter(p=>p.id!==data?.id));
+      setNewModal(false); return;
+    }
+    if (type===true) { setProjects(prev=>[data,...prev]); }
+    else { setProjects(prev=>prev.map(p=>p.id===data.id?data:p)); }
     setNewModal(false);
   };
 
