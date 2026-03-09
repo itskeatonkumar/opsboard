@@ -3999,11 +3999,10 @@ function NewConditionRow({ selPlan, project, items, onCreated }) {
   const inputRef = useRef();
 
   const MT = [
-    {id:'area',      icon:'⬡', label:'SF',  cat:'concrete_slab'},
-    {id:'perimeter', icon:'⬠', label:'LF',  cat:'formwork'},
-    {id:'linear',    icon:'━', label:'LF',  cat:'other'},
-    {id:'count',     icon:'✕', label:'EA',  cat:'other'},
-    {id:'manual',    icon:'✎', label:'LS',  cat:'other'},
+    {id:'area',   icon:'⬡', label:'SF', cat:'concrete_slab'},
+    {id:'linear', icon:'━', label:'LF', cat:'other'},
+    {id:'count',  icon:'✕', label:'EA', cat:'other'},
+    {id:'manual', icon:'✎', label:'LS', cat:'other'},
   ];
   const selMT = MT.find(m=>m.id===mt)||MT[0];
 
@@ -4048,8 +4047,8 @@ function NewConditionRow({ selPlan, project, items, onCreated }) {
         {MT.map(m=>(
           <button key={m.id} onClick={()=>{setMt(m.id);setCat(m.cat);}}
             style={{flex:1,padding:'4px 0',border:`1px solid ${mt===m.id?'#F97316':'rgba(255,255,255,0.12)'}`,
-              background:mt===m.id?'rgba(249,115,22,0.2)':'none',
-              color:mt===m.id?'#F97316':'rgba(255,255,255,0.5)',
+              background:mt===m.id?'rgba(249,115,22,0.2)':'rgba(0,0,0,0.25)',
+              color:mt===m.id?'#F97316':'#aaa',
               borderRadius:4,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",fontWeight:700}}>
             <div style={{fontSize:11}}>{m.icon}</div>
             <div>{m.label}</div>
@@ -4489,12 +4488,6 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     if(item.measurement_type==='area'){
       qty = shapes.reduce((s,sh)=>s+calcArea(sh),0);
       qty = Math.round(qty*10)/10;
-    } else if(item.measurement_type==='perimeter'){
-      qty = shapes.reduce((s,sh)=>{
-        let p=0; for(let i=0;i<sh.length;i++) p+=calcLinear(sh[i],sh[(i+1)%sh.length]);
-        return s+p;
-      },0);
-      qty = Math.round(qty*10)/10;
     } else if(item.measurement_type==='linear'){
       qty = shapes.reduce((s,sh)=>s+(sh.length>=2?calcLinear(sh[0],sh[1]):0),0);
       qty = Math.round(qty*10)/10;
@@ -4542,7 +4535,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       } else setActivePts(npts);
       return;
     }
-    if(mt==='area'||mt==='perimeter'){
+    if(mt==='area'){
       if(activePts.length>=3){
         const fp=activePts[0];
         if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
@@ -4824,19 +4817,7 @@ Return ONLY a valid JSON array, no markdown:
               <text x={p.x} y={p.y+fs*0.38} fontSize={fs*0.9} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
             </g>);
           }
-          if(mt==='perimeter'&&pts.length>=3){
-            const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z';
-            const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
-            const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
-            let perim=0; for(let i=0;i<pts.length;i++) perim+=calcLinear(pts[i],pts[(i+1)%pts.length]);
-            perim=Math.round(perim*10)/10;
-            return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
-              <path d={d} fill="none" stroke={c} strokeWidth={isActive?sw*1.6:sw} strokeDasharray={`${9/zoom},${3/zoom}`}/>
-              {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={rSm} fill={c}/>)}
-              <rect x={cx-26/zoom} y={cy-padH} width={52/zoom} height={padH*2} rx={2/zoom} fill="rgba(0,0,0,0.75)"/>
-              <text x={cx} y={cy+fs*0.38} fontSize={fs} fill={isActive?'#F97316':'#fff'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{perim} LF</text>
-            </g>);
-          }
+
           return null;
         }).filter(Boolean);
       });
@@ -4852,7 +4833,7 @@ Return ONLY a valid JSON array, no markdown:
       {all.length>=2&&<polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={tool==='area'?'none':`${6/zoom},${3/zoom}`} opacity={0.9}/>}
       {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?r0:r1} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={sw*0.8} opacity={0.95}/>)}
       {hoverPt&&<circle cx={hoverPt.x} cy={hoverPt.y} r={r2} fill={c} opacity={0.5}/>}
-      {tool==='area'&&pts.length>=3&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>● close</text>}
+      {(tool==='area')&&pts.length>=3&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>● close</text>}
       {tool==='linear'&&pts.length===1&&scale&&hoverPt&&(()=>{
         const dist=Math.round(calcLinear(pts[0],hoverPt)*10)/10;
         return <text x={(pts[0].x+hoverPt.x)/2} y={(pts[0].y+hoverPt.y)/2-6/zoom} fontSize={fs} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{dist} LF</text>;
@@ -4962,11 +4943,10 @@ Return ONLY a valid JSON array, no markdown:
             const activeCond = items.find(i=>i.id===activeCondId);
             // Measurement type config
             const MT_OPTIONS = [
-              {id:'area',      icon:'⬡', label:'Area',      unit:'SF', defaultCat:'concrete_slab'},
-              {id:'perimeter', icon:'⬠', label:'Perim',     unit:'LF', defaultCat:'formwork'},
-              {id:'linear',    icon:'━', label:'Linear',    unit:'LF', defaultCat:'other'},
-              {id:'count',     icon:'✕', label:'Count',     unit:'EA', defaultCat:'other'},
-              {id:'manual',    icon:'✎', label:'Manual',    unit:'LS', defaultCat:'other'},
+              {id:'area',   icon:'⬡', label:'Area',   unit:'SF', defaultCat:'concrete_slab'},
+              {id:'linear', icon:'━', label:'Linear', unit:'LF', defaultCat:'other'},
+              {id:'count',  icon:'✕', label:'Count',  unit:'EA', defaultCat:'other'},
+              {id:'manual', icon:'✎', label:'Manual', unit:'LS', defaultCat:'other'},
             ];
             return(
             <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column'}}>
@@ -4996,7 +4976,7 @@ Return ONLY a valid JSON array, no markdown:
                 onCreated={(newItem)=>{
                   setItems(prev=>[...prev,newItem]);
                   setActiveCondId(newItem.id);
-                  setTool(newItem.measurement_type==='area'?'area':newItem.measurement_type==='perimeter'?'perimeter':newItem.measurement_type==='linear'?'linear':newItem.measurement_type==='count'?'count':'select');
+                  setTool(newItem.measurement_type==='area'?'area':newItem.measurement_type==='linear'?'linear':newItem.measurement_type==='count'?'count':'select');
                   setActivePts([]);
                 }}
               />
@@ -5046,7 +5026,7 @@ Return ONLY a valid JSON array, no markdown:
                                 } else {
                                   // Select → arm tool
                                   setActiveCondId(item.id);
-                                  setTool(item.measurement_type==='area'?'area':item.measurement_type==='perimeter'?'perimeter':item.measurement_type==='linear'?'linear':item.measurement_type==='count'?'count':'select');
+                                  setTool(item.measurement_type==='area'?'area':item.measurement_type==='linear'?'linear':item.measurement_type==='count'?'count':'select');
                                   setActivePts([]); setEditItem(null);
                                 }
                               }}>
@@ -5216,7 +5196,6 @@ Return ONLY a valid JSON array, no markdown:
             {[
               {id:'select',    icon:'↖', label:'Select',    color:'#aaa'},
               {id:'area',      icon:'⬡', label:'Area',      color:'#F59E0B'},
-              {id:'perimeter', icon:'⬠', label:'Perim.',    color:'#F97316'},
               {id:'linear',    icon:'━', label:'Linear',    color:'#06B6D4'},
               {id:'count',     icon:'✕', label:'Count',     color:'#10B981'},
             ].map(tb=>(
@@ -5236,7 +5215,7 @@ Return ONLY a valid JSON array, no markdown:
             {/* Live measurement status */}
             <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
               {tool==='area'&&activePts.length>0&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>{!scale?`⚠ Set scale first`:(activePts.length>=3?`⬡ ${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF · click ● to close`:` ${activePts.length} pts`)}</span>}
-              {tool==='perimeter'&&activePts.length>0&&<span style={{fontSize:10,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>{!scale?`⚠ Set scale first`:(activePts.length>=3?`⬠ ${Math.round(activePts.reduce((s,p,i)=>s+(i>0?calcLinear(activePts[i-1],p):0),0)*10)/10} LF · click ● to close`:`${activePts.length} pts`)}</span>}
+
               {tool==='linear'&&activePts.length===1&&hoverPt&&<span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>{scale?`━ ${Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF`:`⚠ Set scale first`}</span>}
               {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Pick 2 pts ({scalePts.length}/2) · ESC cancel</span>}
               {!scale&&!scaleStep&&selPlan&&<span style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>⚠ No scale set</span>}
@@ -5298,7 +5277,6 @@ Return ONLY a valid JSON array, no markdown:
                         if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
                           e.stopPropagation();
                           if(tool==='area'){const area=Math.round(calcArea(activePts)*10)/10;const cnt=planItems.filter(i=>i.measurement_type==='area').length+1;saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});}
-                          else{let perim=0;for(let i=0;i<activePts.length;i++)perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);const cnt=planItems.filter(i=>i.measurement_type==='perimeter').length+1;saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});}
                           setActivePts([]);
                         }
                       }}
@@ -5329,7 +5307,6 @@ Return ONLY a valid JSON array, no markdown:
         {/* ── Right Icon Toolbar ── */}
         <div style={{width:58,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,overflowY:'auto'}}>
           <RightBtn icon="⬡" label="Area" active={tool==='area'} onClick={()=>{setTool('area');setActivePts([]);setScaleStep(null);}}/>
-          <RightBtn icon="⬠" label="Perim" active={tool==='perimeter'} onClick={()=>{setTool('perimeter');setActivePts([]);setScaleStep(null);}}/>
           <RightBtn icon="━" label="Linear" active={tool==='linear'} onClick={()=>{setTool('linear');setActivePts([]);setScaleStep(null);}}/>
           <RightBtn icon="✕" label="Count" active={tool==='count'} onClick={()=>{setTool('count');setActivePts([]);setScaleStep(null);}}/>
           <div style={{height:1,background:t.border,margin:'4px 8px'}}/>
