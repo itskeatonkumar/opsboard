@@ -80,7 +80,12 @@ function ThemeProvider({ children }) {
     applyCSSVars(isDark); // set vars synchronously on first render
     return isDark;
   });
-  const t = {}; // kept for compat but not needed - everything uses CSS vars now
+  const t = {
+    bg:   'var(--bg)',   bg2: 'var(--bg2)', bg3: 'var(--bg3)', bg4: 'var(--bg4)', bg5: 'var(--bg5)',
+    border: 'var(--bd)', border2: 'var(--bd2)',
+    text: 'var(--tx)',  text2: 'var(--tx2)', text3: 'var(--tx3)', text4: 'var(--tx4)', text5: 'var(--tx4)',
+    input: 'var(--inp)', inputBorder: 'var(--inpbd)', inputText: 'var(--inptx)',
+  };
   const toggle = () => setDark(d => {
     const n = !d;
     applyCSSVars(n);
@@ -91,16 +96,16 @@ function ThemeProvider({ children }) {
 }
 
 const getCompany  = (id) => COMPANIES.find(c => c.id === id) || COMPANIES[1];
-const getMember   = (id, team) => (team || []).find(t => t.id === id) || { id, name: id, initials: (id||"?")[0]?.toUpperCase(), color: "#555" };
+const getMember   = (id, team) => (team || []).find(t => t.id === id) || { id, name: id, initials: (id||"?")[0]?.toUpperCase(), color: "var(--tx3)" };
 const getPriority = (id) => PRIORITIES.find(p => p.id === id) || PRIORITIES[1];
 
 const labelStyle = {
   display: "block", fontSize: 10.5, fontFamily: "'DM Mono', monospace",
-  color: "#555", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 5
+  color: "var(--tx3)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 5
 };
 const inputStyle = {
-  width: "100%", background: "#0e0e0e", border: "1px solid #252525",
-  borderRadius: 6, padding: "8px 10px", color: "#e0e0e0", fontSize: 13,
+  width: "100%", background: "var(--bg)", border: "1px solid #252525",
+  borderRadius: 6, padding: "8px 10px", color: "var(--tx)", fontSize: 13,
   fontFamily: "'Syne', sans-serif", outline: "none", boxSizing: "border-box",
 };
 
@@ -122,10 +127,10 @@ function Avatar({ member, size = 28 }) {
   return (
     <div style={{
       width: size, height: size, borderRadius: "50%",
-      background: (member?.color || "#555") + "22",
-      border: `1.5px solid ${(member?.color || "#555")}55`,
+      background: (member?.color || "var(--tx3)") + "22",
+      border: `1.5px solid ${(member?.color || "var(--tx3)")}55`,
       display: "flex", alignItems: "center", justifyContent: "center",
-      fontSize: size * 0.38, fontWeight: 700, color: member?.color || "#555",
+      fontSize: size * 0.38, fontWeight: 700, color: member?.color || "var(--tx3)",
       fontFamily: "'DM Mono', monospace", flexShrink: 0
     }}>
       {member?.initials || "?"}
@@ -164,12 +169,12 @@ function DragGhost({ task, pos, team }) {
   const member = getMember(task.assignee, team);
   return (
     <div style={{ position: "fixed", left: pos.x - 130, top: pos.y - 30, width: 260, pointerEvents: "none", zIndex: 9999, transform: "rotate(2deg) scale(1.03)", opacity: 0.9, filter: "drop-shadow(0 16px 40px rgba(0,0,0,0.8))" }}>
-      <div style={{ background: "#1e1e1e", border: "1px solid #F9731660", borderRadius: 8, padding: "12px 14px" }}>
+      <div style={{ background: "var(--bd)", border: "1px solid #F9731660", borderRadius: 8, padding: "12px 14px" }}>
         <div style={{ display: "flex", gap: 6, marginBottom: 8, alignItems: "center" }}>
           <CompanyBadge companyId={task.company} small />
           <PriorityDot priorityId={task.priority} />
         </div>
-        <div style={{ fontSize: 13, color: "#e5e5e5", fontWeight: 500, lineHeight: 1.4, fontFamily: "'Syne', sans-serif" }}>{task.title}</div>
+        <div style={{ fontSize: 13, color: "var(--tx)", fontWeight: 500, lineHeight: 1.4, fontFamily: "'Syne', sans-serif" }}>{task.title}</div>
         <div style={{ marginTop: 8 }}><Avatar member={member} size={22} /></div>
       </div>
     </div>
@@ -185,7 +190,7 @@ function AttachmentRow({ att, onDelete }) {
   const isPdf = att.file_type === "application/pdf";
   const icon = isPdf ? "📄" : isImage ? "🖼" : "📎";
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "#0e0e0e", border: "1px solid #1e1e1e", borderRadius: 6 }}>
+    <div style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 10px", background: "var(--bg)", border: "1px solid #1e1e1e", borderRadius: 6 }}>
       {isImage ? (
         <img src={att.file_url} alt={att.file_name} style={{ width: 36, height: 36, objectFit: "cover", borderRadius: 4, flexShrink: 0 }} />
       ) : (
@@ -195,7 +200,7 @@ function AttachmentRow({ att, onDelete }) {
         {att.file_name}
       </a>
       {onDelete && (
-        <button onClick={() => onDelete(att)} style={{ background: "none", border: "none", color: "#444", cursor: "pointer", fontSize: 16, padding: "0 4px", flexShrink: 0 }}>×</button>
+        <button onClick={() => onDelete(att)} style={{ background: "none", border: "none", color: "var(--tx4)", cursor: "pointer", fontSize: 16, padding: "0 4px", flexShrink: 0 }}>×</button>
       )}
     </div>
   );
@@ -219,16 +224,16 @@ function TaskCard({ task, onEdit, onMouseDownDrag, isDragging, team, attachmentC
         <CompanyBadge companyId={task.company} small />
         <PriorityDot priorityId={task.priority} />
       </div>
-      <div style={{ fontSize: 13.5, color: "#e5e5e5", fontWeight: 500, lineHeight: 1.4, marginBottom: 10, fontFamily: "'Syne', sans-serif" }}>{task.title}</div>
+      <div style={{ fontSize: 13.5, color: "var(--tx)", fontWeight: 500, lineHeight: 1.4, marginBottom: 10, fontFamily: "'Syne', sans-serif" }}>{task.title}</div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           <Avatar member={member} size={24} />
           {attachCount > 0 && (
-            <span style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace" }}>📎 {attachCount}</span>
+            <span style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace" }}>📎 {attachCount}</span>
           )}
         </div>
         {task.due && (
-          <span style={{ fontSize: 10.5, fontFamily: "'DM Mono', monospace", color: isOverdue ? "#EF4444" : "#555" }}>
+          <span style={{ fontSize: 10.5, fontFamily: "'DM Mono', monospace", color: isOverdue ? "#EF4444" : "var(--tx3)" }}>
             {isOverdue ? "⚠ " : ""}{new Date(task.due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
           </span>
         )}
@@ -297,10 +302,10 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team, allProjects =
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000, padding: isMobile ? 0 : 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 12, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 540, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: isMobile ? "92vh" : "88vh", overflowY: "auto" }}>
+      <div style={{ background: "var(--bg3)", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 12, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 540, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: isMobile ? "92vh" : "88vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
-          <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 17, fontWeight: 700, color: "#e5e5e5" }}>{isNew ? "New Task" : "Edit Task"}</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 22, padding: "0 4px" }}>×</button>
+          <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 17, fontWeight: 700, color: "var(--tx)" }}>{isNew ? "New Task" : "Edit Task"}</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--tx3)", cursor: "pointer", fontSize: 22, padding: "0 4px" }}>×</button>
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
           <div>
@@ -360,7 +365,7 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team, allProjects =
               </div>
             )}
             {isNew ? (
-              <div style={{ padding: "10px 12px", background: "#0e0e0e", border: "1px dashed #252525", borderRadius: 6, fontSize: 11, color: "#444", fontFamily: "'DM Mono', monospace" }}>
+              <div style={{ padding: "10px 12px", background: "var(--bg)", border: "1px dashed #252525", borderRadius: 6, fontSize: 11, color: "var(--tx4)", fontFamily: "'DM Mono', monospace" }}>
                 Save the task first, then reopen it to add attachments
               </div>
             ) : (
@@ -368,10 +373,10 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team, allProjects =
                 <input ref={fileRef} type="file" multiple accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.txt,.csv" onChange={handleFileUpload} style={{ display: "none" }} />
                 <input ref={cameraRef} type="file" accept="image/*" capture="environment" onChange={handleFileUpload} style={{ display: "none" }} />
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ flex: 1, padding: "10px 0", background: "#0e0e0e", border: "1px dashed #2a2a2a", borderRadius: 6, color: uploading ? "#555" : "#888", cursor: uploading ? "not-allowed" : "pointer", fontSize: 12, fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                  <button onClick={() => fileRef.current?.click()} disabled={uploading} style={{ flex: 1, padding: "10px 0", background: "var(--bg)", border: "1px dashed #2a2a2a", borderRadius: 6, color: uploading ? "var(--tx3)" : "var(--tx2)", cursor: uploading ? "not-allowed" : "pointer", fontSize: 12, fontFamily: "'DM Mono', monospace", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                     {uploading ? <><span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Uploading...</> : "📎 Files"}
                   </button>
-                  <button onClick={() => cameraRef.current?.click()} disabled={uploading} style={{ padding: "10px 16px", background: "#0e0e0e", border: "1px dashed #2a2a2a", borderRadius: 6, color: uploading ? "#555" : "#888", cursor: uploading ? "not-allowed" : "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                  <button onClick={() => cameraRef.current?.click()} disabled={uploading} style={{ padding: "10px 16px", background: "var(--bg)", border: "1px dashed #2a2a2a", borderRadius: 6, color: uploading ? "var(--tx3)" : "var(--tx2)", cursor: uploading ? "not-allowed" : "pointer", fontSize: 14, display: "flex", alignItems: "center", justifyContent: "center" }}>
                     📷
                   </button>
                 </div>
@@ -381,9 +386,9 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team, allProjects =
         </div>
 
         <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "space-between", flexWrap: "wrap" }}>
-          {!isNew && <button onClick={() => onDelete(form.id)} style={{ background: "#1a0a0a", border: "1px solid #3a1a1a", color: "#ef4444", padding: "10px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'DM Mono', monospace" }}>Delete</button>}
+          {!isNew && <button onClick={() => onDelete(form.id)} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", padding: "10px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'DM Mono', monospace" }}>Delete</button>}
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-            <button onClick={onClose} style={{ background: "none", border: "1px solid #2a2a2a", color: "#777", padding: "10px 18px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "'Syne', sans-serif" }}>Cancel</button>
+            <button onClick={onClose} style={{ background: "none", border: "1px solid #2a2a2a", color: "var(--tx2)", padding: "10px 18px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "'Syne', sans-serif" }}>Cancel</button>
             <button onClick={handleSave} disabled={saving} style={{ background: "#F97316", border: "none", color: "#000", padding: "10px 22px", borderRadius: 6, cursor: saving ? "not-allowed" : "pointer", fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", opacity: form.title.trim() && !saving ? 1 : 0.5 }}>
               {saving ? "Saving..." : isNew ? "Add Task" : "Save"}
             </button>
@@ -422,10 +427,10 @@ function MemberModal({ member, onClose, onSave, onDelete, isNew }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1100, padding: isMobile ? 0 : 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 12, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 460, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
+      <div style={{ background: "var(--bg3)", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 12, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 460, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
-          <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 17, fontWeight: 700, color: "#e5e5e5" }}>{isNew ? "Add Team Member" : "Edit Member"}</span>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 22 }}>×</button>
+          <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 17, fontWeight: 700, color: "var(--tx)" }}>{isNew ? "Add Team Member" : "Edit Member"}</span>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--tx3)", cursor: "pointer", fontSize: 22 }}>×</button>
         </div>
         <div style={{ display: "flex", justifyContent: "center", marginBottom: 22 }}>
           <Avatar member={form} size={56} />
@@ -463,15 +468,15 @@ function MemberModal({ member, onClose, onSave, onDelete, isNew }) {
               ))}
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <input type="color" value={form.color} onChange={e => set("color", e.target.value)} style={{ width: 32, height: 32, borderRadius: "50%", border: "none", background: "none", cursor: "pointer", padding: 0 }} />
-                <span style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace" }}>custom</span>
+                <span style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace" }}>custom</span>
               </div>
             </div>
           </div>
         </div>
         <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "space-between" }}>
-          {!isNew && <button onClick={() => onDelete(form.id)} style={{ background: "#1a0a0a", border: "1px solid #3a1a1a", color: "#ef4444", padding: "10px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'DM Mono', monospace" }}>Remove</button>}
+          {!isNew && <button onClick={() => onDelete(form.id)} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", padding: "10px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'DM Mono', monospace" }}>Remove</button>}
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-            <button onClick={onClose} style={{ background: "none", border: "1px solid #2a2a2a", color: "#777", padding: "10px 18px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "'Syne', sans-serif" }}>Cancel</button>
+            <button onClick={onClose} style={{ background: "none", border: "1px solid #2a2a2a", color: "var(--tx2)", padding: "10px 18px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "'Syne', sans-serif" }}>Cancel</button>
             <button onClick={handleSave} disabled={saving || !form.name.trim() || !form.id.trim()} style={{ background: "#F97316", border: "none", color: "#000", padding: "10px 22px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", opacity: form.name.trim() && form.id.trim() && !saving ? 1 : 0.4 }}>
               {saving ? "Saving..." : isNew ? "Add Member" : "Save"}
             </button>
@@ -516,8 +521,8 @@ function SettingsPage({ team, onTeamChange }) {
     <div style={{ flex: 1, overflow: "auto", padding: "24px 20px 40px" }}>
       <div style={{ maxWidth: 700, margin: "0 auto" }}>
         <div style={{ marginBottom: 32 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 800, color: "#e5e5e5", fontFamily: "'Syne', sans-serif", marginBottom: 4 }}>Settings</h1>
-          <p style={{ fontSize: 12, color: "#444", fontFamily: "'DM Mono', monospace" }}>Manage your team, contact info, and preferences</p>
+          <h1 style={{ fontSize: 20, fontWeight: 800, color: "var(--tx)", fontFamily: "'Syne', sans-serif", marginBottom: 4 }}>Settings</h1>
+          <p style={{ fontSize: 12, color: "var(--tx4)", fontFamily: "'DM Mono', monospace" }}>Manage your team, contact info, and preferences</p>
         </div>
 
         {/* Team */}
@@ -533,17 +538,17 @@ function SettingsPage({ team, onTeamChange }) {
           </div>
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {team.map(member => (
-              <div key={member.id} onClick={() => openEdit(member)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", background: "#111", border: "1px solid #1a1a1a", borderRadius: 10, cursor: "pointer" }}
-                onMouseEnter={e => e.currentTarget.style.borderColor = "#2a2a2a"}
-                onMouseLeave={e => e.currentTarget.style.borderColor = "#1a1a1a"}
+              <div key={member.id} onClick={() => openEdit(member)} style={{ display: "flex", alignItems: "center", gap: 14, padding: "14px 16px", background: "var(--bg3)", border: "1px solid #1a1a1a", borderRadius: 10, cursor: "pointer" }}
+                onMouseEnter={e => e.currentTarget.style.borderColor = "var(--bd2)"}
+                onMouseLeave={e => e.currentTarget.style.borderColor = "var(--bg5)"}
               >
                 <Avatar member={member} size={40} />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, color: "#e5e5e5", fontFamily: "'Syne', sans-serif" }}>{member.name}</span>
-                    {member.role && <span style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace", background: "#1a1a1a", padding: "2px 6px", borderRadius: 4 }}>{member.role}</span>}
+                    <span style={{ fontSize: 14, fontWeight: 600, color: "var(--tx)", fontFamily: "'Syne', sans-serif" }}>{member.name}</span>
+                    {member.role && <span style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", background: "var(--bg5)", padding: "2px 6px", borderRadius: 4 }}>{member.role}</span>}
                   </div>
-                  <div style={{ fontSize: 11.5, color: member.email ? "#555" : "#2a2a2a", fontFamily: "'DM Mono', monospace", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                  <div style={{ fontSize: 11.5, color: member.email ? "var(--tx3)" : "var(--bd2)", fontFamily: "'DM Mono', monospace", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                     {member.email || "no email — tap to add"}
                   </div>
                 </div>
@@ -559,10 +564,10 @@ function SettingsPage({ team, onTeamChange }) {
           <div style={{ fontSize: 10.5, color: "#333", fontFamily: "'DM Mono', monospace", marginBottom: 12 }}>Contact your developer to add or rename companies</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
             {COMPANIES.filter(c => c.id !== "all").map(co => (
-              <div key={co.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "#111", border: "1px solid #1a1a1a", borderRadius: 8 }}>
+              <div key={co.id} style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px 16px", background: "var(--bg3)", border: "1px solid #1a1a1a", borderRadius: 8 }}>
                 <div style={{ width: 10, height: 10, borderRadius: "50%", background: co.color }} />
                 <span style={{ fontSize: 13, color: "#bbb", fontFamily: "'Syne', sans-serif", flex: 1 }}>{co.name}</span>
-                <span style={{ fontSize: 10, color: "#333", fontFamily: "'DM Mono', monospace", background: "#1a1a1a", padding: "2px 6px", borderRadius: 4 }}>{co.short}</span>
+                <span style={{ fontSize: 10, color: "#333", fontFamily: "'DM Mono', monospace", background: "var(--bg5)", padding: "2px 6px", borderRadius: 4 }}>{co.short}</span>
               </div>
             ))}
           </div>
@@ -571,7 +576,7 @@ function SettingsPage({ team, onTeamChange }) {
         {/* Digest */}
         <div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#aaa", fontFamily: "'Syne', sans-serif", marginBottom: 6 }}>Email Digest</div>
-          <div style={{ padding: "14px 16px", background: "#111", border: "1px solid #1a1a1a", borderRadius: 8, display: "flex", flexDirection: "column", gap: 10 }}>
+          <div style={{ padding: "14px 16px", background: "var(--bg3)", border: "1px solid #1a1a1a", borderRadius: 8, display: "flex", flexDirection: "column", gap: 10 }}>
             {[
               ["Schedule", "Weekdays 8:00 AM"],
               ["Individual emails", "Each member gets their own open tasks"],
@@ -579,8 +584,8 @@ function SettingsPage({ team, onTeamChange }) {
               ["Manual trigger", "Send Digest button in sidebar"],
             ].map(([k, v]) => (
               <div key={k} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12 }}>
-                <span style={{ fontSize: 11.5, color: "#555", fontFamily: "'DM Mono', monospace" }}>{k}</span>
-                <span style={{ fontSize: 11.5, color: "#888", fontFamily: "'Syne', sans-serif", textAlign: "right" }}>{v}</span>
+                <span style={{ fontSize: 11.5, color: "var(--tx3)", fontFamily: "'DM Mono', monospace" }}>{k}</span>
+                <span style={{ fontSize: 11.5, color: "var(--tx2)", fontFamily: "'Syne', sans-serif", textAlign: "right" }}>{v}</span>
               </div>
             ))}
           </div>
@@ -678,25 +683,25 @@ Interpret relative dates relative to today (${TODAY}).`,
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000, padding: isMobile ? 0 : 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 540, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
+      <div style={{ background: "var(--bg3)", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 540, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg, #a855f7, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>✦</div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#e5e5e5", fontFamily: "'Syne', sans-serif" }}>AI Task Add</div>
-              <div style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace" }}>describe it, we'll structure it</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tx)", fontFamily: "'Syne', sans-serif" }}>AI Task Add</div>
+              <div style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace" }}>describe it, we'll structure it</div>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 22 }}>×</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--tx3)", cursor: "pointer", fontSize: 22 }}>×</button>
         </div>
         <div style={{ position: "relative" }}>
           <textarea ref={inputRef} value={prompt} onChange={e => { setPrompt(e.target.value); setPreview(null); setError(""); }}
             onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey && !isMobile) { e.preventDefault(); parse(); } }}
             placeholder={`e.g. "Keaton follow up with FMGI, high priority FCG, due Friday"`}
-            style={{ width: "100%", background: "#0c0c0c", border: `1px solid ${listening ? "#a855f7" : "#2a2a2a"}`, borderRadius: 8, padding: "12px 44px 12px 14px", color: "#e0e0e0", fontSize: 14, fontFamily: "'Syne', sans-serif", outline: "none", resize: "none", minHeight: 90, boxSizing: "border-box", lineHeight: 1.5, transition: "border-color 0.2s" }}
+            style={{ width: "100%", background: "var(--bg)", border: `1px solid ${listening ? "#a855f7" : "var(--bd2)"}`, borderRadius: 8, padding: "12px 44px 12px 14px", color: "var(--tx)", fontSize: 14, fontFamily: "'Syne', sans-serif", outline: "none", resize: "none", minHeight: 90, boxSizing: "border-box", lineHeight: 1.5, transition: "border-color 0.2s" }}
           />
           <button onClick={listening ? stopVoice : startVoice} disabled={transcribing} title={listening ? "Stop" : transcribing ? "Transcribing..." : "Speak"}
-            style={{ position: "absolute", right: 10, top: 10, background: listening ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "#1a1a1a", border: `1px solid ${listening ? "#a855f7" : "#333"}`, borderRadius: 7, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: transcribing ? "not-allowed" : "pointer", fontSize: 15, transition: "all 0.2s", boxShadow: listening ? "0 0 12px rgba(168,85,247,0.5)" : "none", opacity: transcribing ? 0.4 : 1 }}>
+            style={{ position: "absolute", right: 10, top: 10, background: listening ? "linear-gradient(135deg,#7c3aed,#a855f7)" : "var(--bg5)", border: `1px solid ${listening ? "#a855f7" : "#333"}`, borderRadius: 7, width: 30, height: 30, display: "flex", alignItems: "center", justifyContent: "center", cursor: transcribing ? "not-allowed" : "pointer", fontSize: 15, transition: "all 0.2s", boxShadow: listening ? "0 0 12px rgba(168,85,247,0.5)" : "none", opacity: transcribing ? 0.4 : 1 }}>
             {listening ? "⏹" : transcribing ? "◌" : "🎤"}
           </button>
         </div>
@@ -710,9 +715,9 @@ Interpret relative dates relative to today (${TODAY}).`,
         )}
         {error && <div style={{ marginTop: 12, color: "#ef4444", fontSize: 12, fontFamily: "'DM Mono', monospace" }}>⚠ {error}</div>}
         {preview && (
-          <div style={{ marginTop: 16, background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 10, padding: 16 }}>
-            <div style={{ fontSize: 10, color: "#555", fontFamily: "'DM Mono', monospace", letterSpacing: 0.8, marginBottom: 12 }}>PARSED — LOOKS GOOD?</div>
-            <div style={{ fontSize: 15, fontWeight: 700, color: "#e5e5e5", fontFamily: "'Syne', sans-serif", marginBottom: 12, lineHeight: 1.4 }}>{preview.title}</div>
+          <div style={{ marginTop: 16, background: "var(--bg2)", border: "1px solid #1e1e1e", borderRadius: 10, padding: 16 }}>
+            <div style={{ fontSize: 10, color: "var(--tx3)", fontFamily: "'DM Mono', monospace", letterSpacing: 0.8, marginBottom: 12 }}>PARSED — LOOKS GOOD?</div>
+            <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tx)", fontFamily: "'Syne', sans-serif", marginBottom: 12, lineHeight: 1.4 }}>{preview.title}</div>
             <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
               {[
                 ["Company", getCompany(preview.company)?.short],
@@ -727,9 +732,9 @@ Interpret relative dates relative to today (${TODAY}).`,
                 </div>
               ))}
             </div>
-            {preview.description && <div style={{ fontSize: 11, color: "#555", fontFamily: "'DM Mono', monospace", borderTop: "1px solid #1a1a1a", paddingTop: 10 }}>{preview.description}</div>}
+            {preview.description && <div style={{ fontSize: 11, color: "var(--tx3)", fontFamily: "'DM Mono', monospace", borderTop: "1px solid #1a1a1a", paddingTop: 10 }}>{preview.description}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              <button onClick={() => setPreview(null)} style={{ flex: 1, background: "none", border: "1px solid #2a2a2a", color: "#777", padding: "10px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'Syne', sans-serif" }}>← Re-parse</button>
+              <button onClick={() => setPreview(null)} style={{ flex: 1, background: "none", border: "1px solid #2a2a2a", color: "var(--tx2)", padding: "10px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'Syne', sans-serif" }}>← Re-parse</button>
               <button onClick={handleAdd} disabled={saving} style={{ flex: 2, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", color: "#fff", padding: "10px 0", borderRadius: 6, cursor: saving ? "not-allowed" : "pointer", fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", opacity: saving ? 0.6 : 1 }}>
                 {saving ? "Adding..." : "✦ Add Task"}
               </button>
@@ -769,16 +774,16 @@ function DigestModal({ tasks, team, onClose }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000, padding: isMobile ? 0 : 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "#111", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 560, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
+      <div style={{ background: "var(--bg3)", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 560, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg, #10B981, #059669)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>✉</div>
             <div>
-              <div style={{ fontSize: 15, fontWeight: 700, color: "#e5e5e5", fontFamily: "'Syne', sans-serif" }}>Send Daily Digest</div>
-              <div style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace" }}>{openTasks.length} open tasks · {perPerson.length} members</div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: "var(--tx)", fontFamily: "'Syne', sans-serif" }}>Send Daily Digest</div>
+              <div style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace" }}>{openTasks.length} open tasks · {perPerson.length} members</div>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 22 }}>×</button>
+          <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--tx3)", cursor: "pointer", fontSize: 22 }}>×</button>
         </div>
         {sent ? (
           <div style={{ textAlign: "center", padding: "30px 0" }}>
@@ -790,12 +795,12 @@ function DigestModal({ tasks, team, onClose }) {
           <>
             <div style={{ marginBottom: 20 }}>
               {perPerson.map(member => (
-                <div key={member.id} style={{ background: "#0d0d0d", border: "1px solid #1e1e1e", borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
+                <div key={member.id} style={{ background: "var(--bg2)", border: "1px solid #1e1e1e", borderRadius: 8, padding: "12px 14px", marginBottom: 8 }}>
                   <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
                     <Avatar member={member} size={24} />
                     <span style={{ fontSize: 13, fontWeight: 600, color: "#ddd", fontFamily: "'Syne', sans-serif" }}>{member.name}</span>
-                    {member.email && <span style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.email}</span>}
-                    <span style={{ marginLeft: "auto", fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>{member.tasks.length} task{member.tasks.length !== 1 ? "s" : ""}</span>
+                    {member.email && <span style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{member.email}</span>}
+                    <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>{member.tasks.length} task{member.tasks.length !== 1 ? "s" : ""}</span>
                   </div>
                   {member.tasks.map(t => (
                     <div key={t.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderTop: "1px solid #1a1a1a" }}>
@@ -975,9 +980,9 @@ function DashboardPage({ tasks, team }) {
   })).sort((a,b) => b.open - a.open);
 
   const statCard = (label, val, color, sub) => (
-    <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 10, padding: "16px 18px", flex: 1, minWidth: 100 }}>
+    <div style={{ background: "var(--bg3)", border: "1px solid #1e1e1e", borderRadius: 10, padding: "16px 18px", flex: 1, minWidth: 100 }}>
       <div style={{ fontSize: 28, fontWeight: 800, color, fontFamily: "'DM Mono', monospace", lineHeight: 1 }}>{val}</div>
-      <div style={{ fontSize: 10, color: "#555", fontFamily: "'DM Mono', monospace", letterSpacing: 0.8, marginTop: 5, textTransform: "uppercase" }}>{label}</div>
+      <div style={{ fontSize: 10, color: "var(--tx3)", fontFamily: "'DM Mono', monospace", letterSpacing: 0.8, marginTop: 5, textTransform: "uppercase" }}>{label}</div>
       {sub && <div style={{ fontSize: 10, color: "#333", fontFamily: "'DM Mono', monospace", marginTop: 2 }}>{sub}</div>}
     </div>
   );
@@ -986,11 +991,11 @@ function DashboardPage({ tasks, team }) {
 
   return (
     <div style={{ padding: "20px 20px 80px", overflowY: "auto", height: "100%", fontFamily: "'Syne', sans-serif" }}>
-      <div style={{ fontSize: 13, fontWeight: 700, color: "#e5e5e5", marginBottom: 16 }}>Overview</div>
+      <div style={{ fontSize: 13, fontWeight: 700, color: "var(--tx)", marginBottom: 16 }}>Overview</div>
 
       {/* Stat cards */}
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20 }}>
-        {statCard("Total Open", open.length, "#e5e5e5")}
+        {statCard("Total Open", open.length, "var(--tx)")}
         {statCard("Overdue", overdue.length, "#EF4444")}
         {statCard("Due Today", dueToday.length, "#F59E0B")}
         {statCard("This Week", dueWeek.length, "#3B82F6")}
@@ -1002,27 +1007,27 @@ function DashboardPage({ tasks, team }) {
         <div style={{ background: "#1a0a0a", border: "1px solid #3a1a1a", borderRadius: 8, padding: "12px 16px", marginBottom: 20 }}>
           <div style={{ fontSize: 11, fontWeight: 700, color: "#ef4444", fontFamily: "'DM Mono', monospace", marginBottom: 8 }}>⚠ OVERDUE TASKS</div>
           {overdue.slice(0, 5).map(t => (
-            <div key={t.id} style={{ fontSize: 12, color: "#e5e5e5", padding: "4px 0", borderBottom: "1px solid #1e1e1e", display: "flex", justifyContent: "space-between" }}>
+            <div key={t.id} style={{ fontSize: 12, color: "var(--tx)", padding: "4px 0", borderBottom: "1px solid #1e1e1e", display: "flex", justifyContent: "space-between" }}>
               <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", flex: 1 }}>{t.title}</span>
               <span style={{ color: "#ef4444", fontSize: 10, fontFamily: "'DM Mono', monospace", flexShrink: 0, marginLeft: 8 }}>{new Date(t.due+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"})}</span>
             </div>
           ))}
-          {overdue.length > 5 && <div style={{ fontSize: 10, color: "#555", marginTop: 6, fontFamily: "'DM Mono', monospace" }}>+{overdue.length - 5} more</div>}
+          {overdue.length > 5 && <div style={{ fontSize: 10, color: "var(--tx3)", marginTop: 6, fontFamily: "'DM Mono', monospace" }}>+{overdue.length - 5} more</div>}
         </div>
       )}
 
       {/* Workload by person */}
       {byPerson.length > 0 && (
         <div style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#555", fontFamily: "'DM Mono', monospace", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>Workload by Person</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--tx3)", fontFamily: "'DM Mono', monospace", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>Workload by Person</div>
           {byPerson.map(m => (
             <div key={m.id} style={{ marginBottom: 10 }}>
               <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
-                <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color || "#555", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#000", flexShrink: 0 }}>{m.initials || m.name[0]}</div>
+                <div style={{ width: 22, height: 22, borderRadius: "50%", background: m.color || "var(--tx3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: "#000", flexShrink: 0 }}>{m.initials || m.name[0]}</div>
                 <span style={{ fontSize: 12, color: "#ccc", flex: 1 }}>{m.name}</span>
-                <span style={{ fontSize: 10, color: "#555", fontFamily: "'DM Mono', monospace" }}>{m.open} open{m.overdue > 0 ? ` · ${m.overdue} overdue` : ""}</span>
+                <span style={{ fontSize: 10, color: "var(--tx3)", fontFamily: "'DM Mono', monospace" }}>{m.open} open{m.overdue > 0 ? ` · ${m.overdue} overdue` : ""}</span>
               </div>
-              <div style={{ background: "#1a1a1a", borderRadius: 3, height: 5, overflow: "hidden" }}>
+              <div style={{ background: "var(--bg5)", borderRadius: 3, height: 5, overflow: "hidden" }}>
                 <div style={{ height: "100%", borderRadius: 3, background: m.overdue > 0 ? "#EF4444" : (m.color || "#F97316"), width: `${(m.open / maxOpen) * 100}%`, transition: "width 0.3s" }} />
               </div>
             </div>
@@ -1033,16 +1038,16 @@ function DashboardPage({ tasks, team }) {
       {/* By project */}
       {byProject.length > 0 && (
         <div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#555", fontFamily: "'DM Mono', monospace", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>By Project</div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: "var(--tx3)", fontFamily: "'DM Mono', monospace", letterSpacing: 1, marginBottom: 10, textTransform: "uppercase" }}>By Project</div>
           {byProject.map(p => (
-            <div key={p.name} style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div key={p.name} style={{ background: "var(--bg3)", border: "1px solid #1e1e1e", borderRadius: 8, padding: "10px 14px", marginBottom: 6, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
               <div>
-                <div style={{ fontSize: 12, color: "#e5e5e5", marginBottom: 2 }}>{p.name}</div>
-                <div style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace" }}>{p.total} total · {p.done} done</div>
+                <div style={{ fontSize: 12, color: "var(--tx)", marginBottom: 2 }}>{p.name}</div>
+                <div style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace" }}>{p.total} total · {p.done} done</div>
               </div>
               <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                {p.overdue > 0 && <span style={{ background: "#1a0a0a", color: "#ef4444", borderRadius: 5, padding: "2px 7px", fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{p.overdue} overdue</span>}
-                <span style={{ background: "#1a1a1a", color: "#555", borderRadius: 5, padding: "2px 7px", fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{p.open} open</span>
+                {p.overdue > 0 && <span style={{ background: "rgba(239,68,68,0.1)", color: "#ef4444", borderRadius: 5, padding: "2px 7px", fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{p.overdue} overdue</span>}
+                <span style={{ background: "var(--bg5)", color: "var(--tx3)", borderRadius: 5, padding: "2px 7px", fontSize: 10, fontFamily: "'DM Mono', monospace" }}>{p.open} open</span>
               </div>
             </div>
           ))}
@@ -1066,18 +1071,18 @@ const APM_STATUSES = {
 };
 
 const STATUS_COLORS = {
-  active:"#10B981", on_hold:"#F59E0B", complete:"#3B82F6", cancelled:"#555",
-  open:"#F59E0B", answered:"#10B981", closed:"#555",
+  active:"#10B981", on_hold:"#F59E0B", complete:"#3B82F6", cancelled:"var(--tx3)",
+  open:"#F59E0B", answered:"#10B981", closed:"var(--tx3)",
   pending:"#F59E0B", submitted:"#3B82F6", approved:"#10B981", rejected:"#EF4444", revise_resubmit:"#F97316",
   ordered:"#3B82F6", partial:"#F59E0B", delivered:"#10B981",
-  void:"#555", ATP:"#3B82F6", Contract:"#10B981", proposed:"#F59E0B",
+  void:"var(--tx3)", ATP:"#3B82F6", Contract:"#10B981", proposed:"#F59E0B",
 };
 
 const fmtDate = d => d ? new Date(d+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—";
 const fmtMoney = v => v != null ? "$"+Number(v).toLocaleString("en-US",{minimumFractionDigits:0}) : "—";
 
 function StatusBadge({ status }) {
-  const color = STATUS_COLORS[status] || "#555";
+  const color = STATUS_COLORS[status] || "var(--tx3)";
   return <span style={{ background: color+"20", color, border:`1px solid ${color}40`, borderRadius:5, padding:"2px 7px", fontSize:10, fontFamily:"'DM Mono',monospace", textTransform:"uppercase", letterSpacing:0.5, whiteSpace:"nowrap" }}>{(status||"").replace(/_/g," ")}</span>;
 }
 
@@ -1086,10 +1091,10 @@ function APMModal({ title, children, onClose, width=540 }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", display:"flex", alignItems:isMobile?"flex-end":"center", justifyContent:"center", zIndex:1000, padding:isMobile?0:20 }}
       onClick={e => e.target===e.currentTarget && onClose()}>
-      <div style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:isMobile?"16px 16px 0 0":12, padding:isMobile?"24px 20px 32px":28, width:"100%", maxWidth:isMobile?"100%":width, boxShadow:"0 24px 80px rgba(0,0,0,0.7)", maxHeight:isMobile?"92vh":"88vh", overflowY:"auto" }}>
+      <div style={{ background:"var(--bg3)", border:"1px solid var(--bd2)", borderRadius:isMobile?"16px 16px 0 0":12, padding:isMobile?"24px 20px 32px":28, width:"100%", maxWidth:isMobile?"100%":width, boxShadow:"0 24px 80px rgba(0,0,0,0.7)", maxHeight:isMobile?"92vh":"88vh", overflowY:"auto" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:20 }}>
-          <span style={{ fontSize:16, fontWeight:700, color:"#e5e5e5", fontFamily:"'Syne',sans-serif" }}>{title}</span>
-          <button onClick={onClose} style={{ background:"none", border:"none", color:"#555", cursor:"pointer", fontSize:22 }}>×</button>
+          <span style={{ fontSize:16, fontWeight:700, color:"var(--tx)", fontFamily:"'Syne',sans-serif" }}>{title}</span>
+          <button onClick={onClose} style={{ background:"none", border:"none", color:"var(--tx3)", cursor:"pointer", fontSize:22 }}>×</button>
         </div>
         {children}
       </div>
@@ -1156,7 +1161,7 @@ function ProjectModal({ project, onSave, onClose }) {
           <APMField label="End Date"><input type="date" value={form.end_date||""} onChange={e=>set("end_date",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
         </div>
         <div style={{ borderTop:"1px solid #1e1e1e", paddingTop:14, marginTop:2 }}>
-          <div style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:10 }}>GC / OWNER CONTACT</div>
+          <div style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace", letterSpacing:0.8, marginBottom:10 }}>GC / OWNER CONTACT</div>
           <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
             <APMField label="GC / Owner"><input value={form.gc_name||""} onChange={e=>set("gc_name",e.target.value)} placeholder="Company name" style={{...inputStyle,fontSize:14}} /></APMField>
             <APMField label="Contact Name"><input value={form.gc_contact||""} onChange={e=>set("gc_contact",e.target.value)} placeholder="Name" style={{...inputStyle,fontSize:14}} /></APMField>
@@ -1167,10 +1172,10 @@ function ProjectModal({ project, onSave, onClose }) {
       </div>
       <div style={{ display:"flex", justifyContent:"space-between", gap:8, marginTop:20 }}>
         <div>
-          {!isNew && <button onClick={()=>setConfirming(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete Project</button>}
+          {!isNew && <button onClick={()=>setConfirming(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete Project</button>}
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.name.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.name.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Create Project":"Save"}</button>
         </div>
       </div>
@@ -1217,9 +1222,9 @@ function DailyLogModal({ log, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Add Log":"Save"}</button>
         </div>
       </div>
@@ -1234,10 +1239,10 @@ function ConfirmDialog({ message, onConfirm, onCancel, danger=true }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999 }}
       onClick={onCancel}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:"#111", border:"1px solid #2a2a2a", borderRadius:12, padding:28, maxWidth:360, width:"90%", boxShadow:"0 20px 60px rgba(0,0,0,0.6)" }}>
-        <div style={{ fontSize:14, color:"#e5e5e5", marginBottom:22, lineHeight:1.5 }}>{message}</div>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"var(--bg3)", border:"1px solid #2a2a2a", borderRadius:12, padding:28, maxWidth:360, width:"90%", boxShadow:"0 20px 60px rgba(0,0,0,0.6)" }}>
+        <div style={{ fontSize:14, color:"var(--tx)", marginBottom:22, lineHeight:1.5 }}>{message}</div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-          <button onClick={onCancel} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"8px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onCancel} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"8px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={onConfirm} style={{ background:danger?"#1a0a0a":"#0a1a0a", border:danger?"1px solid #3a1a1a":"1px solid #1a3a1a", color:danger?"#ef4444":"#10B981", padding:"8px 20px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>Delete</button>
         </div>
       </div>
@@ -1266,11 +1271,11 @@ function FileUploadZone({ fileUrl, fileName, folder, onUploaded, accept="image/*
     <div
       onClick={() => fileRef.current?.click()}
       onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor="#F97316"; }}
-      onDragLeave={e => e.currentTarget.style.borderColor="#2a2a2a"}
-      onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor="#2a2a2a"; const f=e.dataTransfer.files[0]; if(f) handleFile(f); }}
-      style={{ border:"2px dashed #2a2a2a", borderRadius:8, padding:"12px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:12, transition:"border-color 0.15s", background:"#0e0e0e" }}
+      onDragLeave={e => e.currentTarget.style.borderColor="var(--bd2)"}
+      onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor="var(--bd2)"; const f=e.dataTransfer.files[0]; if(f) handleFile(f); }}
+      style={{ border:"2px dashed #2a2a2a", borderRadius:8, padding:"12px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:12, transition:"border-color 0.15s", background:"var(--bg)" }}
       onMouseEnter={e => e.currentTarget.style.borderColor="#F97316"}
-      onMouseLeave={e => e.currentTarget.style.borderColor= fileUrl ? "#3a3a3a" : "#2a2a2a"}
+      onMouseLeave={e => e.currentTarget.style.borderColor= fileUrl ? "#3a3a3a" : "var(--bd2)"}
     >
       <input ref={fileRef} type="file" accept={accept} style={{ display:"none" }} onChange={e => handleFile(e.target.files[0])} />
       {uploading ? (
@@ -1279,16 +1284,16 @@ function FileUploadZone({ fileUrl, fileName, folder, onUploaded, accept="image/*
         <>
           <span style={{ fontSize:20 }}>{fileUrl.match(/\.(jpg|jpeg|png|gif|webp)/i) ? "🖼" : "📄"}</span>
           <div style={{ flex:1, minWidth:0 }}>
-            <div style={{ fontSize:12, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{fileName || "Attached file"}</div>
-            <div style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace", marginTop:2 }}>Click to replace · <a href={fileUrl} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ color:"#F97316", textDecoration:"none" }}>Open ↗</a></div>
+            <div style={{ fontSize:12, color:"var(--tx)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{fileName || "Attached file"}</div>
+            <div style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace", marginTop:2 }}>Click to replace · <a href={fileUrl} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ color:"#F97316", textDecoration:"none" }}>Open ↗</a></div>
           </div>
         </>
       ) : (
         <>
           <span style={{ fontSize:20 }}>📎</span>
           <div>
-            <div style={{ fontSize:12, color:"#888" }}>Attach file</div>
-            <div style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace", marginTop:2 }}>PDF, image, doc — drag or click</div>
+            <div style={{ fontSize:12, color:"var(--tx2)" }}>Attach file</div>
+            <div style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace", marginTop:2 }}>PDF, image, doc — drag or click</div>
           </div>
         </>
       )}
@@ -1337,9 +1342,9 @@ function RFIModal({ rfi, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.subject.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.subject.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add RFI":"Save"}</button>
         </div>
       </div>
@@ -1388,9 +1393,9 @@ function SubmittalModal({ submittal, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.description.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.description.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Submittal":"Save"}</button>
         </div>
       </div>
@@ -1439,9 +1444,9 @@ function COModal({ co, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.description.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.description.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add CO":"Save"}</button>
         </div>
       </div>
@@ -1489,9 +1494,9 @@ function MaterialModal({ material, projectId, onSave, onClose }) {
         <APMField label="Notes"><textarea value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Any notes..." style={{...inputStyle,minHeight:60,resize:"vertical",fontSize:14}} /></APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.item.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.item.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Order":"Save"}</button>
         </div>
       </div>
@@ -1590,11 +1595,11 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
         {/* Upload zone */}
         <div
           onClick={() => fileRef.current?.click()}
-          style={{ border:"2px dashed #2a2a2a", borderRadius:10, padding:preview?"8px":"28px 20px", textAlign:"center", cursor:"pointer", background:"#0d0d0d", position:"relative", transition:"border-color 0.15s" }}
+          style={{ border:"2px dashed #2a2a2a", borderRadius:10, padding:preview?"8px":"28px 20px", textAlign:"center", cursor:"pointer", background:"var(--bg2)", position:"relative", transition:"border-color 0.15s" }}
           onMouseEnter={e=>e.currentTarget.style.borderColor="#F97316"}
-          onMouseLeave={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+          onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bd2)"}
           onDragOver={e=>{e.preventDefault();e.currentTarget.style.borderColor="#F97316"}}
-          onDragLeave={e=>e.currentTarget.style.borderColor="#2a2a2a"}
+          onDragLeave={e=>e.currentTarget.style.borderColor="var(--bd2)"}
           onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)handleFile(f);}}
         >
           <input ref={fileRef} type="file" accept="image/*,application/pdf" capture="environment" style={{ display:"none" }} onChange={e=>handleFile(e.target.files[0])} />
@@ -1603,12 +1608,12 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
               {preview.match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
                 <img src={preview} style={{ width:80, height:60, objectFit:"cover", borderRadius:6, border:"1px solid #2a2a2a" }} />
               ) : (
-                <div style={{ width:80, height:60, background:"#1a1a1a", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📄</div>
+                <div style={{ width:80, height:60, background:"var(--bg5)", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📄</div>
               )}
               <div style={{ textAlign:"left" }}>
-                <div style={{ fontSize:12, color:"#e5e5e5" }}>{form.file_name}</div>
+                <div style={{ fontSize:12, color:"var(--tx)" }}>{form.file_name}</div>
                 {extracting && <div style={{ fontSize:11, color:"#F97316", marginTop:4 }}>⚡ Extracting data...</div>}
-                {!extracting && <div style={{ fontSize:11, color:"#555", marginTop:4 }}>Click to replace</div>}
+                {!extracting && <div style={{ fontSize:11, color:"var(--tx3)", marginTop:4 }}>Click to replace</div>}
               </div>
             </div>
           ) : (
@@ -1618,8 +1623,8 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
               ) : (
                 <>
                   <div style={{ fontSize:28, marginBottom:8 }}>📷</div>
-                  <div style={{ fontSize:13, color:"#888" }}>Tap to upload receipt</div>
-                  <div style={{ fontSize:11, color:"#444", marginTop:4 }}>Photo, image, or PDF · Auto-extracts data</div>
+                  <div style={{ fontSize:13, color:"var(--tx2)" }}>Tap to upload receipt</div>
+                  <div style={{ fontSize:11, color:"var(--tx4)", marginTop:4 }}>Photo, image, or PDF · Auto-extracts data</div>
                 </>
               )}
             </>
@@ -1649,10 +1654,10 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && (
           <button onClick={async()=>{ await supabase.from("receipts").delete().eq("id",receipt.id); onSave(null,true); }}
-            style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>
+            style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>
         )}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"#777", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||uploading||extracting} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:!saving&&!uploading&&!extracting?1:0.5 }}>
             {saving?"Saving...":isNew?"Add Receipt":"Save"}
           </button>
@@ -1825,7 +1830,7 @@ function SubcontractModal({ sub, projectId, onSave, onClose }) {
         </div>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||uploading||extracting||!form.sub_name.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.sub_name.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Sub/PO":"Save"}</button>
@@ -1925,7 +1930,7 @@ function SubcontractsTab({ project }) {
 
 // ── Schedule Gantt ─────────────────────────────────────
 const SCHEDULE_STATUSES = [
-  { id:"not_started", label:"Not Started", color:"#555" },
+  { id:"not_started", label:"Not Started", color:"var(--tx3)" },
   { id:"in_progress", label:"In Progress", color:"#F59E0B" },
   { id:"complete",    label:"Complete",    color:"#10B981" },
   { id:"blocked",     label:"Blocked",     color:"#EF4444" },
@@ -1991,7 +1996,7 @@ function ScheduleItemModal({ item, projectId, onSave, onClose }) {
         </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={async()=>{ await supabase.from("schedule_items").delete().eq("id",item.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={async()=>{ await supabase.from("schedule_items").delete().eq("id",item.id); onSave(null,true); }} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.title.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Add Item":"Save"}</button>
@@ -2119,7 +2124,7 @@ function GanttChart({ items, onClickItem }) {
               {/* Task rows */}
               {phaseItems.map((item,ri)=>{
                 const bar = getBar(item);
-                const rowBg = ri%2===0 ? t.bg : t.bg2;
+                const rowBg = ri%2===0 ? 'var(--bg)' : 'var(--bg2)';
                 return (
                   <div key={item.id} style={{ display:"flex", height:ROW_H, background:rowBg, borderBottom:`1px solid ${t.border}20` }}
                     onMouseEnter={e=>e.currentTarget.style.background=t.bg3}
@@ -2127,7 +2132,7 @@ function GanttChart({ items, onClickItem }) {
                     {/* Label */}
                     <div onClick={()=>onClickItem(item)} style={{ width:LABEL_W, flexShrink:0, padding:"0 12px", display:"flex", alignItems:"center", borderRight:`1px solid ${t.border}`, cursor:"pointer", gap:6, overflow:"hidden" }}>
                       <span style={{ width:6, height:6, borderRadius:"50%", flexShrink:0,
-                        background: SCHEDULE_STATUSES.find(s=>s.id===item.status)?.color || "#555" }} />
+                        background: SCHEDULE_STATUSES.find(s=>s.id===item.status)?.color || "var(--tx3)" }} />
                       <span style={{ fontSize:11, color:t.text, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{item.title}</span>
                     </div>
                     {/* Bar area */}
@@ -2249,7 +2254,7 @@ function ScheduleTab({ project }) {
           <button onClick={generateSchedule} disabled={generating} style={{ background:"linear-gradient(135deg,#7c3aed,#a855f7)", border:"none", color:"#fff", padding:"6px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, display:"flex", alignItems:"center", gap:5 }}>
             {generating ? <><span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span> {gcPdf?"Extracting...":"Generating..."}</> : <><span>✦</span> {gcPdf?"Extract from PDF":"AI Generate"}</>}
           </button>
-          {items.length>0 && <button onClick={()=>setClearConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Clear All</button>}
+          {items.length>0 && <button onClick={()=>setClearConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Clear All</button>}
           <button onClick={()=>setModal({item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"6px 14px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>+ Add Task</button>
         </div>
       </div>
@@ -2411,7 +2416,7 @@ function SOVModal({ project, sovItems, onSave, onClose }) {
             <input value={item.item_no} onChange={e=>updateRow(idx,"item_no",e.target.value)} style={{...dynInput,fontSize:12,padding:"6px 8px"}} />
             <input value={item.description} onChange={e=>updateRow(idx,"description",e.target.value)} placeholder="Description of work..." style={{...dynInput,fontSize:13,padding:"6px 8px"}} />
             <input type="number" value={item.scheduled_value} onChange={e=>updateRow(idx,"scheduled_value",e.target.value)} placeholder="0" style={{...dynInput,fontSize:13,padding:"6px 8px"}} />
-            <button onClick={()=>removeRow(idx)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", borderRadius:5, cursor:"pointer", fontSize:14, padding:"0 6px" }}>×</button>
+            <button onClick={()=>removeRow(idx)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", borderRadius:5, cursor:"pointer", fontSize:14, padding:"0 6px" }}>×</button>
           </div>
         ))}
         <button onClick={addRow} style={{ background:"none", border:`1px dashed ${t.border2}`, color:t.text3, padding:"6px 14px", borderRadius:6, cursor:"pointer", fontSize:12, width:"100%", marginTop:4 }}>+ Add Line Item</button>
@@ -2584,7 +2589,7 @@ function PayAppModal({ payApp, project, sovItems, onSave, onClose }) {
         </div>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
-        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
+        {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
           <button onClick={onClose} style={{ background:"none", border:`1px solid ${t.border2}`, color:t.text3, padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Create Pay App":"Save"}</button>
@@ -2911,7 +2916,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
     { id:"financials", label:"Financials", count:receipts.length },
   ];
 
-  const rowStyle = { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"11px 14px", borderRadius:7, background:"#111", border:"1px solid #1a1a1a", marginBottom:5, cursor:"pointer", gap:10 };
+  const rowStyle = { display:"flex", alignItems:"center", justifyContent:"space-between", padding:"11px 14px", borderRadius:7, background:"var(--bg3)", border:"1px solid #1a1a1a", marginBottom:5, cursor:"pointer", gap:10 };
 
   const handleSave = (type, data, isDelete) => {
     if (type==="logs") setLogs(prev => isDelete ? prev.filter(x=>x.id!==modal.item?.id) : modal.item?.id ? prev.map(x=>x.id===data.id?data:x) : [data,...prev]);
@@ -2927,30 +2932,30 @@ function ProjectDetail({ project, onBack, onEdit }) {
       {/* Header */}
       <div style={{ padding:"14px 20px 0", borderBottom:"1px solid #1a1a1a", flexShrink:0 }}>
         <div style={{ display:"flex", alignItems:"center", gap:10, marginBottom:12 }}>
-          <button onClick={onBack} style={{ background:"none", border:"none", color:"#555", cursor:"pointer", fontSize:14, padding:"4px 8px 4px 0" }}>← Back</button>
+          <button onClick={onBack} style={{ background:"none", border:"none", color:"var(--tx3)", cursor:"pointer", fontSize:14, padding:"4px 8px 4px 0" }}>← Back</button>
           <div style={{ flex:1, minWidth:0 }}>
             <div style={{ display:"flex", alignItems:"center", gap:8, flexWrap:"wrap" }}>
-              <span style={{ fontSize:16, fontWeight:700, color:"#e5e5e5", fontFamily:"'Syne',sans-serif" }}>{project.name}</span>
+              <span style={{ fontSize:16, fontWeight:700, color:"var(--tx)", fontFamily:"'Syne',sans-serif" }}>{project.name}</span>
               <StatusBadge status={project.status} />
               <span style={{ fontSize:11, color:co.color, fontFamily:"'DM Mono',monospace", background:co.color+"15", border:`1px solid ${co.color}30`, padding:"1px 6px", borderRadius:4 }}>{co.short}</span>
             </div>
-            {project.address && <div style={{ fontSize:11, color:"#444", fontFamily:"'DM Mono',monospace", marginTop:2 }}>{project.address}</div>}
+            {project.address && <div style={{ fontSize:11, color:"var(--tx4)", fontFamily:"'DM Mono',monospace", marginTop:2 }}>{project.address}</div>}
           </div>
-          <button onClick={onEdit} style={{ background:"#1e1e1e", border:"1px solid #2a2a2a", color:"#888", padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Edit</button>
+          <button onClick={onEdit} style={{ background:"var(--bd)", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Edit</button>
         </div>
         {/* Summary strip */}
         <div style={{ display:"flex", gap:16, marginBottom:12, flexWrap:"wrap" }}>
-          {project.contract_value && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>Contract: <span style={{ color:"#e5e5e5" }}>{fmtMoney(project.contract_value)}</span></div>}
-          {approvedCOs > 0 && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>Approved COs: <span style={{ color:"#10B981" }}>+{fmtMoney(approvedCOs)}</span></div>}
-          {pendingCOs > 0 && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>Pending COs: <span style={{ color:"#F59E0B" }}>{fmtMoney(pendingCOs)}</span></div>}
-          {totalMaterials > 0 && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>Materials: <span style={{ color:"#e5e5e5" }}>{fmtMoney(totalMaterials)}</span></div>}
-          {project.gc_name && <div style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>GC: <span style={{ color:"#e5e5e5" }}>{project.gc_name}</span></div>}
+          {project.contract_value && <div style={{ fontSize:11, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>Contract: <span style={{ color:"var(--tx)" }}>{fmtMoney(project.contract_value)}</span></div>}
+          {approvedCOs > 0 && <div style={{ fontSize:11, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>Approved COs: <span style={{ color:"#10B981" }}>+{fmtMoney(approvedCOs)}</span></div>}
+          {pendingCOs > 0 && <div style={{ fontSize:11, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>Pending COs: <span style={{ color:"#F59E0B" }}>{fmtMoney(pendingCOs)}</span></div>}
+          {totalMaterials > 0 && <div style={{ fontSize:11, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>Materials: <span style={{ color:"var(--tx)" }}>{fmtMoney(totalMaterials)}</span></div>}
+          {project.gc_name && <div style={{ fontSize:11, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>GC: <span style={{ color:"var(--tx)" }}>{project.gc_name}</span></div>}
         </div>
         {/* Tabs */}
         <div style={{ display:"flex", gap:0, overflowX:"auto" }}>
           {TABS.map(t => (
-            <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"8px 14px", background:"none", border:"none", borderBottom:tab===t.id?"2px solid #F97316":"2px solid transparent", color:tab===t.id?"#e5e5e5":"#555", cursor:"pointer", fontSize:12, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
-              {t.label} {t.count > 0 && <span style={{ background:"#1a1a1a", color:"#555", borderRadius:8, padding:"0 5px", fontSize:10 }}>{t.count}</span>}
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{ padding:"8px 14px", background:"none", border:"none", borderBottom:tab===t.id?"2px solid #F97316":"2px solid transparent", color:tab===t.id?"var(--tx)":"var(--tx3)", cursor:"pointer", fontSize:12, fontFamily:"'DM Mono',monospace", whiteSpace:"nowrap", display:"flex", alignItems:"center", gap:5 }}>
+              {t.label} {t.count > 0 && <span style={{ background:"var(--bg5)", color:"var(--tx3)", borderRadius:8, padding:"0 5px", fontSize:10 }}>{t.count}</span>}
             </button>
           ))}
         </div>
@@ -2970,15 +2975,15 @@ function ProjectDetail({ project, onBack, onEdit }) {
             {/* Daily Logs */}
             {tab==="logs" && logs.map(log => (
               <div key={log.id} onClick={()=>setModal({type:"logs",item:log})} style={rowStyle}
-                onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
-                onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                onMouseEnter={e=>e.currentTarget.style.borderColor="var(--bd2)"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bg5)"}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:4 }}>
-                    <span style={{ fontSize:12, fontWeight:600, color:"#e5e5e5", fontFamily:"'DM Mono',monospace" }}>{fmtDate(log.log_date)}</span>
-                    {log.weather && <span style={{ fontSize:11, color:"#555" }}>{log.weather}</span>}
-                    {log.crew_count && <span style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>👷 {log.crew_count}</span>}
+                    <span style={{ fontSize:12, fontWeight:600, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>{fmtDate(log.log_date)}</span>
+                    {log.weather && <span style={{ fontSize:11, color:"var(--tx3)" }}>{log.weather}</span>}
+                    {log.crew_count && <span style={{ fontSize:11, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>👷 {log.crew_count}</span>}
                   </div>
-                  <div style={{ fontSize:12, color:"#888", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{log.work_performed||"No description"}</div>
+                  <div style={{ fontSize:12, color:"var(--tx2)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{log.work_performed||"No description"}</div>
                   {log.issues && <div style={{ fontSize:11, color:"#F59E0B", marginTop:3 }}>⚠ {log.issues}</div>}
                 </div>
                 <span style={{ color:"#333", fontSize:16 }}>›</span>
@@ -2989,17 +2994,17 @@ function ProjectDetail({ project, onBack, onEdit }) {
             {/* RFIs */}
             {tab==="rfis" && rfis.map(r => (
               <div key={r.id} onClick={()=>setModal({type:"rfis",item:r})} style={rowStyle}
-                onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
-                onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                onMouseEnter={e=>e.currentTarget.style.borderColor="var(--bd2)"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bg5)"}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                    {r.rfi_number && <span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>{r.rfi_number}</span>}
-                    <span style={{ fontSize:13, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.subject}</span>
+                    {r.rfi_number && <span style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>{r.rfi_number}</span>}
+                    <span style={{ fontSize:13, color:"var(--tx)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{r.subject}</span>
                   </div>
                   <div style={{ display:"flex", gap:8, alignItems:"center" }}>
                     <StatusBadge status={r.status} />
-                    {r.sent_to && <span style={{ fontSize:11, color:"#555" }}>{r.sent_to}</span>}
-                    {r.date_due && <span style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace" }}>Due {fmtDate(r.date_due)}</span>}
+                    {r.sent_to && <span style={{ fontSize:11, color:"var(--tx3)" }}>{r.sent_to}</span>}
+                    {r.date_due && <span style={{ fontSize:10, color:"var(--tx4)", fontFamily:"'DM Mono',monospace" }}>Due {fmtDate(r.date_due)}</span>}
                   </div>
                 </div>
                 <span style={{ color:"#333", fontSize:16 }}>›</span>
@@ -3010,17 +3015,17 @@ function ProjectDetail({ project, onBack, onEdit }) {
             {/* Submittals */}
             {tab==="submittals" && submittals.map(s => (
               <div key={s.id} onClick={()=>setModal({type:"submittals",item:s})} style={rowStyle}
-                onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
-                onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                onMouseEnter={e=>e.currentTarget.style.borderColor="var(--bd2)"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bg5)"}>
                 <div style={{ flex:1, minWidth:0 }}>
                   <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                    {s.submittal_number && <span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>{s.submittal_number}</span>}
-                    <span style={{ fontSize:13, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.description}</span>
+                    {s.submittal_number && <span style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>{s.submittal_number}</span>}
+                    <span style={{ fontSize:13, color:"var(--tx)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{s.description}</span>
                   </div>
                   <div style={{ display:"flex", gap:8, alignItems:"center" }}>
                     <StatusBadge status={s.status} />
-                    {s.sent_to && <span style={{ fontSize:11, color:"#555" }}>{s.sent_to}</span>}
-                    {s.date_due && <span style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace" }}>Due {fmtDate(s.date_due)}</span>}
+                    {s.sent_to && <span style={{ fontSize:11, color:"var(--tx3)" }}>{s.sent_to}</span>}
+                    {s.date_due && <span style={{ fontSize:10, color:"var(--tx4)", fontFamily:"'DM Mono',monospace" }}>Due {fmtDate(s.date_due)}</span>}
                   </div>
                 </div>
                 <span style={{ color:"#333", fontSize:16 }}>›</span>
@@ -3035,26 +3040,26 @@ function ProjectDetail({ project, onBack, onEdit }) {
                   <div style={{ display:"flex", gap:12, marginBottom:14, flexWrap:"wrap" }}>
                     <div style={{ background:"#0a1a12", border:"1px solid #10B98130", borderRadius:8, padding:"8px 14px" }}>
                       <div style={{ fontSize:16, fontWeight:700, color:"#10B981", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(approvedCOs)}</div>
-                      <div style={{ fontSize:9, color:"#555", fontFamily:"'DM Mono',monospace", letterSpacing:0.8 }}>APPROVED</div>
+                      <div style={{ fontSize:9, color:"var(--tx)", fontFamily:"'DM Mono',monospace", letterSpacing:0.8 }}>APPROVED</div>
                     </div>
                     <div style={{ background:"#1a1208", border:"1px solid #F59E0B30", borderRadius:8, padding:"8px 14px" }}>
                       <div style={{ fontSize:16, fontWeight:700, color:"#F59E0B", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(pendingCOs)}</div>
-                      <div style={{ fontSize:9, color:"#555", fontFamily:"'DM Mono',monospace", letterSpacing:0.8 }}>PENDING</div>
+                      <div style={{ fontSize:9, color:"var(--tx)", fontFamily:"'DM Mono',monospace", letterSpacing:0.8 }}>PENDING</div>
                     </div>
                   </div>
                 )}
                 {cos.map(c => (
                   <div key={c.id} onClick={()=>setModal({type:"cos",item:c})} style={rowStyle}
-                    onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
-                    onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                    onMouseEnter={e=>e.currentTarget.style.borderColor="var(--bd2)"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bg5)"}>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                        {c.co_number && <span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>{c.co_number}</span>}
-                        <span style={{ fontSize:13, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.description}</span>
+                        {c.co_number && <span style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>{c.co_number}</span>}
+                        <span style={{ fontSize:13, color:"var(--tx)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{c.description}</span>
                       </div>
                       <div style={{ display:"flex", gap:8, alignItems:"center" }}>
                         <StatusBadge status={c.status} />
-                        {c.amount && <span style={{ fontSize:12, color:"#e5e5e5", fontFamily:"'DM Mono',monospace", fontWeight:600 }}>{fmtMoney(c.amount)}</span>}
+                        {c.amount && <span style={{ fontSize:12, color:"var(--tx)", fontFamily:"'DM Mono',monospace", fontWeight:600 }}>{fmtMoney(c.amount)}</span>}
                       </div>
                     </div>
                     <span style={{ color:"#333", fontSize:16 }}>›</span>
@@ -3068,26 +3073,26 @@ function ProjectDetail({ project, onBack, onEdit }) {
             {tab==="materials" && (
               <>
                 {materials.length > 0 && (
-                  <div style={{ background:"#111", border:"1px solid #1e1e1e", borderRadius:8, padding:"10px 14px", marginBottom:14, display:"flex", gap:20, flexWrap:"wrap" }}>
-                    <div><span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>TOTAL ORDERED </span><span style={{ fontSize:14, fontWeight:700, color:"#e5e5e5", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(totalMaterials)}</span></div>
-                    <div><span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>PENDING </span><span style={{ fontSize:14, fontWeight:700, color:"#F59E0B", fontFamily:"'DM Mono',monospace" }}>{materials.filter(m=>m.status==="pending").length}</span></div>
-                    <div><span style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace" }}>DELIVERED </span><span style={{ fontSize:14, fontWeight:700, color:"#10B981", fontFamily:"'DM Mono',monospace" }}>{materials.filter(m=>m.status==="delivered").length}</span></div>
+                  <div style={{ background:"var(--bg3)", border:"1px solid #1e1e1e", borderRadius:8, padding:"10px 14px", marginBottom:14, display:"flex", gap:20, flexWrap:"wrap" }}>
+                    <div><span style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>TOTAL ORDERED </span><span style={{ fontSize:14, fontWeight:700, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(totalMaterials)}</span></div>
+                    <div><span style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>PENDING </span><span style={{ fontSize:14, fontWeight:700, color:"#F59E0B", fontFamily:"'DM Mono',monospace" }}>{materials.filter(m=>m.status==="pending").length}</span></div>
+                    <div><span style={{ fontSize:10, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>DELIVERED </span><span style={{ fontSize:14, fontWeight:700, color:"#10B981", fontFamily:"'DM Mono',monospace" }}>{materials.filter(m=>m.status==="delivered").length}</span></div>
                   </div>
                 )}
                 {materials.map(m => (
                   <div key={m.id} onClick={()=>setModal({type:"materials",item:m})} style={rowStyle}
-                    onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
-                    onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                    onMouseEnter={e=>e.currentTarget.style.borderColor="var(--bd2)"}
+                    onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bg5)"}>
                     <div style={{ flex:1, minWidth:0 }}>
                       <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:3 }}>
-                        <span style={{ fontSize:13, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.item}</span>
-                        {m.quantity && <span style={{ fontSize:11, color:"#555", flexShrink:0 }}>{m.quantity}</span>}
+                        <span style={{ fontSize:13, color:"var(--tx)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{m.item}</span>
+                        {m.quantity && <span style={{ fontSize:11, color:"var(--tx3)", flexShrink:0 }}>{m.quantity}</span>}
                       </div>
                       <div style={{ display:"flex", gap:8, alignItems:"center" }}>
                         <StatusBadge status={m.status} />
-                        {m.supplier && <span style={{ fontSize:11, color:"#555" }}>{m.supplier}</span>}
-                        {m.total_cost && <span style={{ fontSize:11, color:"#e5e5e5", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(m.total_cost)}</span>}
-                        {m.eta && <span style={{ fontSize:10, color:"#444", fontFamily:"'DM Mono',monospace" }}>ETA {fmtDate(m.eta)}</span>}
+                        {m.supplier && <span style={{ fontSize:11, color:"var(--tx3)" }}>{m.supplier}</span>}
+                        {m.total_cost && <span style={{ fontSize:11, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(m.total_cost)}</span>}
+                        {m.eta && <span style={{ fontSize:10, color:"var(--tx4)", fontFamily:"'DM Mono',monospace" }}>ETA {fmtDate(m.eta)}</span>}
                       </div>
                     </div>
                     <span style={{ color:"#333", fontSize:16 }}>›</span>
@@ -3170,10 +3175,10 @@ function APMSection() {
       {/* APM Header */}
       <div style={{ padding:"12px 20px", borderBottom:"1px solid #1a1a1a", display:"flex", alignItems:"center", gap:12, flexShrink:0, flexWrap:"wrap" }}>
         <div style={{ flex:1, display:"flex", gap:8, flexWrap:"wrap" }}>
-          <button onClick={()=>setFilterStatus("active")} style={{ padding:"5px 12px", borderRadius:20, border:filterStatus==="active"?"1px solid #10B98160":"1px solid #2a2a2a", background:filterStatus==="active"?"#10B98115":"#111", color:filterStatus==="active"?"#10B981":"#555", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>Active</button>
-          <button onClick={()=>setFilterStatus("all")} style={{ padding:"5px 12px", borderRadius:20, border:filterStatus==="all"?"1px solid #F9731660":"1px solid #2a2a2a", background:filterStatus==="all"?"#F9731615":"#111", color:filterStatus==="all"?"#F97316":"#555", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>All</button>
+          <button onClick={()=>setFilterStatus("active")} style={{ padding:"5px 12px", borderRadius:20, border:filterStatus==="active"?"1px solid #10B98160":"1px solid #2a2a2a", background:filterStatus==="active"?"#10B98115":"var(--bg3)", color:filterStatus==="active"?"#10B981":"var(--tx3)", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>Active</button>
+          <button onClick={()=>setFilterStatus("all")} style={{ padding:"5px 12px", borderRadius:20, border:filterStatus==="all"?"1px solid #F9731660":"1px solid #2a2a2a", background:filterStatus==="all"?"#F9731615":"var(--bg3)", color:filterStatus==="all"?"#F97316":"var(--tx3)", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>All</button>
           {COMPANIES.filter(c=>c.id!=="all").map(co => (
-            <button key={co.id} onClick={()=>setFilterCo(f=>f===co.id?"all":co.id)} style={{ padding:"5px 12px", borderRadius:20, border:filterCo===co.id?`1px solid ${co.color}60`:"1px solid #2a2a2a", background:filterCo===co.id?co.color+"15":"#111", color:filterCo===co.id?co.color:"#555", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>{co.short}</button>
+            <button key={co.id} onClick={()=>setFilterCo(f=>f===co.id?"all":co.id)} style={{ padding:"5px 12px", borderRadius:20, border:filterCo===co.id?`1px solid ${co.color}60`:"1px solid #2a2a2a", background:filterCo===co.id?co.color+"15":"var(--bg3)", color:filterCo===co.id?co.color:"var(--tx3)", fontSize:11, fontWeight:600, cursor:"pointer", fontFamily:"'DM Mono',monospace" }}>{co.short}</button>
           ))}
         </div>
         <button onClick={()=>setEditingProject({})} style={{ background:"#F97316", border:"none", color:"#000", padding:"8px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700, flexShrink:0 }}>+ New Project</button>
@@ -3190,20 +3195,20 @@ function APMSection() {
             const co = getCompany(proj.company);
             return (
               <div key={proj.id} onClick={()=>setSelectedProject(proj)}
-                style={{ background:"#111", border:"1px solid #1a1a1a", borderRadius:10, padding:"14px 16px", marginBottom:8, cursor:"pointer", transition:"border-color 0.1s" }}
-                onMouseEnter={e=>e.currentTarget.style.borderColor="#2a2a2a"}
-                onMouseLeave={e=>e.currentTarget.style.borderColor="#1a1a1a"}>
+                style={{ background:"var(--bg3)", border:"1px solid #1a1a1a", borderRadius:10, padding:"14px 16px", marginBottom:8, cursor:"pointer", transition:"border-color 0.1s" }}
+                onMouseEnter={e=>e.currentTarget.style.borderColor="var(--bd2)"}
+                onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bg5)"}>
                 <div style={{ display:"flex", alignItems:"flex-start", justifyContent:"space-between", gap:10 }}>
                   <div style={{ flex:1, minWidth:0 }}>
                     <div style={{ display:"flex", alignItems:"center", gap:8, marginBottom:5, flexWrap:"wrap" }}>
-                      <span style={{ fontSize:14, fontWeight:700, color:"#e5e5e5", fontFamily:"'Syne',sans-serif" }}>{proj.name}</span>
+                      <span style={{ fontSize:14, fontWeight:700, color:"var(--tx)", fontFamily:"'Syne',sans-serif" }}>{proj.name}</span>
                       <StatusBadge status={proj.status} />
                       <span style={{ fontSize:10, color:co.color, fontFamily:"'DM Mono',monospace", background:co.color+"15", border:`1px solid ${co.color}30`, padding:"1px 6px", borderRadius:4 }}>{co.short}</span>
                     </div>
                     <div style={{ display:"flex", gap:14, flexWrap:"wrap" }}>
-                      {proj.address && <span style={{ fontSize:11, color:"#444", fontFamily:"'DM Mono',monospace" }}>📍 {proj.address}</span>}
-                      {proj.gc_name && <span style={{ fontSize:11, color:"#444", fontFamily:"'DM Mono',monospace" }}>🏢 {proj.gc_name}</span>}
-                      {proj.contract_value && <span style={{ fontSize:11, color:"#555", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(proj.contract_value)}</span>}
+                      {proj.address && <span style={{ fontSize:11, color:"var(--tx4)", fontFamily:"'DM Mono',monospace" }}>📍 {proj.address}</span>}
+                      {proj.gc_name && <span style={{ fontSize:11, color:"var(--tx4)", fontFamily:"'DM Mono',monospace" }}>🏢 {proj.gc_name}</span>}
+                      {proj.contract_value && <span style={{ fontSize:11, color:"var(--tx)", fontFamily:"'DM Mono',monospace" }}>{fmtMoney(proj.contract_value)}</span>}
                     </div>
                     {(proj.start_date||proj.end_date) && (
                       <div style={{ fontSize:11, color:"#333", fontFamily:"'DM Mono',monospace", marginTop:4 }}>
@@ -3250,19 +3255,19 @@ function LoginScreen() {
   };
 
   return (
-    <div style={{ minHeight: "100dvh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Syne', sans-serif" }}>
+    <div style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", padding: 20, fontFamily: "'Syne', sans-serif" }}>
       <style>{`@import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap'); *{box-sizing:border-box;margin:0;padding:0} @keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}`}</style>
       <div style={{ width: "100%", maxWidth: 400 }}>
         <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 40, justifyContent: "center" }}>
           <div style={{ width: 36, height: 36, borderRadius: 8, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>⬡</div>
           <div>
-            <div style={{ fontSize: 18, fontWeight: 800, color: "#e5e5e5", letterSpacing: -0.3 }}>FCG / BR OPS</div>
-            <div style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace", letterSpacing: 1 }}>OPERATIONS BOARD</div>
+            <div style={{ fontSize: 18, fontWeight: 800, color: "var(--tx)", letterSpacing: -0.3 }}>FCG / BR OPS</div>
+            <div style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", letterSpacing: 1 }}>OPERATIONS BOARD</div>
           </div>
         </div>
-        <div style={{ background: "#111", border: "1px solid #1e1e1e", borderRadius: 14, padding: 28, boxShadow: "0 24px 80px rgba(0,0,0,0.5)" }}>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#e5e5e5", marginBottom: 4 }}>Sign in</div>
-          <div style={{ fontSize: 11.5, color: "#444", fontFamily: "'DM Mono', monospace", marginBottom: 24 }}>Use your work email and password</div>
+        <div style={{ background: "var(--bg3)", border: "1px solid #1e1e1e", borderRadius: 14, padding: 28, boxShadow: "0 24px 80px rgba(0,0,0,0.5)" }}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--tx)", marginBottom: 4 }}>Sign in</div>
+          <div style={{ fontSize: 11.5, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", marginBottom: 24 }}>Use your work email and password</div>
           <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
             <div>
               <label style={labelStyle}>Email</label>
@@ -3291,7 +3296,7 @@ function ThemeToggle() {
   const { dark, toggle } = useTheme();
   return (
     <button onClick={toggle} title={dark ? "Switch to light mode" : "Switch to dark mode"}
-      style={{ background:"none", border:"1px solid var(--bd2)", borderRadius:6, padding:"5px 9px", cursor:"pointer", fontSize:14, color: dark ? "#e5e5e5" : "#18181b", lineHeight:1, flexShrink:0 }}>
+      style={{ background:"none", border:"1px solid var(--bd2)", borderRadius:6, padding:"5px 9px", cursor:"pointer", fontSize:14, color: dark ? "var(--tx)" : "#18181b", lineHeight:1, flexShrink:0 }}>
       {dark ? "☀" : "☾"}
     </button>
   );
@@ -3475,7 +3480,7 @@ function AppInner() {
   };
 
   // ── Mobile layout ──────────────────────────
-  if (authLoading) return <div style={{ minHeight: "100dvh", background: "#0a0a0a", display: "flex", alignItems: "center", justifyContent: "center", color: "#333", fontFamily: "monospace" }}>◌</div>;
+  if (authLoading) return <div style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", color: "#333", fontFamily: "monospace" }}>◌</div>;
   if (!user) return <LoginScreen />;
 
   if (isMobile) {
@@ -3484,7 +3489,13 @@ function AppInner() {
         <style>{`
           @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
           * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
-          body { background: var(--bg); }
+          body { background: var(--bg); color: var(--tx); }
+          input, textarea, select { color: var(--inptx) !important; background: var(--inp) !important; border-color: var(--inpbd) !important; }
+          input::placeholder, textarea::placeholder { color: var(--tx4) !important; }
+          ::-webkit-scrollbar { width: 6px; height: 6px; }
+          ::-webkit-scrollbar-track { background: var(--bg); }
+          ::-webkit-scrollbar-thumb { background: var(--bd2); border-radius: 3px; }
+          ::-webkit-scrollbar-thumb:hover { background: var(--tx3); }
           ::-webkit-scrollbar { width: 0; }
           select option { background: var(--bg3); color: var(--tx); }
           @keyframes spin { from{transform:rotate(0deg)}to{transform:rotate(360deg)} }
@@ -3497,8 +3508,8 @@ function AppInner() {
             <div style={{ display: "flex", alignItems: "center", gap: 6, flex: 1 }}>
               <div style={{ width: 24, height: 24, borderRadius: 5, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 12 }}>⬡</div>
               <div style={{ display: "flex", background: "var(--bg5)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
-                <button onClick={() => setAppSection("ops")} style={{ padding: "4px 10px", background: appSection === "ops" ? "#F9731620" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "#555", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
-                <button onClick={() => setAppSection("apm")} style={{ padding: "4px 10px", background: appSection === "apm" ? "#3B82F620" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "#555", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
+                <button onClick={() => setAppSection("ops")} style={{ padding: "4px 10px", background: appSection === "ops" ? "#F9731620" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "var(--tx3)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
+                <button onClick={() => setAppSection("apm")} style={{ padding: "4px 10px", background: appSection === "apm" ? "#3B82F620" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "var(--tx3)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
               </div>
             </div>
             {appSection === "ops" && <button onClick={() => setAiOpen(true)} style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", color: "#fff", padding: "6px 10px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700 }}>✦ AI</button>}
@@ -3510,7 +3521,7 @@ function AppInner() {
             {COMPANIES.map(co => {
               const active = activeCompany === co.id;
               return (
-                <button key={co.id} onClick={() => setActiveCompany(co.id)} style={{ padding: "5px 12px", borderRadius: 20, border: active ? `1px solid ${co.color}60` : "1px solid #2a2a2a", background: active ? co.color + "15" : "#111", color: active ? co.color : "#555", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace" }}>
+                <button key={co.id} onClick={() => setActiveCompany(co.id)} style={{ padding: "5px 12px", borderRadius: 20, border: active ? `1px solid ${co.color}60` : "1px solid #2a2a2a", background: active ? co.color + "15" : "var(--bg3)", color: active ? co.color : "var(--tx3)", fontSize: 12, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace" }}>
                   {co.id === "all" ? "All" : co.short}
                 </button>
               );
@@ -3519,11 +3530,11 @@ function AppInner() {
 
           {/* My Tasks toggle + Project filter */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 12px", borderBottom: "1px solid #1a1a1a", overflowX: "auto", flexShrink: 0 }}>
-            <button onClick={() => setMyTasksOnly(m => !m)} style={{ padding: "4px 10px", borderRadius: 20, border: myTasksOnly ? "1px solid #F97316" : "1px solid #2a2a2a", background: myTasksOnly ? "#F9731615" : "#111", color: myTasksOnly ? "#F97316" : "#555", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
+            <button onClick={() => setMyTasksOnly(m => !m)} style={{ padding: "4px 10px", borderRadius: 20, border: myTasksOnly ? "1px solid #F97316" : "1px solid #2a2a2a", background: myTasksOnly ? "#F9731615" : "var(--bg3)", color: myTasksOnly ? "#F97316" : "var(--tx3)", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
               👤 Mine
             </button>
             {[...new Set(tasks.map(t => t.project).filter(Boolean))].map(p => (
-              <button key={p} onClick={() => setActiveProject(ap => ap === p ? "all" : p)} style={{ padding: "4px 10px", borderRadius: 20, border: activeProject === p ? "1px solid #8B5CF6" : "1px solid #2a2a2a", background: activeProject === p ? "#8B5CF615" : "#111", color: activeProject === p ? "#8B5CF6" : "#555", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
+              <button key={p} onClick={() => setActiveProject(ap => ap === p ? "all" : p)} style={{ padding: "4px 10px", borderRadius: 20, border: activeProject === p ? "1px solid #8B5CF6" : "1px solid #2a2a2a", background: activeProject === p ? "#8B5CF615" : "var(--bg3)", color: activeProject === p ? "#8B5CF6" : "var(--tx3)", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>
                 {p}
               </button>
             ))}
@@ -3532,7 +3543,7 @@ function AppInner() {
           {/* Stats strip */}
           <div style={{ display: "flex", borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
             {[
-              { label: "Total", val: stats.total, color: "#555" },
+              { label: "Total", val: stats.total, color: "var(--tx3)" },
               { label: "Active", val: stats.inprogress, color: "#F59E0B" },
               { label: "Overdue", val: stats.overdue, color: "#EF4444" },
               { label: "Done", val: stats.done, color: "#10B981" },
@@ -3592,7 +3603,7 @@ function AppInner() {
                 else if (nav.id === "signout") handleSignOut();
                 else setPage(nav.id);
               }} style={{ flex: 1, padding: "12px 0 14px", background: "none", border: "none", cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-                <span style={{ fontSize: 18, color: page === nav.id ? "#F97316" : "#444" }}>{nav.icon}</span>
+                <span style={{ fontSize: 18, color: page === nav.id ? "#F97316" : "var(--tx4)" }}>{nav.icon}</span>
                 <span style={{ fontSize: 9.5, fontFamily: "'DM Mono', monospace", color: page === nav.id ? "#F97316" : "#333", letterSpacing: 0.5 }}>{nav.label.toUpperCase()}</span>
               </button>
             ))}
@@ -3633,8 +3644,8 @@ function AppInner() {
                 <span style={{ fontSize: 14 }}>⬡</span>
               </div>
               <div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "#e5e5e5", letterSpacing: -0.3 }}>FCG / BR OPS</div>
-                <div style={{ fontSize: 9.5, color: "#444", fontFamily: "'DM Mono', monospace", letterSpacing: 0.5 }}>OPERATIONS</div>
+                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--tx)", letterSpacing: -0.3 }}>FCG / BR OPS</div>
+                <div style={{ fontSize: 9.5, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", letterSpacing: 0.5 }}>OPERATIONS</div>
               </div>
             </div>
             <div style={{ display: "flex", background: "var(--bg4)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
@@ -3686,8 +3697,8 @@ function AppInner() {
                 <span style={{ fontSize: 14 }}>✉</span> Send Digest
               </button>
               <button onClick={handleSignOut} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "none", border: "1px solid var(--bd2)", color: "var(--tx4)", fontSize: 12, fontFamily: "'Syne', sans-serif" }}
-                onMouseEnter={e => e.currentTarget.style.color = "#e5e5e5"}
-                onMouseLeave={e => e.currentTarget.style.color = "#444"}
+                onMouseEnter={e => e.currentTarget.style.color = "var(--tx)"}
+                onMouseLeave={e => e.currentTarget.style.color = "var(--tx4)"}
               >
                 <span style={{ fontSize: 13 }}>⏻</span> Sign Out
               </button>
@@ -3699,11 +3710,11 @@ function AppInner() {
         <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
           {/* TOPBAR */}
           <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 20px", height: 56, borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
-            <button onClick={() => setSidebarOpen(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", color: "#444", fontSize: 16, padding: "4px 6px" }}>☰</button>
+            <button onClick={() => setSidebarOpen(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tx4)", fontSize: 16, padding: "4px 6px" }}>☰</button>
             {!sidebarOpen && (
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <div style={{ width: 20, height: 20, borderRadius: 4, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>⬡</div>
-                <span style={{ fontSize: 13, fontWeight: 800, color: "#e5e5e5" }}>FCG / BR OPS</span>
+                <span style={{ fontSize: 13, fontWeight: 800, color: "var(--tx)" }}>FCG / BR OPS</span>
               </div>
             )}
             {/* Dark mode toggle */}
@@ -3741,7 +3752,7 @@ function AppInner() {
           {page === "tasks" && (
             <div style={{ display: "flex", borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
               {[
-                { label: "Total", val: stats.total, color: "#555" },
+                { label: "Total", val: stats.total, color: "var(--tx3)" },
                 { label: "In Progress", val: stats.inprogress, color: "#F59E0B" },
                 { label: "Overdue", val: stats.overdue, color: "#EF4444" },
                 { label: "Done", val: stats.done, color: "#10B981" },
@@ -3800,18 +3811,18 @@ function AppInner() {
                     const attachCount = attachmentCounts?.[task.id] || 0;
                     return (
                       <div key={task.id} onClick={() => openEdit(task)} style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 80px 100px 90px", gap: 10, padding: "11px 14px", borderRadius: 7, cursor: "pointer", background: "var(--bg3)", border: "1px solid var(--bd)", marginBottom: 4, alignItems: "center", animation: "slideIn 0.15s ease-out" }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = "#2a2a2a"}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = "#1a1a1a"}
+                        onMouseEnter={e => e.currentTarget.style.borderColor = "var(--bd2)"}
+                        onMouseLeave={e => e.currentTarget.style.borderColor = "var(--bg5)"}
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
                           <span style={{ fontSize: 13, color: "var(--tx)", fontFamily: "'Syne', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
-                          {attachCount > 0 && <span style={{ fontSize: 10, color: "#444", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>📎{attachCount}</span>}
+                          {attachCount > 0 && <span style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>📎{attachCount}</span>}
                         </div>
                         <CompanyBadge companyId={task.company} small />
-                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}><Avatar member={member} size={20} /><span style={{ fontSize: 11, color: "#555" }}>{member.name}</span></div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}><Avatar member={member} size={20} /><span style={{ fontSize: 11, color: "var(--tx3)" }}>{member.name}</span></div>
                         <PriorityDot priorityId={task.priority} />
-                        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: task.status === "done" ? "#10B981" : task.status === "inprogress" ? "#F59E0B" : "#555" }}>{STATUSES.find(s => s.id === task.status)?.label}</span>
-                        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: isOverdue ? "#EF4444" : "#444" }}>
+                        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: task.status === "done" ? "#10B981" : task.status === "inprogress" ? "#F59E0B" : "var(--tx3)" }}>{STATUSES.find(s => s.id === task.status)?.label}</span>
+                        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: isOverdue ? "#EF4444" : "var(--tx4)" }}>
                           {task.due ? new Date(task.due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
                         </span>
                       </div>
