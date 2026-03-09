@@ -3502,6 +3502,30 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
 //  STANDALONE TAKEOFF SOFTWARE
 // ══════════════════════════════════════════════════════
 
+
+// Standard construction drawing scales (architectural + engineering)
+const CONSTRUCTION_SCALES = [
+  { label:'1"=1'',    pxPerFt: null, ratio: 12    },
+  { label:'1"=2'',    pxPerFt: null, ratio: 24    },
+  { label:'1"=4'',    pxPerFt: null, ratio: 48    },
+  { label:'1"=8'',    pxPerFt: null, ratio: 96    },
+  { label:'1"=10'',   pxPerFt: null, ratio: 120   },
+  { label:'1"=16'',   pxPerFt: null, ratio: 192   },
+  { label:'1"=20'',   pxPerFt: null, ratio: 240   },
+  { label:'1"=30'',   pxPerFt: null, ratio: 360   },
+  { label:'1"=40'',   pxPerFt: null, ratio: 480   },
+  { label:'1"=50'',   pxPerFt: null, ratio: 600   },
+  { label:'1"=60'',   pxPerFt: null, ratio: 720   },
+  { label:'1"=100'',  pxPerFt: null, ratio: 1200  },
+  { label:'1/8"=1'',  pxPerFt: null, ratio: 96    },
+  { label:'1/4"=1'',  pxPerFt: null, ratio: 48    },
+  { label:'3/8"=1'',  pxPerFt: null, ratio: 32    },
+  { label:'1/2"=1'',  pxPerFt: null, ratio: 24    },
+  { label:'3/4"=1'',  pxPerFt: null, ratio: 16    },
+  { label:'1 1/2"=1'',pxPerFt: null, ratio: 8     },
+  { label:'3"=1'',    pxPerFt: null, ratio: 4     },
+];
+
 const UNIT_COSTS_DEFAULT = {
   concrete_slab:    { mat: 4.50, lab: 2.00, unit:'SF'  },
   concrete_footing: { mat: 85,   lab: 40,   unit:'CY'  },
@@ -3852,6 +3876,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   const [planMime, setPlanMime] = useState('image/png');
   const [rightTab, setRightTab] = useState('items');
   const [zoom, setZoom] = useState(1);
+  const [showScalePicker, setShowScalePicker] = useState(false);
+  const [presetScale, setPresetScale] = useState('');
   const [showAssembly, setShowAssembly] = useState(false);
   const [showUnitCosts, setShowUnitCosts] = useState(false);
   const [showBidSummary, setShowBidSummary] = useState(false);
@@ -4005,6 +4031,22 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
       }
       setActivePts(prev=>[...prev,norm]);
     }
+    if(tool==='perimeter'){
+      if(activePts.length>=3){
+        const fp=toPx(activePts[0].x,activePts[0].y);
+        if(Math.sqrt((pos.x-fp.x)**2+(pos.y-fp.y)**2)<14){
+          // Sum all sides
+          let perim=0;
+          for(let i=0;i<activePts.length;i++){
+            perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);
+          }
+          perim=Math.round(perim*10)/10;
+          saveItem({category:'formwork',description:'Perimeter',quantity:perim,unit:'LF',measurement_type:'perimeter',points:activePts});
+          setActivePts([]); return;
+        }
+      }
+      setActivePts(prev=>[...prev,norm]);
+    }
   };
 
   const handleSvgMove=(e)=>{ setHoverPt(toNorm(getSvgPos(e).x, getSvgPos(e).y)); };
@@ -4020,17 +4062,38 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     if(selPlan) await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
   };
 
+  const autoNameSheet = (filename, existingPlans) => {
+    // Strip extension
+    let name = filename.replace(/\.[^.]+$/, '');
+    // Common sheet naming patterns: S1.0, A-101, C3.1, etc
+    // If it looks like a raw filename, make it prettier
+    name = name.replace(/[-_]/g, ' ').replace(/\s+/g,' ').trim();
+    // Check if it matches a sheet code pattern
+    const sheetMatch = name.match(/^([A-Z]{1,2})[-\s]?(\d+\.?\d*)$/i);
+    if(sheetMatch) {
+      const prefixes = {A:'Architectural',S:'Structural',C:'Civil',M:'Mechanical',E:'Electrical',P:'Plumbing',L:'Landscape',G:'General',FP:'Fire Protection'};
+      const prefix = prefixes[sheetMatch[1].toUpperCase()];
+      if(prefix) name = `${sheetMatch[1].toUpperCase()}-${sheetMatch[2]} ${prefix}`;
+    }
+    // Deduplicate: if name exists, append number
+    const base = name;
+    let count = 2;
+    while(existingPlans.some(p=>p.name===name)) { name = `${base} (${count++})`; }
+    return name;
+  };
+
   const handleUpload=async(file)=>{
     if(!file) return;
     const pid = project.id;
     setUploading(true);
+    const sheetName = autoNameSheet(file.name, plans);
     // Show image immediately from local file while uploading
     const reader=new FileReader();
     reader.onload=ev=>{
       const dataUrl = ev.target.result;
       setPlanB64(dataUrl.split(',')[1]);
       setPlanMime(file.type);
-      setSelPlan({id:'preview',name:file.name,file_url:dataUrl,file_type:file.type});
+      setSelPlan({id:'preview',name:sheetName,file_url:dataUrl,file_type:file.type});
     };
     reader.readAsDataURL(file);
     const ext=file.name.split('.').pop();
@@ -4039,7 +4102,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     if(error){setUploading(false);alert('Upload failed: '+error.message);return;}
     const {data:ud}=supabase.storage.from('attachments').getPublicUrl(path);
     const publicUrl = ud?.publicUrl || ud?.data?.publicUrl || '';
-    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:pid,name:file.name,file_url:publicUrl,file_type:file.type}]).select().single();
+    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:pid,name:sheetName,file_url:publicUrl,file_type:file.type}]).select().single();
     if(plan){
       setPlans(prev=>[...prev.filter(p=>p.id!=='preview'),plan]);
       setSelPlan(plan);
@@ -4155,13 +4218,24 @@ Return ONLY a valid JSON array, no markdown:
         <text x={pts[0].x} y={pts[0].y+4} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
       </g>);
     }
+    if(it.measurement_type==='perimeter'&&pts.length>=3){
+      const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')+' Z';
+      const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+      const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
+      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+        <path d={d} fill="none" stroke={c} strokeWidth={2.5} strokeDasharray="10,4"/>
+        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={3} fill={c}/>)}
+        <rect x={cx-28} y={cy-10} width={56} height={20} rx={4} fill="rgba(0,0,0,0.65)"/>
+        <text x={cx} y={cy+4} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
+      </g>);
+    }
     return null;
   });
 
   const renderActive=()=>{
     const pts=(tool==='scale'&&scaleStep==='picking')?scalePts:activePts;
     if(!pts.length) return null;
-    const c=tool==='scale'?'#10B981':tool==='area'?'#F59E0B':'#06B6D4';
+    const c=tool==='scale'?'#10B981':tool==='area'?'#F59E0B':tool==='perimeter'?'#F97316':'#06B6D4';
     const disp=pts.map(p=>toPx(p.x,p.y));
     const hover=hoverPt?toPx(hoverPt.x,hoverPt.y):null;
     const all=hover?[...disp,hover]:disp;
@@ -4208,12 +4282,23 @@ Return ONLY a valid JSON array, no markdown:
           <div style={{display:'flex',gap:6,padding:'7px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,alignItems:'center',background:t.bg2,flexWrap:'wrap'}}>
             <div style={{display:'flex',gap:6,alignItems:'center',flex:1,minWidth:0}}>
               {plans.length>0&&(
-                <select value={selPlan?.id||''} onChange={e=>{
-                  const p=plans.find(x=>x.id===Number(e.target.value));
-                  setSelPlan(p||null); if(p?.scale_px_per_ft)setScale(p.scale_px_per_ft);else setScale(null);
-                }} style={{...inputStyle,fontSize:11,padding:'3px 8px',maxWidth:160}}>
-                  {plans.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
-                </select>
+                <div style={{display:'flex',alignItems:'center',gap:0,maxWidth:200}}>
+                  <select value={selPlan?.id||''} onChange={e=>{
+                    const p=plans.find(x=>x.id===Number(e.target.value));
+                    setSelPlan(p||null);setShowScalePicker(false);
+                    if(p?.scale_px_per_ft){setScale(p.scale_px_per_ft);}else{setScale(null);setPresetScale('');}
+                  }} style={{...inputStyle,fontSize:11,padding:'3px 8px',maxWidth:160,borderRadius:'4px 0 0 4px',borderRight:'none'}}>
+                    {plans.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+                  </select>
+                  <button title="Rename sheet" onClick={async()=>{
+                    const newName=window.prompt('Rename sheet:',selPlan?.name||'');
+                    if(newName&&newName.trim()&&selPlan?.id&&selPlan.id!=='preview'){
+                      await supabase.from('precon_plans').update({name:newName.trim()}).eq('id',selPlan.id);
+                      setPlans(prev=>prev.map(p=>p.id===selPlan.id?{...p,name:newName.trim()}:p));
+                      setSelPlan(prev=>({...prev,name:newName.trim()}));
+                    }
+                  }} style={{background:t.bg4,border:`1px solid ${t.border2}`,borderLeft:'none',color:t.text4,padding:'3px 7px',borderRadius:'0 4px 4px 0',cursor:'pointer',fontSize:10}}>✎</button>
+                </div>
               )}
               <button onClick={()=>fileRef.current?.click()} disabled={uploading}
                 style={{background:'none',border:`1px solid ${t.border2}`,color:t.text2,padding:'4px 9px',borderRadius:5,cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',gap:4,flexShrink:0,whiteSpace:'nowrap'}}>
@@ -4242,21 +4327,52 @@ Return ONLY a valid JSON array, no markdown:
 
           {/* Drawing toolbar */}
           {selPlan&&(
-            <div style={{display:'flex',gap:3,padding:'5px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg,alignItems:'center',overflowX:'auto'}}>
+            <div style={{display:'flex',gap:3,padding:'5px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg,alignItems:'center',overflowX:'auto',position:'relative'}}>
               {[
-                {id:'select',icon:'↖',label:'Select',color:'var(--tx3)'},
-                {id:'area',icon:'⬡',label:'Area',color:'#F59E0B'},
-                {id:'linear',icon:'━',label:'Linear',color:'#06B6D4'},
-                {id:'count',icon:'✕',label:'Count',color:'#10B981'},
-                {id:'scale',icon:'⇔',label:'Set Scale',color:'#10B981'},
+                {id:'select',    icon:'↖', label:'Select',    color:'var(--tx3)'},
+                {id:'area',      icon:'⬡', label:'Area',      color:'#F59E0B'},
+                {id:'perimeter', icon:'⬠', label:'Perimeter', color:'#F97316'},
+                {id:'linear',    icon:'━', label:'Linear',    color:'#06B6D4'},
+                {id:'count',     icon:'✕', label:'Count',     color:'#10B981'},
               ].map(tb=>(
                 <button key={tb.id}
-                  onClick={()=>{setTool(tb.id);setActivePts([]);if(tb.id==='scale'){setScaleStep('picking');setScalePts([]);}else setScaleStep(null);}}
+                  onClick={()=>{setTool(tb.id);setActivePts([]);setScaleStep(null);}}
                   title={tb.label}
                   style={{padding:'4px 9px',borderRadius:4,border:tool===tb.id?`1.5px solid ${tb.color}`:`1px solid ${t.border}`,background:tool===tb.id?tb.color+'18':'none',color:tool===tb.id?tb.color:t.text4,cursor:'pointer',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',flexShrink:0}}>
                   <span style={{fontSize:13}}>{tb.icon}</span><span style={{fontSize:10}}>{tb.label}</span>
                 </button>
               ))}
+              {/* Scale tools */}
+              <div style={{width:1,height:18,background:t.border,margin:'0 2px',flexShrink:0}}/>
+              <button onClick={()=>{setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);}}
+                title="Calibrate Scale — click 2 known points"
+                style={{padding:'4px 9px',borderRadius:4,border:tool==='scale'?'1.5px solid #10B981':`1px solid ${t.border}`,background:tool==='scale'?'#10B98118':'none',color:tool==='scale'?'#10B981':t.text4,cursor:'pointer',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',flexShrink:0}}>
+                <span>⇔</span><span style={{fontSize:10}}>Cal.</span>
+              </button>
+              <button onClick={()=>setShowScalePicker(s=>!s)}
+                style={{padding:'4px 9px',borderRadius:4,border:showScalePicker?'1.5px solid #10B981':`1px solid ${t.border}`,background:showScalePicker?'#10B98118':'none',color:'#10B981',cursor:'pointer',fontSize:10,fontWeight:700,display:'flex',alignItems:'center',gap:3,whiteSpace:'nowrap',flexShrink:0,fontFamily:"'DM Mono',monospace"}}>
+                {scale?`1"=${Math.round(96/scale*12*10)/10}'`:'⇔ Scale'}
+              </button>
+              {showScalePicker&&(
+                <div style={{position:'absolute',top:38,left:0,background:t.bg3,border:`1px solid ${t.border2}`,borderRadius:8,padding:8,zIndex:50,display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:4,width:320,boxShadow:'0 8px 32px rgba(0,0,0,0.4)'}}>
+                  <div style={{gridColumn:'1/-1',fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",padding:'2px 4px 6px',letterSpacing:0.5}}>STANDARD SCALES — select to apply</div>
+                  {CONSTRUCTION_SCALES.map(s=>(
+                    <button key={s.label} onClick={async()=>{
+                      // pxPerFt = screen DPI (96) / ratio — ratio = inches per foot on paper
+                      // For PDF rendered at 2x: canvas px per inch ≈ 144 (72dpi * 2)
+                      const dpi = 144;
+                      const pxPerFt = dpi / (s.ratio / 12);
+                      setScale(pxPerFt);
+                      setPresetScale(s.label);
+                      setShowScalePicker(false);
+                      if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+                    }}
+                      style={{padding:'5px 6px',borderRadius:4,border:`1px solid ${t.border}`,background:presetScale===s.label?'rgba(16,185,129,0.12)':t.bg4,color:presetScale===s.label?'#10B981':t.text3,cursor:'pointer',fontSize:10,fontFamily:"'DM Mono',monospace",fontWeight:600,textAlign:'center'}}>
+                      {s.label}
+                    </button>
+                  ))}
+                </div>
+              )}
               <div style={{width:1,height:18,background:t.border,margin:'0 4px',flexShrink:0}}/>
               <button onClick={()=>setShowAssembly(true)} style={{padding:'4px 9px',borderRadius:4,border:`1px solid ${t.border}`,background:'none',color:'#8B5CF6',cursor:'pointer',fontSize:10,fontWeight:700,flexShrink:0,display:'flex',alignItems:'center',gap:3}}>
                 <span>⬡</span>Assembly
@@ -4264,8 +4380,26 @@ Return ONLY a valid JSON array, no markdown:
               <button onClick={()=>setShowUnitCosts(true)} style={{padding:'4px 9px',borderRadius:4,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer',fontSize:10,flexShrink:0,display:'flex',alignItems:'center',gap:3}}>
                 <span>$</span>Rates
               </button>
-              {tool==='area'&&activePts.length>0&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace",marginLeft:4,flexShrink:0}}>{activePts.length} pts{activePts.length>=3?' · click 1st pt to close':''}</span>}
-              {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginLeft:4,flexShrink:0}}>Click 2 known points ({scalePts.length}/2)</span>}
+              <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                {tool==='area'&&activePts.length>0&&(
+                  <span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>
+                    {activePts.length>=3?`⬡ ${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF · dbl-click or click ● to close`:`⬡ ${activePts.length} pts — keep clicking`}
+                  </span>
+                )}
+                {tool==='perimeter'&&activePts.length>0&&(
+                  <span style={{fontSize:10,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>
+                    {activePts.length>=3?`⬠ ${Math.round(activePts.reduce((s,p,i)=>s+(i>0?calcLinear(activePts[i-1],p):0),0)*10)/10} LF · dbl-click to close`:`⬠ ${activePts.length} pts`}
+                  </span>
+                )}
+                {tool==='linear'&&activePts.length===1&&hoverPt&&(
+                  <span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>
+                    ━ {Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF
+                  </span>
+                )}
+                {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Click 2 points of known distance ({scalePts.length}/2)</span>}
+                {scale&&!scaleStep&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 6px',borderRadius:3}}>{presetScale||'SCALED'}</span>}
+                {!scale&&<span style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>⚠ set scale for accurate measurements</span>}
+              </div>
             </div>
           )}
 
@@ -4305,7 +4439,22 @@ Return ONLY a valid JSON array, no markdown:
                   )}
                   <svg ref={svgRef}
                     style={{position:'absolute',top:0,left:0,width: isPdf?(canvasRef.current?.width||800)+'px':'100%',height:isPdf?(canvasRef.current?.height||1100)+'px':'100%',cursor:toolCursor}}
-                    onClick={handleSvgClick} onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
+                    onClick={handleSvgClick}
+                    onDoubleClick={(e)=>{
+                      if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
+                        e.stopPropagation();
+                        if(tool==='area'){
+                          const area=Math.round(calcArea(activePts)*10)/10;
+                          saveItem({category:'concrete_slab',description:'Area',quantity:area,unit:'SF',measurement_type:'area',points:activePts});
+                        } else {
+                          let perim=0;
+                          for(let i=0;i<activePts.length;i++) perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);
+                          saveItem({category:'formwork',description:'Perimeter',quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});
+                        }
+                        setActivePts([]);
+                      }
+                    }}
+                    onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
                     {renderMeasurements()}
                     {renderActive()}
                     {scalePts.length>=2&&(()=>{
