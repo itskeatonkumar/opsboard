@@ -4860,7 +4860,7 @@ Return ONLY a valid JSON array, no markdown:
   );
 
   return (
-    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden'}}>
+    <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden',position:'relative'}}>
 
       {/* ── Top Bar ── */}
       <div style={{display:'flex',alignItems:'center',height:42,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
