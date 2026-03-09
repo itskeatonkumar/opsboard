@@ -3928,10 +3928,10 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     // Show image immediately from local file while uploading
     const reader=new FileReader();
     reader.onload=ev=>{
-      setPlanB64(ev.target.result.split(',')[1]);
+      const dataUrl = ev.target.result;
+      setPlanB64(dataUrl.split(',')[1]);
       setPlanMime(file.type);
-      // Set a temporary local preview plan so image shows right away
-      setSelPlan(prev => prev || {id:'preview',name:file.name,file_url:ev.target.result,file_type:file.type});
+      setSelPlan({id:'preview',name:file.name,file_url:dataUrl,file_type:file.type});
     };
     reader.readAsDataURL(file);
     const ext=file.name.split('.').pop();
