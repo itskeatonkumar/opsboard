@@ -4996,8 +4996,7 @@ Return ONLY a valid JSON array, no markdown:
               <div style={{flex:1,overflowY:'auto',padding:'6px 8px'}}>
                 {planItems.length===0&&(
                   <div style={{textAlign:'center',padding:'24px 8px',color:t.text4,fontSize:10,fontFamily:"'DM Mono',monospace",lineHeight:1.8}}>
-                    Create a condition above{'
-'}then tap the plan to measure
+                    Create a condition above — then tap the plan to measure
                   </div>
                 )}
 
