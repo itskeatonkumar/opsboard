@@ -2974,7 +2974,10 @@ function PreconTab({ project }) {
       supabase.from('precon_plans').select('*').eq('project_id',project.id).order('created_at'),
       supabase.from('takeoff_items').select('*').eq('project_id',project.id).order('sort_order'),
     ]).then(([{data:p},{data:i}])=>{
-      const pl=p||[]; setPlans(pl); setItems(i||[]);
+      const pl=p||[];
+      // Discard legacy items with no plan_id — they have no valid page association
+      const validItems=(i||[]).filter(it=>it.plan_id!=null);
+      setPlans(pl); setItems(validItems);
       if(pl.length>0){setSelPlan(pl[0]); if(pl[0].scale_px_per_ft) setScale(pl[0].scale_px_per_ft);}
       setLoading(false);
     });
@@ -2984,6 +2987,7 @@ function PreconTab({ project }) {
   // toPx is identity: SVG coord space = image pixel space
   const toPx=(x,y)=>({x,y});
 
+  // planItems: strict per-sheet item list. Defined early so all handlers can use it.
   const getSvgPos=(e)=>{
     const r=svgRef.current?.getBoundingClientRect();
     if(!r) return {x:0,y:0};
@@ -3365,9 +3369,6 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
   };
 
   const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0); // all sheets
-  // planItems: only the current sheet's items (for canvas + items tab)
-  // allItems: all project items (for Estimate tab totals)
-  const planItems=items.filter(i=>i.plan_id===selPlan?.id);
   const catGroups=TAKEOFF_CATS.map(cat=>{
     const its=planItems.filter(i=>i.category===cat.id);
     return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
@@ -4041,7 +4042,10 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       supabase.from('precon_plans').select('*').eq('project_id',pid).order('created_at'),
       supabase.from('takeoff_items').select('*').eq('project_id',pid).order('sort_order'),
     ]).then(([{data:p},{data:i}])=>{
-      const pl=p||[]; setPlans(pl); setItems(i||[]);
+      const pl=p||[];
+      // Discard legacy items with no plan_id — they have no valid page association
+      const validItems=(i||[]).filter(it=>it.plan_id!=null);
+      setPlans(pl); setItems(validItems);
       if(pl.length>0){setSelPlan(pl[0]); if(pl[0].scale_px_per_ft) setScale(pl[0].scale_px_per_ft);}
       setLoading(false);
     });
@@ -4050,6 +4054,10 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   // Points stored as raw SVG pixel coords — no normalization needed
   // toPx is identity: SVG coord space = image pixel space
   const toPx=(x,y)=>({x,y});
+
+  // planItems: strict per-sheet item list. Defined early so all handlers can use it.
+  // IMPORTANT: items with null plan_id are excluded — they have no valid page association.
+  const planItems=items.filter(i=>i.plan_id!=null && i.plan_id===selPlan?.id);
 
   const getSvgPos=(e)=>{
     const c=containerRef.current;
@@ -4560,67 +4568,79 @@ Return ONLY a valid JSON array, no markdown:
     alert('✓ SOV updated in APM! Go to the linked project → Pay Apps to review.');
   };
 
-  // SVG
-  const renderMeasurements=()=>items.filter(it=>it.points?.length && it.plan_id===selPlan?.id).map(it=>{
-    const pts=it.points; // raw pixel coords
-    const c=it.color||'#F97316';
-    if(it.measurement_type==='area'&&pts.length>=3){
-      const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')+' Z';
-      const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
-      const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
-      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
-        <path d={d} fill={c+'30'} stroke={c} strokeWidth={2.5}/>
-        <rect x={cx-28} y={cy-10} width={56} height={20} rx={4} fill="rgba(0,0,0,0.65)"/>
-        <text x={cx} y={cy+4} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
-      </g>);
-    }
-    if(it.measurement_type==='linear'&&pts.length>=2){
-      const mx=(pts[0].x+pts[1].x)/2; const my=(pts[0].y+pts[1].y)/2;
-      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
-        <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={3} strokeDasharray="8,4"/>
-        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={6} fill={c} stroke="#fff" strokeWidth={1.5}/>)}
-        <rect x={mx-22} y={my-18} width={44} height={18} rx={4} fill="rgba(0,0,0,0.65)"/>
-        <text x={mx} y={my-5} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity}{it.unit}</text>
-      </g>);
-    }
-    if(it.measurement_type==='count'&&pts[0]){
-      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
-        <circle cx={pts[0].x} cy={pts[0].y} r={10} fill={c} stroke="#fff" strokeWidth={1.5}/>
-        <text x={pts[0].x} y={pts[0].y+4} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
-      </g>);
-    }
-    if(it.measurement_type==='perimeter'&&pts.length>=3){
-      const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')+' Z';
-      const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
-      const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
-      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
-        <path d={d} fill="none" stroke={c} strokeWidth={2.5} strokeDasharray="10,4"/>
-        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={3} fill={c}/>)}
-        <rect x={cx-28} y={cy-10} width={56} height={20} rx={4} fill="rgba(0,0,0,0.65)"/>
-        <text x={cx} y={cy+4} fontSize={11} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
-      </g>);
-    }
-    return null;
-  });
+  // SVG — points are natural pixel coords, stored with strict plan_id.
+  // All visual sizes divided by zoom to stay constant across zoom levels.
+  const renderMeasurements=()=>{
+    if(!selPlan?.id) return [];
+    const sw=2.5/zoom, fs=11/zoom, r=6/zoom, rSm=3/zoom, pad=28/zoom, padH=10/zoom, padW=20/zoom;
+    return items
+      .filter(it=> it.points?.length && it.plan_id===selPlan.id)
+      .map(it=>{
+        const pts=it.points;
+        const c=it.color||'#F97316';
+        const label=`${it.description||''} ${it.quantity||''} ${it.unit||''}`.trim();
+        if(it.measurement_type==='area'&&pts.length>=3){
+          const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z';
+          const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+          const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
+          const lw=Math.max(label.length*fs*0.6,50/zoom);
+          return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+            <path d={d} fill={c+'28'} stroke={c} strokeWidth={sw}/>
+            <rect x={cx-lw/2} y={cy-padH} width={lw} height={padH*2} rx={3/zoom} fill="rgba(0,0,0,0.72)"/>
+            <text x={cx} y={cy+fs*0.35} fontSize={fs} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
+          </g>);
+        }
+        if(it.measurement_type==='linear'&&pts.length>=2){
+          const mx=(pts[0].x+pts[1].x)/2; const my=(pts[0].y+pts[1].y)/2;
+          const lw=Math.max(label.length*fs*0.6,40/zoom);
+          return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+            <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${8/zoom},${4/zoom}`}/>
+            {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r} fill={c} stroke="#fff" strokeWidth={sw*0.6}/>)}
+            <rect x={mx-lw/2} y={my-padH*1.8} width={lw} height={padH*1.8} rx={3/zoom} fill="rgba(0,0,0,0.72)"/>
+            <text x={mx} y={my-padH*0.6} fontSize={fs} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
+          </g>);
+        }
+        if(it.measurement_type==='count'&&pts[0]){
+          return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+            <circle cx={pts[0].x} cy={pts[0].y} r={r*1.6} fill={c} stroke="#fff" strokeWidth={sw*0.6}/>
+            <text x={pts[0].x} y={pts[0].y+fs*0.4} fontSize={fs} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
+          </g>);
+        }
+        if(it.measurement_type==='perimeter'&&pts.length>=3){
+          const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z';
+          const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+          const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
+          const lw=Math.max(label.length*fs*0.6,50/zoom);
+          return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+            <path d={d} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={`${10/zoom},${4/zoom}`}/>
+            {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={rSm} fill={c}/>)}
+            <rect x={cx-lw/2} y={cy-padH} width={lw} height={padH*2} rx={3/zoom} fill="rgba(0,0,0,0.72)"/>
+            <text x={cx} y={cy+fs*0.35} fontSize={fs} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
+          </g>);
+        }
+        return null;
+      });
+  };
 
   const renderActive=()=>{
     const pts=(tool==='scale'&&scaleStep==='picking')?scalePts:activePts;
     if(!pts.length) return null;
     const c=tool==='scale'?'#10B981':tool==='area'?'#F59E0B':tool==='perimeter'?'#F97316':'#06B6D4';
-    // pts and hoverPt are raw pixel coords — use directly
+    const sw=2.5/zoom, r0=10/zoom, r1=5/zoom, r2=4/zoom, fs=10/zoom;
     const all=hoverPt?[...pts,hoverPt]:pts;
     return(<>
-      {all.length>=2&&<polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={2.5} strokeDasharray={tool==='area'?'none':'6,3'} opacity={0.9}/>}
-      {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?10:5} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={2} opacity={0.95}/>)}
-      {hoverPt&&<circle cx={hoverPt.x} cy={hoverPt.y} r={4} fill={c} opacity={0.5}/>}
-      {tool==='area'&&pts.length>=3&&<text x={pts[0].x+14} y={pts[0].y-10} fontSize={10} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>● close</text>}
+      {all.length>=2&&<polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={tool==='area'?'none':`${6/zoom},${3/zoom}`} opacity={0.9}/>}
+      {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?r0:r1} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={sw*0.8} opacity={0.95}/>)}
+      {hoverPt&&<circle cx={hoverPt.x} cy={hoverPt.y} r={r2} fill={c} opacity={0.5}/>}
+      {tool==='area'&&pts.length>=3&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>● close</text>}
+      {tool==='linear'&&pts.length===1&&scale&&hoverPt&&(()=>{
+        const dist=Math.round(calcLinear(pts[0],hoverPt)*10)/10;
+        return <text x={(pts[0].x+hoverPt.x)/2} y={(pts[0].y+hoverPt.y)/2-6/zoom} fontSize={fs} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{dist} LF</text>;
+      })()}
     </>);
   };
 
   const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0); // all sheets
-  // planItems: only the current sheet's items (for canvas + items tab)
-  // allItems: all project items (for Estimate tab totals)
-  const planItems=items.filter(i=>i.plan_id===selPlan?.id);
   const catGroups=TAKEOFF_CATS.map(cat=>{
     const its=planItems.filter(i=>i.category===cat.id);
     return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
@@ -4871,9 +4891,9 @@ Return ONLY a valid JSON array, no markdown:
 
             {/* Live measurement status */}
             <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-              {tool==='area'&&activePts.length>0&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>{activePts.length>=3&&scale?`⬡ ${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF · click ● or dbl-click to close`:`${activePts.length} pts placed`}</span>}
-              {tool==='perimeter'&&activePts.length>0&&<span style={{fontSize:10,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>{activePts.length>=3&&scale?`⬠ ${Math.round(activePts.reduce((s,p,i)=>s+(i>0?calcLinear(activePts[i-1],p):0),0)*10)/10} LF · click ● or dbl-click to close`:`${activePts.length} pts`}</span>}
-              {tool==='linear'&&activePts.length===1&&hoverPt&&scale&&<span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>━ {Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF</span>}
+              {tool==='area'&&activePts.length>0&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>{!scale?`⚠ Set scale first`:(activePts.length>=3?`⬡ ${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF · click ● to close`:` ${activePts.length} pts`)}</span>}
+              {tool==='perimeter'&&activePts.length>0&&<span style={{fontSize:10,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>{!scale?`⚠ Set scale first`:(activePts.length>=3?`⬠ ${Math.round(activePts.reduce((s,p,i)=>s+(i>0?calcLinear(activePts[i-1],p):0),0)*10)/10} LF · click ● to close`:`${activePts.length} pts`)}</span>}
+              {tool==='linear'&&activePts.length===1&&hoverPt&&<span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>{scale?`━ ${Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF`:`⚠ Set scale first`}</span>}
               {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Pick 2 pts ({scalePts.length}/2) · ESC cancel</span>}
               {!scale&&!scaleStep&&selPlan&&<span style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>⚠ No scale set</span>}
               {scale&&!scaleStep&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 6px',borderRadius:3}}>{presetScale||'SCALED'}</span>}
@@ -4889,48 +4909,75 @@ Return ONLY a valid JSON array, no markdown:
                 <div style={{fontSize:12,color:t.text3,fontFamily:"'DM Mono',monospace",marginBottom:24,textAlign:'center'}}>Upload PDFs or images above to start</div>
                 <button onClick={()=>fileRef.current?.click()} style={{background:'#10B981',border:'none',color:'#000',padding:'10px 24px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>📎 Upload Plans</button>
               </div>
-            ):(
-              <div style={{display:'inline-block',transformOrigin:'top left',transform:`scale(${zoom})`,position:'relative'}}>
-                {planErr&&<div style={{position:'absolute',top:10,left:10,zIndex:20,background:'#1a0505',border:'1px solid #ef4444',color:'#ef4444',padding:'10px 14px',borderRadius:8,fontSize:11,fontFamily:"'DM Mono',monospace",maxWidth:500,wordBreak:'break-all'}}>{planErr}</div>}
-                {loadingPlan&&(
-                  <div style={{width:800,height:600,display:'flex',alignItems:'center',justifyContent:'center',background:'#1a1a1a',color:'#aaa',fontSize:13,gap:8,fontFamily:"'DM Mono',monospace"}}>
-                    <span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Loading plan…
+            ):(()=>{
+              // planW/H: natural pixel dimensions of the current plan image
+              const planW = imgNat.w || (canvasRef.current?.width) || 800;
+              const planH = imgNat.h || (canvasRef.current?.height) || 1100;
+              return (
+                // Sizing wrapper: zoom * natural dims → makes scrollLeft/scrollTop
+                // correctly range over the full zoomed content.
+                // The actual content div is transform:scale(zoom) inside.
+                <div style={{width:planW*zoom, height:planH*zoom, position:'relative', flexShrink:0}}>
+                  <div style={{transformOrigin:'top left', transform:`scale(${zoom})`, position:'absolute', top:0, left:0}}>
+                    {planErr&&<div style={{position:'absolute',top:10,left:10,zIndex:20,background:'#1a0505',border:'1px solid #ef4444',color:'#ef4444',padding:'10px 14px',borderRadius:8,fontSize:11,fontFamily:"'DM Mono',monospace",maxWidth:500,wordBreak:'break-all'}}>{planErr}</div>}
+                    {loadingPlan&&(
+                      <div style={{width:800,height:600,display:'flex',alignItems:'center',justifyContent:'center',background:'#1a1a1a',color:'#aaa',fontSize:13,gap:8,fontFamily:"'DM Mono',monospace"}}>
+                        <span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Loading plan…
+                      </div>
+                    )}
+                    {isPdfPlan?(
+                      <>
+                        {rendering&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.7)',zIndex:5,color:'#fff',fontSize:13,gap:8}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>Rendering…</div>}
+                        <canvas ref={canvasRef} style={{display:'block',userSelect:'none'}}/>
+                      </>
+                    ):(blobUrl&&(
+                      <img ref={imgRef} src={blobUrl} alt=""
+                        style={{display:'block',maxWidth:'none',userSelect:'none'}}
+                        onLoad={handleImgLoad}
+                        onError={(e)=>{
+                          console.error('img load failed, src:', e.target.src.slice(0,80));
+                          setPlanErr('Load failed. URL: ' + (selPlan?.file_url||'').slice(0,120));
+                        }}
+                        draggable={false}/>
+                    ))}
+                    {/* SVG overlay — viewBox = natural pixel dims, overflow hidden.
+                        This is the canonical takeoff layer. Points stored in natural
+                        pixel coords. viewBox clips to plan boundary preventing bleed.
+                        strokeWidth divided by zoom keeps visual weight constant. */}
+                    <svg ref={svgRef}
+                      viewBox={`0 0 ${planW} ${planH}`}
+                      style={{position:'absolute',top:0,left:0,width:planW+'px',height:planH+'px',cursor:toolCursor,pointerEvents:'all',userSelect:'none',overflow:'hidden'}}
+                      onMouseDown={handleSvgMouseDown}
+                      onClick={handleSvgClick}
+                      onDoubleClick={(e)=>{
+                        if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
+                          e.stopPropagation();
+                          if(tool==='area'){const area=Math.round(calcArea(activePts)*10)/10;const cnt=planItems.filter(i=>i.measurement_type==='area').length+1;saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});}
+                          else{let perim=0;for(let i=0;i<activePts.length;i++)perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);const cnt=planItems.filter(i=>i.measurement_type==='perimeter').length+1;saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});}
+                          setActivePts([]);
+                        }
+                      }}
+                      onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
+                      {/* Clip rect — hard boundary, nothing renders outside plan */}
+                      <defs><clipPath id="planClip"><rect x={0} y={0} width={planW} height={planH}/></clipPath></defs>
+                      <g clipPath="url(#planClip)">
+                        {renderMeasurements()}
+                        {renderActive()}
+                        {scalePts.length>=2&&(()=>{
+                          const p1=scalePts[0];const p2=scalePts[1];
+                          const sw=2/zoom;
+                          return(<g>
+                            <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#10B981" strokeWidth={sw} strokeDasharray={`${6/zoom},${3/zoom}`}/>
+                            <circle cx={p1.x} cy={p1.y} r={6/zoom} fill="#10B981"/>
+                            <circle cx={p2.x} cy={p2.y} r={6/zoom} fill="#10B981"/>
+                          </g>);
+                        })()}
+                      </g>
+                    </svg>
                   </div>
-                )}
-                {isPdfPlan?(
-                  <>
-                    {rendering&&<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',background:'rgba(0,0,0,0.7)',zIndex:5,color:'#fff',fontSize:13,gap:8}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>Rendering…</div>}
-                    <canvas ref={canvasRef} style={{display:'block',userSelect:'none'}}/>
-                  </>
-                ):(blobUrl&&(
-                  <img ref={imgRef} src={blobUrl} alt=""
-                    style={{display:'block',maxWidth:'none',userSelect:'none'}}
-                    onLoad={handleImgLoad}
-                    onError={(e)=>{
-                      console.error('img load failed, src:', e.target.src.slice(0,80));
-                      setPlanErr('Load failed. URL: ' + (selPlan?.file_url||'').slice(0,120));
-                    }}
-                    draggable={false}/>
-                ))}
-                <svg ref={svgRef}
-                  style={{position:'absolute',top:0,left:0,width:(isPdfPlan?(canvasRef.current?.width||imgDisp.w):imgDisp.w||800)+'px',height:(isPdfPlan?(canvasRef.current?.height||imgDisp.h):imgDisp.h||1100)+'px',cursor:toolCursor,pointerEvents:'all',userSelect:'none'}}
-                  onMouseDown={handleSvgMouseDown}
-                  onClick={handleSvgClick}
-                  onDoubleClick={(e)=>{
-                    if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
-                      e.stopPropagation();
-                      if(tool==='area'){const area=Math.round(calcArea(activePts)*10)/10;const cnt=planItems.filter(i=>i.measurement_type==='area').length+1;saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});}
-                      else{let perim=0;for(let i=0;i<activePts.length;i++)perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);const cnt=planItems.filter(i=>i.measurement_type==='perimeter').length+1;saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});}
-                      setActivePts([]);
-                    }
-                  }}
-                  onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
-                  {renderMeasurements()}
-                  {renderActive()}
-                  {scalePts.length>=2&&(()=>{const p1=scalePts[0];const p2=scalePts[1];return(<g><line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#10B981" strokeWidth={2.5} strokeDasharray="6,3"/><circle cx={p1.x} cy={p1.y} r={6} fill="#10B981"/><circle cx={p2.x} cy={p2.y} r={6} fill="#10B981"/></g>);})()}
-                </svg>
-              </div>
-            )}
+                </div>
+              );
+            })()}
           </div>
         </div>
 
