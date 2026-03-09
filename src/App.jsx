@@ -3309,7 +3309,7 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
   };
 
   // SVG rendering
-  const renderMeasurements=()=>items.filter(it=>it.points?.length).map(it=>{
+  const renderMeasurements=()=>items.filter(it=>it.points?.length && it.plan_id===selPlan?.id).map(it=>{
     const pts=it.points; // raw pixel coords
     const c=it.color||'#F97316';
     if(it.measurement_type==='area'){
@@ -3364,9 +3364,12 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
     </g>);
   };
 
-  const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0);
+  const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0); // all sheets
+  // planItems: only the current sheet's items (for canvas + items tab)
+  // allItems: all project items (for Estimate tab totals)
+  const planItems=items.filter(i=>i.plan_id===selPlan?.id);
   const catGroups=TAKEOFF_CATS.map(cat=>{
-    const its=items.filter(i=>i.category===cat.id);
+    const its=planItems.filter(i=>i.category===cat.id);
     return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
   }).filter(Boolean);
 
@@ -4302,7 +4305,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       return;
     }
     if(tool==='count'){
-      const cnt=items.filter(i=>i.measurement_type==='count').length+1;
+      const cnt=planItems.filter(i=>i.measurement_type==='count').length+1;
       saveItem({category:'other',description:`Count ${cnt}`,quantity:1,unit:'EA',measurement_type:'count',points:[pt]});
       return;
     }
@@ -4310,7 +4313,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       const npts=[...activePts,pt];
       if(npts.length===2){
         const len=Math.round(calcLinear(npts[0],npts[1])*10)/10;
-        const cnt=items.filter(i=>i.measurement_type==='linear').length+1;
+        const cnt=planItems.filter(i=>i.measurement_type==='linear').length+1;
         saveItem({category:'other',description:`Linear ${cnt}`,quantity:len,unit:'LF',measurement_type:'linear',points:npts});
         setActivePts([]);
       } else setActivePts(npts);
@@ -4321,7 +4324,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         const fp=activePts[0]; // first point in pixel space
         if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
           const area=Math.round(calcArea(activePts)*10)/10;
-          const cnt=items.filter(i=>i.measurement_type==='area').length+1;
+          const cnt=planItems.filter(i=>i.measurement_type==='area').length+1;
           saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});
           setActivePts([]); return;
         }
@@ -4335,7 +4338,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
           let perim=0;
           for(let i=0;i<activePts.length;i++) perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);
-          const cnt=items.filter(i=>i.measurement_type==='perimeter').length+1;
+          const cnt=planItems.filter(i=>i.measurement_type==='perimeter').length+1;
           saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});
           setActivePts([]); return;
         }
@@ -4558,7 +4561,7 @@ Return ONLY a valid JSON array, no markdown:
   };
 
   // SVG
-  const renderMeasurements=()=>items.filter(it=>it.points?.length).map(it=>{
+  const renderMeasurements=()=>items.filter(it=>it.points?.length && it.plan_id===selPlan?.id).map(it=>{
     const pts=it.points; // raw pixel coords
     const c=it.color||'#F97316';
     if(it.measurement_type==='area'&&pts.length>=3){
@@ -4614,9 +4617,12 @@ Return ONLY a valid JSON array, no markdown:
     </>);
   };
 
-  const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0);
+  const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0); // all sheets
+  // planItems: only the current sheet's items (for canvas + items tab)
+  // allItems: all project items (for Estimate tab totals)
+  const planItems=items.filter(i=>i.plan_id===selPlan?.id);
   const catGroups=TAKEOFF_CATS.map(cat=>{
-    const its=items.filter(i=>i.category===cat.id);
+    const its=planItems.filter(i=>i.category===cat.id);
     return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
   }).filter(Boolean);
   const toolCursor=(spaceHeld||tool==='select')?'grab':{area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
@@ -4913,8 +4919,8 @@ Return ONLY a valid JSON array, no markdown:
                   onDoubleClick={(e)=>{
                     if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
                       e.stopPropagation();
-                      if(tool==='area'){const area=Math.round(calcArea(activePts)*10)/10;const cnt=items.filter(i=>i.measurement_type==='area').length+1;saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});}
-                      else{let perim=0;for(let i=0;i<activePts.length;i++)perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);const cnt=items.filter(i=>i.measurement_type==='perimeter').length+1;saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});}
+                      if(tool==='area'){const area=Math.round(calcArea(activePts)*10)/10;const cnt=planItems.filter(i=>i.measurement_type==='area').length+1;saveItem({category:'concrete_slab',description:`Area ${cnt}`,quantity:area,unit:'SF',measurement_type:'area',points:activePts});}
+                      else{let perim=0;for(let i=0;i<activePts.length;i++)perim+=calcLinear(activePts[i],activePts[(i+1)%activePts.length]);const cnt=planItems.filter(i=>i.measurement_type==='perimeter').length+1;saveItem({category:'formwork',description:`Perimeter ${cnt}`,quantity:Math.round(perim*10)/10,unit:'LF',measurement_type:'perimeter',points:activePts});}
                       setActivePts([]);
                     }
                   }}
