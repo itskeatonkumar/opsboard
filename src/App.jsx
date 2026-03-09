@@ -1061,7 +1061,7 @@ const APM_STATUSES = {
   project: ["active","on_hold","complete","cancelled"],
   rfi: ["open","answered","closed"],
   submittal: ["pending","submitted","approved","rejected","revise_resubmit"],
-  co: ["pending","approved","rejected","void"],
+  co: ["proposed","ATP","Contract","rejected"],
   material: ["pending","ordered","partial","delivered","cancelled"],
 };
 
@@ -1070,7 +1070,7 @@ const STATUS_COLORS = {
   open:"#F59E0B", answered:"#10B981", closed:"#555",
   pending:"#F59E0B", submitted:"#3B82F6", approved:"#10B981", rejected:"#EF4444", revise_resubmit:"#F97316",
   ordered:"#3B82F6", partial:"#F59E0B", delivered:"#10B981",
-  void:"#555",
+  void:"#555", ATP:"#3B82F6", Contract:"#10B981", proposed:"#F59E0B",
 };
 
 const fmtDate = d => d ? new Date(d+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric",year:"2-digit"}) : "—";
@@ -1220,9 +1220,60 @@ function DailyLogModal({ log, projectId, onSave, onClose }) {
 }
 
 // ── RFI Modal ──────────────────────────────────────────
+// ── Reusable File Upload Zone ─────────────────────────
+function FileUploadZone({ fileUrl, fileName, folder, onUploaded, accept="image/*,application/pdf,.doc,.docx" }) {
+  const [uploading, setUploading] = useState(false);
+  const fileRef = useRef();
+
+  const handleFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    const ext = file.name.split('.').pop();
+    const path = `${folder}/${Date.now()}.${ext}`;
+    const { error } = await supabase.storage.from("attachments").upload(path, file, { upsert: true });
+    if (error) { setUploading(false); alert("Upload failed: " + error.message); return; }
+    const { data: urlData } = supabase.storage.from("attachments").getPublicUrl(path);
+    onUploaded(urlData.publicUrl, file.name);
+    setUploading(false);
+  };
+
+  return (
+    <div
+      onClick={() => fileRef.current?.click()}
+      onDragOver={e => { e.preventDefault(); e.currentTarget.style.borderColor="#F97316"; }}
+      onDragLeave={e => e.currentTarget.style.borderColor="#2a2a2a"}
+      onDrop={e => { e.preventDefault(); e.currentTarget.style.borderColor="#2a2a2a"; const f=e.dataTransfer.files[0]; if(f) handleFile(f); }}
+      style={{ border:"2px dashed #2a2a2a", borderRadius:8, padding:"12px 16px", cursor:"pointer", display:"flex", alignItems:"center", gap:12, transition:"border-color 0.15s", background:"#0e0e0e" }}
+      onMouseEnter={e => e.currentTarget.style.borderColor="#F97316"}
+      onMouseLeave={e => e.currentTarget.style.borderColor= fileUrl ? "#3a3a3a" : "#2a2a2a"}
+    >
+      <input ref={fileRef} type="file" accept={accept} style={{ display:"none" }} onChange={e => handleFile(e.target.files[0])} />
+      {uploading ? (
+        <><span style={{ animation:"spin 0.8s linear infinite", display:"inline-block", color:"#F97316" }}>◌</span><span style={{ fontSize:12, color:"#F97316", fontFamily:"'DM Mono',monospace" }}>Uploading...</span></>
+      ) : fileUrl ? (
+        <>
+          <span style={{ fontSize:20 }}>{fileUrl.match(/\.(jpg|jpeg|png|gif|webp)/i) ? "🖼" : "📄"}</span>
+          <div style={{ flex:1, minWidth:0 }}>
+            <div style={{ fontSize:12, color:"#e5e5e5", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{fileName || "Attached file"}</div>
+            <div style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace", marginTop:2 }}>Click to replace · <a href={fileUrl} target="_blank" rel="noreferrer" onClick={e=>e.stopPropagation()} style={{ color:"#F97316", textDecoration:"none" }}>Open ↗</a></div>
+          </div>
+        </>
+      ) : (
+        <>
+          <span style={{ fontSize:20 }}>📎</span>
+          <div>
+            <div style={{ fontSize:12, color:"#888" }}>Attach file</div>
+            <div style={{ fontSize:10, color:"#555", fontFamily:"'DM Mono',monospace", marginTop:2 }}>PDF, image, doc — drag or click</div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 function RFIModal({ rfi, projectId, onSave, onClose }) {
   const isNew = !rfi?.id;
-  const [form, setForm] = useState({ rfi_number:"", subject:"", sent_to:"", date_sent:new Date().toISOString().slice(0,10), date_due:"", status:"open", response:"", ...(rfi||{}), project_id:projectId });
+  const [form, setForm] = useState({ rfi_number:"", subject:"", sent_to:"", date_sent:new Date().toISOString().slice(0,10), date_due:"", status:"open", response:"", file_url:"", file_name:"", ...(rfi||{}), project_id:projectId });
   const [saving, setSaving] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
@@ -1255,6 +1306,9 @@ function RFIModal({ rfi, projectId, onSave, onClose }) {
         <APMField label="Response / Notes">
           <textarea value={form.response||""} onChange={e=>set("response",e.target.value)} placeholder="Response or notes..." style={{...inputStyle,minHeight:80,resize:"vertical",fontSize:14}} />
         </APMField>
+        <APMField label="Attachment">
+          <FileUploadZone fileUrl={form.file_url} fileName={form.file_name} folder={`rfis/${projectId}`} onUploaded={(url,name)=>{ set("file_url",url); set("file_name",name); }} />
+        </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && <button onClick={async()=>{ await supabase.from("rfis").delete().eq("id",rfi.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
@@ -1270,7 +1324,7 @@ function RFIModal({ rfi, projectId, onSave, onClose }) {
 // ── Submittal Modal ────────────────────────────────────
 function SubmittalModal({ submittal, projectId, onSave, onClose }) {
   const isNew = !submittal?.id;
-  const [form, setForm] = useState({ submittal_number:"", description:"", sent_to:"", date_sent:new Date().toISOString().slice(0,10), date_due:"", status:"pending", ...(submittal||{}), project_id:projectId });
+  const [form, setForm] = useState({ submittal_number:"", description:"", sent_to:"", date_sent:new Date().toISOString().slice(0,10), date_due:"", status:"pending", file_url:"", file_name:"", ...(submittal||{}), project_id:projectId });
   const [saving, setSaving] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
@@ -1300,6 +1354,9 @@ function SubmittalModal({ submittal, projectId, onSave, onClose }) {
           <APMField label="Date Sent"><input type="date" value={form.date_sent||""} onChange={e=>set("date_sent",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
           <APMField label="Due Date"><input type="date" value={form.date_due||""} onChange={e=>set("date_due",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
         </div>
+        <APMField label="Attachment">
+          <FileUploadZone fileUrl={form.file_url} fileName={form.file_name} folder={`submittals/${projectId}`} onUploaded={(url,name)=>{ set("file_url",url); set("file_name",name); }} />
+        </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && <button onClick={async()=>{ await supabase.from("submittals").delete().eq("id",submittal.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
@@ -1315,7 +1372,7 @@ function SubmittalModal({ submittal, projectId, onSave, onClose }) {
 // ── Change Order Modal ─────────────────────────────────
 function COModal({ co, projectId, onSave, onClose }) {
   const isNew = !co?.id;
-  const [form, setForm] = useState({ co_number:"", description:"", amount:"", status:"pending", date_submitted:new Date().toISOString().slice(0,10), date_approved:"", ...(co||{}), project_id:projectId });
+  const [form, setForm] = useState({ co_number:"", description:"", amount:"", status:"proposed", date_submitted:new Date().toISOString().slice(0,10), date_approved:"", file_url:"", file_name:"", ...(co||{}), project_id:projectId });
   const [saving, setSaving] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
 
@@ -1343,8 +1400,11 @@ function COModal({ co, projectId, onSave, onClose }) {
         <APMField label="Description"><textarea value={form.description} onChange={e=>set("description",e.target.value)} placeholder="Describe the change order..." style={{...inputStyle,minHeight:80,resize:"vertical",fontSize:14}} autoFocus /></APMField>
         <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 }}>
           <APMField label="Date Submitted"><input type="date" value={form.date_submitted||""} onChange={e=>set("date_submitted",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
-          <APMField label="Date Approved"><input type="date" value={form.date_approved||""} onChange={e=>set("date_approved",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
+          <APMField label="Date Approved/Contract"><input type="date" value={form.date_approved||""} onChange={e=>set("date_approved",e.target.value)} style={{...inputStyle,fontSize:14}} /></APMField>
         </div>
+        <APMField label="Attachment">
+          <FileUploadZone fileUrl={form.file_url} fileName={form.file_name} folder={`change_orders/${projectId}`} onUploaded={(url,name)=>{ set("file_url",url); set("file_name",name); }} />
+        </APMField>
       </div>
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && <button onClick={async()=>{ await supabase.from("change_orders").delete().eq("id",co.id); onSave(null,true); }} style={{ background:"#1a0a0a", border:"1px solid #3a1a1a", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
@@ -1913,7 +1973,7 @@ function PayAppModal({ payApp, project, sovItems, onSave, onClose }) {
   const isNew = !payApp?.id;
   const [form, setForm] = useState({
     app_number:"", period_from:"", period_to:new Date().toISOString().slice(0,10),
-    status:"draft", payment_received:"", notes:"",
+    status:"draft", payment_received:"", notes:"", file_url:"", file_name:"",
     ...(payApp||{}), project_id:project.id
   });
   const [lineItems, setLineItems] = useState([]);
@@ -2055,6 +2115,9 @@ function PayAppModal({ payApp, project, sovItems, onSave, onClose }) {
           <APMField label="Payment Received Date"><input type="date" value={form.payment_received||""} onChange={e=>set("payment_received",e.target.value)} style={{...dynInput,fontSize:14}} /></APMField>
           <APMField label="Notes"><input value={form.notes||""} onChange={e=>set("notes",e.target.value)} placeholder="Notes..." style={{...dynInput,fontSize:14}} /></APMField>
         </div>
+        <APMField label="Attachment (signed pay app, backup)">
+          <FileUploadZone fileUrl={form.file_url} fileName={form.file_name} folder={`pay_apps/${project.id}`} onUploaded={(url,name)=>{ set("file_url",url); set("file_name",name); }} />
+        </APMField>
 
         {/* Summary */}
         <div style={{ background:t.bg4, border:`1px solid ${t.border}`, borderRadius:8, padding:"12px 16px", display:"flex", gap:20, flexWrap:"wrap" }}>
