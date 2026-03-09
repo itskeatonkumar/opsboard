@@ -4176,6 +4176,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const fileRef = useRef();
   const containerRef = useRef();
   const panRef = useRef({active:false, startX:0, startY:0, scrollX:0, scrollY:0});
+  const itemsRef = useRef(items); // always-current items ref — fixes stale closure in appendMeasurement
+  useEffect(()=>{ itemsRef.current = items; },[items]);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [activeCondId, setActiveCondId] = useState(null); // condition currently armed for drawing
   const [estSaving, setEstSaving] = useState(null); // item id currently saving in estimate
@@ -4471,8 +4473,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   // points stored as array-of-shapes: [ [{x,y},...], [{x,y},...] ]
   // qty = sum of all shapes (area, linear, perimeter) or count of shapes (count)
   const appendMeasurement = async (condId, newShape) => {
-    const item = items.find(i=>i.id===condId);
-    if(!item) return;
+    const item = itemsRef.current.find(i=>i.id===condId);
+    if(!item){ console.warn('appendMeasurement: item not found', condId, itemsRef.current.map(i=>i.id)); return; }
     // Detect legacy flat points and upgrade
     const existing = item.points;
     let shapes = [];
@@ -4521,7 +4523,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     // If an active condition is selected, append shapes into it.
     // No active condition = no drawing (prompt user to create/select one).
     if(!activeCondId) return;
-    const activeCond = items.find(i=>i.id===activeCondId);
+    const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
     if(!activeCond) return;
     const mt = activeCond.measurement_type;
 
