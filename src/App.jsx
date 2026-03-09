@@ -3084,7 +3084,7 @@ function PreconTab({ project }) {
     return ()=>window.removeEventListener('keydown',handleKey);
   },[]);
 
-  // Wheel zoom — use callback ref pattern
+  // Wheel zoom toward cursor — 5% increments
   const containerCallbackRef = (el) => {
     if(containerRef.current && containerRef._wheelHandler){
       containerRef.current.removeEventListener('wheel', containerRef._wheelHandler);
@@ -3092,8 +3092,22 @@ function PreconTab({ project }) {
     if(el){
       const handler = (e)=>{
         e.preventDefault();
-        const delta = e.deltaY < 0 ? 0.1 : -0.1;
-        setZoom(z=>Math.min(4, Math.max(0.1, Math.round((z+delta)*10)/10)));
+        const factor = e.deltaY < 0 ? 1.05 : 0.95;
+        const rect = el.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const scrollLeft = el.scrollLeft;
+        const scrollTop = el.scrollTop;
+        const contentX = scrollLeft + mouseX;
+        const contentY = scrollTop + mouseY;
+        setZoom(prev => {
+          const newZoom = Math.min(4, Math.max(0.1, Math.round(prev * factor * 20) / 20));
+          requestAnimationFrame(()=>{
+            el.scrollLeft = contentX * (newZoom / prev) - mouseX;
+            el.scrollTop  = contentY * (newZoom / prev) - mouseY;
+          });
+          return newZoom;
+        });
       };
       el.addEventListener('wheel', handler, {passive:false});
       containerRef.current = el;
@@ -4099,7 +4113,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     return ()=>window.removeEventListener('keydown',handleKey);
   },[]);
 
-  // Wheel zoom — use callback ref pattern
+  // Wheel zoom toward cursor — 5% increments
   const containerCallbackRef = (el) => {
     if(containerRef.current && containerRef._wheelHandler){
       containerRef.current.removeEventListener('wheel', containerRef._wheelHandler);
@@ -4107,8 +4121,22 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     if(el){
       const handler = (e)=>{
         e.preventDefault();
-        const delta = e.deltaY < 0 ? 0.1 : -0.1;
-        setZoom(z=>Math.min(4, Math.max(0.1, Math.round((z+delta)*10)/10)));
+        const factor = e.deltaY < 0 ? 1.05 : 0.95;
+        const rect = el.getBoundingClientRect();
+        const mouseX = e.clientX - rect.left;
+        const mouseY = e.clientY - rect.top;
+        const scrollLeft = el.scrollLeft;
+        const scrollTop = el.scrollTop;
+        const contentX = scrollLeft + mouseX;
+        const contentY = scrollTop + mouseY;
+        setZoom(prev => {
+          const newZoom = Math.min(4, Math.max(0.1, Math.round(prev * factor * 20) / 20));
+          requestAnimationFrame(()=>{
+            el.scrollLeft = contentX * (newZoom / prev) - mouseX;
+            el.scrollTop  = contentY * (newZoom / prev) - mouseY;
+          });
+          return newZoom;
+        });
       };
       el.addEventListener('wheel', handler, {passive:false});
       containerRef.current = el;
@@ -4537,9 +4565,9 @@ Return ONLY a valid JSON array, no markdown:
         </div>
         <button onClick={()=>setEditProject(true)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'4px 10px',borderRadius:4,cursor:'pointer',fontSize:10,flexShrink:0,marginRight:8}}>Edit</button>
         <div style={{display:'flex',alignItems:'center',gap:2,padding:'0 10px',borderLeft:`1px solid ${t.border}`,height:'100%',flexShrink:0}}>
-          <button onClick={()=>setZoom(z=>Math.max(z-0.1,0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+          <button onClick={()=>setZoom(z=>Math.max(Math.round((z-0.05)*20)/20, 0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
           <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
-          <button onClick={()=>setZoom(z=>Math.min(z+0.1,4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+          <button onClick={()=>setZoom(z=>Math.min(Math.round((z+0.05)*20)/20, 4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
           <button onClick={()=>setZoom(1)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",marginLeft:2}}>1:1</button>
         </div>
         <button onClick={()=>setShowBidSummary(true)} disabled={!items.length}
