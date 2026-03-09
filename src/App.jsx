@@ -2866,6 +2866,585 @@ function FinancialsTab({ project, cos }) {
   );
 }
 
+
+// ── Precon / Takeoff ──────────────────────────────────
+
+const TAKEOFF_CATS = [
+  { id:'concrete_slab',    label:'Concrete – Slab on Grade', unit:'SF',  cy:true,  defaultCost:6.50,  color:'#F59E0B' },
+  { id:'concrete_footing', label:'Concrete – Footings',      unit:'CY',  cy:false, defaultCost:125,   color:'#F97316' },
+  { id:'concrete_wall',    label:'Concrete – Walls/Columns', unit:'CY',  cy:false, defaultCost:150,   color:'#EF4444' },
+  { id:'masonry_cmu',      label:'Masonry – CMU Block',      unit:'SF',  cy:false, defaultCost:18,    color:'#8B5CF6' },
+  { id:'masonry_brick',    label:'Masonry – Brick',          unit:'SF',  cy:false, defaultCost:22,    color:'#6366F1' },
+  { id:'rebar',            label:'Rebar / Steel',            unit:'LB',  cy:false, defaultCost:1.20,  color:'#10B981' },
+  { id:'formwork',         label:'Formwork',                 unit:'SF',  cy:false, defaultCost:4.50,  color:'#06B6D4' },
+  { id:'excavation',       label:'Excavation',               unit:'CY',  cy:false, defaultCost:8,     color:'#84CC16' },
+  { id:'flatwork',         label:'Flatwork / Paving',        unit:'SF',  cy:false, defaultCost:6,     color:'#3B82F6' },
+  { id:'grout',            label:'Grout / Mortar',           unit:'CY',  cy:false, defaultCost:200,   color:'#EC4899' },
+  { id:'other',            label:'Other / General',          unit:'LS',  cy:false, defaultCost:0,     color:'#555'    },
+];
+
+function TakeoffItemModal({ item, onSave, onClose }) {
+  const { t } = useTheme();
+  const isNew = !item?.id;
+  const cat = TAKEOFF_CATS.find(c=>c.id===item?.category) || TAKEOFF_CATS[0];
+  const [form, setForm] = useState({
+    category: cat.id, description: item?.description||'', quantity: item?.quantity||'',
+    unit: item?.unit||cat.unit, unit_cost: item?.unit_cost||cat.defaultCost,
+    ...(item||{})
+  });
+  const set = (k,v) => setForm(f=>({...f,[k]:v}));
+  const total = (Number(form.quantity)||0) * (Number(form.unit_cost)||0);
+  const dynInput = {...inputStyle, background:t.input, borderColor:t.inputBorder, color:t.inputText, fontSize:13};
+
+  const handleSave = async () => {
+    const payload = {...form, quantity:Number(form.quantity)||0, unit_cost:Number(form.unit_cost)||0, total_cost:total};
+    if (isNew) {
+      const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
+      if (data) onSave(data, true);
+    } else {
+      await supabase.from('takeoff_items').update(payload).eq('id', item.id);
+      onSave({...item,...payload}, false);
+    }
+  };
+
+  return (
+    <APMModal title={isNew?'New Takeoff Item':'Edit Takeoff Item'} onClose={onClose} width={480}>
+      <div style={{display:'flex',flexDirection:'column',gap:12}}>
+        <APMField label="Category">
+          <select value={form.category} onChange={e=>{
+            const c=TAKEOFF_CATS.find(x=>x.id===e.target.value)||TAKEOFF_CATS[0];
+            set('category',e.target.value); set('unit',c.unit); set('unit_cost',c.defaultCost);
+          }} style={{...dynInput}}>
+            {TAKEOFF_CATS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+          </select>
+        </APMField>
+        <APMField label="Description">
+          <input value={form.description} onChange={e=>set('description',e.target.value)} style={{...dynInput,fontSize:14}} autoFocus />
+        </APMField>
+        <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
+          <APMField label="Quantity"><input type="number" value={form.quantity} onChange={e=>set('quantity',e.target.value)} style={{...dynInput}} /></APMField>
+          <APMField label="Unit"><input value={form.unit} onChange={e=>set('unit',e.target.value)} style={{...dynInput}} /></APMField>
+          <APMField label="Unit Cost ($)"><input type="number" value={form.unit_cost} onChange={e=>set('unit_cost',e.target.value)} style={{...dynInput}} /></APMField>
+        </div>
+        <div style={{background:t.bg5,borderRadius:6,padding:'10px 14px',display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+          <span style={{fontSize:11,color:t.text3,fontFamily:"'DM Mono',monospace"}}>TOTAL</span>
+          <span style={{fontSize:15,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${total.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</span>
+        </div>
+      </div>
+      <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'space-between'}}>
+        {!isNew && <button onClick={async()=>{await supabase.from('takeoff_items').delete().eq('id',item.id);onSave(null,'delete');}} style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'8px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Delete</button>}
+        <div style={{display:'flex',gap:8,marginLeft:'auto'}}>
+          <button onClick={onClose} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13}}>Cancel</button>
+          <button onClick={handleSave} style={{background:'#F97316',border:'none',color:'#000',padding:'8px 22px',borderRadius:6,cursor:'pointer',fontSize:13,fontWeight:700}}>Save</button>
+        </div>
+      </div>
+    </APMModal>
+  );
+}
+
+function PreconTab({ project }) {
+  const { t } = useTheme();
+  const [plans, setPlans] = useState([]);
+  const [selPlan, setSelPlan] = useState(null);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [analyzing, setAnalyzing] = useState(false);
+  const [pushingSOV, setPushingSOV] = useState(false);
+  const [tool, setTool] = useState('select');
+  const [activePts, setActivePts] = useState([]);
+  const [hoverPt, setHoverPt] = useState(null);
+  const [scale, setScale] = useState(null);
+  const [scaleStep, setScaleStep] = useState(null);
+  const [scalePts, setScalePts] = useState([]);
+  const [scaleDist, setScaleDist] = useState('');
+  const [scaleUnit, setScaleUnit] = useState('ft');
+  const [imgNat, setImgNat] = useState({w:1,h:1});
+  const [imgDisp, setImgDisp] = useState({w:1,h:1});
+  const [editItem, setEditItem] = useState(null);
+  const [planB64, setPlanB64] = useState(null);
+  const [planMime, setPlanMime] = useState('image/png');
+  const [rightTab, setRightTab] = useState('items'); // 'items' | 'estimate'
+  const imgRef = useRef();
+  const svgRef = useRef();
+  const fileRef = useRef();
+
+  useEffect(()=>{
+    Promise.all([
+      supabase.from('precon_plans').select('*').eq('project_id',project.id).order('created_at'),
+      supabase.from('takeoff_items').select('*').eq('project_id',project.id).order('sort_order'),
+    ]).then(([{data:p},{data:i}])=>{
+      const pl=p||[]; setPlans(pl); setItems(i||[]);
+      if(pl.length>0){setSelPlan(pl[0]); if(pl[0].scale_px_per_ft) setScale(pl[0].scale_px_per_ft);}
+      setLoading(false);
+    });
+  },[project.id]);
+
+  const toNorm=(x,y)=>({x:x/imgDisp.w,y:y/imgDisp.h});
+  const toPx=(nx,ny)=>({x:nx*imgDisp.w,y:ny*imgDisp.h});
+  const toNat=(nx,ny)=>({x:nx*imgNat.w,y:ny*imgNat.h});
+
+  const getSvgPos=(e)=>{
+    const r=svgRef.current?.getBoundingClientRect();
+    if(!r) return {x:0,y:0};
+    return {x:e.clientX-r.left,y:e.clientY-r.top};
+  };
+
+  const calcArea=(pts)=>{
+    if(!scale||pts.length<3) return 0;
+    let a=0;
+    for(let i=0;i<pts.length;i++){
+      const j=(i+1)%pts.length;
+      const pi=toNat(pts[i].x,pts[i].y);
+      const pj=toNat(pts[j].x,pts[j].y);
+      a+=pi.x*pj.y; a-=pj.x*pi.y;
+    }
+    return Math.abs(a)/2/(scale*scale);
+  };
+
+  const calcLinear=(p1,p2)=>{
+    if(!scale) return 0;
+    const n1=toNat(p1.x,p1.y); const n2=toNat(p2.x,p2.y);
+    return Math.sqrt((n2.x-n1.x)**2+(n2.y-n1.y)**2)/scale;
+  };
+
+  const handleImgLoad=()=>{
+    if(!imgRef.current) return;
+    setImgNat({w:imgRef.current.naturalWidth,h:imgRef.current.naturalHeight});
+    const r=imgRef.current.getBoundingClientRect();
+    setImgDisp({w:r.width,h:r.height});
+  };
+
+  const saveItem=async(itemData)=>{
+    const catDef=TAKEOFF_CATS.find(c=>c.id===itemData.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
+    const unit_cost=itemData.unit_cost??catDef.defaultCost;
+    const total_cost=(itemData.quantity||0)*unit_cost;
+    const payload={...itemData,project_id:project.id,plan_id:selPlan?.id,unit_cost,total_cost,color:catDef.color,sort_order:items.length};
+    const {data}=await supabase.from('takeoff_items').insert([payload]).select().single();
+    if(data){setItems(prev=>[...prev,data]); setEditItem(data);}
+  };
+
+  const handleSvgClick=(e)=>{
+    if(!selPlan) return;
+    const pos=getSvgPos(e);
+    const norm=toNorm(pos.x,pos.y);
+
+    if(tool==='scale'&&scaleStep==='picking'){
+      const npts=[...scalePts,norm];
+      setScalePts(npts);
+      if(npts.length===2) setScaleStep('entering');
+      return;
+    }
+    if(tool==='count'){
+      saveItem({category:'other',description:'Count marker',quantity:1,unit:'EA',measurement_type:'count',points:[norm]});
+      return;
+    }
+    if(tool==='linear'){
+      const npts=[...activePts,norm];
+      if(npts.length===2){
+        const len=Math.round(calcLinear(npts[0],npts[1])*10)/10;
+        saveItem({category:'other',description:'Linear measurement',quantity:len,unit:'LF',measurement_type:'linear',points:npts});
+        setActivePts([]);
+      } else setActivePts(npts);
+      return;
+    }
+    if(tool==='area'){
+      if(activePts.length>=3){
+        const fp=toPx(activePts[0].x,activePts[0].y);
+        if(Math.sqrt((pos.x-fp.x)**2+(pos.y-fp.y)**2)<14){
+          const area=Math.round(calcArea(activePts)*10)/10;
+          saveItem({category:'concrete_slab',description:'Concrete area',quantity:area,unit:'SF',measurement_type:'area',points:activePts});
+          setActivePts([]);
+          return;
+        }
+      }
+      setActivePts(prev=>[...prev,norm]);
+    }
+  };
+
+  const handleSvgMove=(e)=>{ const p=getSvgPos(e); setHoverPt(toNorm(p.x,p.y)); };
+
+  const confirmScale=async()=>{
+    if(!scaleDist||scalePts.length<2) return;
+    const p1=toNat(scalePts[0].x,scalePts[0].y);
+    const p2=toNat(scalePts[1].x,scalePts[1].y);
+    const pxDist=Math.sqrt((p2.x-p1.x)**2+(p2.y-p1.y)**2);
+    const realFt=Number(scaleDist)*(scaleUnit==='in'?1/12:1);
+    const pxPerFt=pxDist/realFt;
+    setScale(pxPerFt); setScaleStep(null); setScalePts([]); setScaleDist(''); setTool('select');
+    if(selPlan){
+      await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+      setSelPlan(prev=>({...prev,scale_px_per_ft:pxPerFt}));
+    }
+  };
+
+  const handleUpload=async(file)=>{
+    if(!file) return;
+    setUploading(true);
+    const ext=file.name.split('.').pop();
+    const path=`precon/${project.id}/${Date.now()}.${ext}`;
+    const {error}=await supabase.storage.from('attachments').upload(path,file,{upsert:true});
+    if(error){setUploading(false);alert('Upload failed: '+error.message);return;}
+    const {data:ud}=supabase.storage.from('attachments').getPublicUrl(path);
+    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:project.id,name:file.name,file_url:ud.publicUrl,file_type:file.type}]).select().single();
+    if(plan){setPlans(prev=>[...prev,plan]);setSelPlan(plan);}
+    const reader=new FileReader();
+    reader.onload=ev=>{setPlanB64(ev.target.result.split(',')[1]);setPlanMime(file.type);};
+    reader.readAsDataURL(file);
+    setUploading(false);
+  };
+
+  const runAITakeoff=async()=>{
+    if(!selPlan) return;
+    setAnalyzing(true);
+    let b64=planB64; let mime=planMime;
+    if(!b64){
+      try{
+        const res=await fetch(selPlan.file_url);
+        const blob=await res.blob();
+        mime=blob.type||'image/png';
+        b64=await new Promise(resolve=>{const r=new FileReader();r.onload=e=>resolve(e.target.result.split(',')[1]);r.readAsDataURL(blob);});
+      }catch(e){setAnalyzing(false);alert('Could not load plan image');return;}
+    }
+    const isImg=mime.startsWith('image/');
+    const block=isImg?{type:'image',source:{type:'base64',media_type:mime,data:b64}}:{type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}};
+    const res=await fetch('/api/claude',{
+      method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2500,
+        messages:[{role:'user',content:[block,{type:'text',text:`You are a concrete and masonry construction estimator. Analyze this plan/drawing carefully.
+
+Project: "${project.name}" | Contract: ${project.contract_value?'$'+project.contract_value:'TBD'} | GC: ${project.gc_name||'N/A'}
+
+Extract ALL quantifiable scope items for a concrete/masonry subcontractor. Be specific — read any visible dimensions, room labels, notes on the drawings. If you see a dimension string, use it. If you cannot read dimensions, estimate based on visible scale and context.
+
+Return ONLY a valid JSON array, no markdown, no explanation:
+[{"category":"concrete_slab|concrete_footing|concrete_wall|masonry_cmu|masonry_brick|rebar|formwork|excavation|flatwork|grout|other","description":"specific item description","quantity":number,"unit":"SF|CY|LF|LB|EA|LS","measurement_type":"area|linear|count|manual","notes":"any important context"}]
+
+Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, formwork, excavation. Separate different areas/elements into individual line items.`}]}]})
+    });
+    const json=await res.json();
+    const text=json?.content?.find(b=>b.type==='text')?.text||'';
+    try{
+      const aiItems=JSON.parse(text.replace(/```json|```/g,'').trim());
+      const toInsert=aiItems.map((it,i)=>{
+        const catDef=TAKEOFF_CATS.find(c=>c.id===it.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
+        const uc=catDef.defaultCost;
+        return {project_id:project.id,plan_id:selPlan?.id,category:it.category||'other',description:it.description,quantity:it.quantity||0,unit:it.unit||catDef.unit,unit_cost:uc,total_cost:(it.quantity||0)*uc,measurement_type:it.measurement_type||'manual',points:null,color:catDef.color,ai_generated:true,sort_order:items.length+i};
+      });
+      const {data}=await supabase.from('takeoff_items').insert(toInsert).select();
+      if(data) setItems(prev=>[...prev,...data]);
+    }catch(e){alert('AI parse failed: '+e.message);}
+    setAnalyzing(false);
+  };
+
+  const pushToSOV=async()=>{
+    if(!items.length) return;
+    setPushingSOV(true);
+    const grouped={};
+    items.forEach(it=>{
+      const cat=TAKEOFF_CATS.find(c=>c.id===it.category);
+      const key=cat?.label||it.category;
+      if(!grouped[key]) grouped[key]={desc:key,total:0};
+      grouped[key].total+=(it.total_cost||0);
+    });
+    const sovRows=Object.values(grouped).map((g,i)=>({project_id:project.id,item_no:String(i+1),description:g.desc,scheduled_value:Math.round(g.total),sort_order:i}));
+    await supabase.from('sov_items').delete().eq('project_id',project.id);
+    await supabase.from('sov_items').insert(sovRows);
+    setPushingSOV(false);
+    alert('SOV updated from takeoff! Go to Pay Apps to review.');
+  };
+
+  // SVG rendering
+  const renderMeasurements=()=>items.filter(it=>it.points?.length).map(it=>{
+    const pts=it.points.map(p=>toPx(p.x,p.y));
+    const c=it.color||'#F97316';
+    if(it.measurement_type==='area'){
+      const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ')+' Z';
+      const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
+      const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
+      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+        <path d={d} fill={c+'28'} stroke={c} strokeWidth={2}/>
+        <text x={cx} y={cy} fontSize={11} fill={c} textAnchor="middle" dominantBaseline="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity}{it.unit}</text>
+      </g>);
+    }
+    if(it.measurement_type==='linear'&&pts.length>=2){
+      const mx=(pts[0].x+pts[1].x)/2; const my=(pts[0].y+pts[1].y)/2;
+      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+        <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={2.5} strokeDasharray="7,4"/>
+        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={5} fill={c}/>)}
+        <text x={mx} y={my-8} fontSize={11} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{it.quantity} {it.unit}</text>
+      </g>);
+    }
+    if(it.measurement_type==='count'){
+      return(<g key={it.id} onClick={()=>setEditItem(it)} style={{cursor:'pointer'}}>
+        <circle cx={pts[0].x} cy={pts[0].y} r={9} fill={c} opacity={0.85}/>
+        <text x={pts[0].x} y={pts[0].y+4} fontSize={10} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" style={{pointerEvents:'none'}}>✕</text>
+      </g>);
+    }
+    return null;
+  });
+
+  const renderActiveDrawing=()=>{
+    const pts=(tool==='scale'&&scaleStep==='picking')?scalePts:activePts;
+    if(!pts.length) return null;
+    const c=tool==='scale'?'#10B981':tool==='area'?'#F59E0B':'#06B6D4';
+    const disp=pts.map(p=>toPx(p.x,p.y));
+    const hover=hoverPt?toPx(hoverPt.x,hoverPt.y):null;
+    const all=hover?[...disp,hover]:disp;
+    return(<>
+      {all.length>=2&&<polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={2} strokeDasharray={tool==='area'?'none':'6,3'} opacity={0.8}/>}
+      {disp.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?9:5} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={2} opacity={0.9}/>)}
+      {hover&&<circle cx={hover.x} cy={hover.y} r={4} fill={c} opacity={0.4}/>}
+      {tool==='area'&&pts.length>=3&&<text x={disp[0].x+12} y={disp[0].y-8} fontSize={10} fill={c} fontFamily="'DM Mono',monospace">close</text>}
+    </>);
+  };
+
+  const renderScaleLine=()=>{
+    if(scalePts.length<2) return null;
+    const p1=toPx(scalePts[0].x,scalePts[0].y);
+    const p2=toPx(scalePts[1].x,scalePts[1].y);
+    return(<g>
+      <line x1={p1.x} y1={p1.y} x2={p2.x} y2={p2.y} stroke="#10B981" strokeWidth={2} strokeDasharray="5,3"/>
+      <circle cx={p1.x} cy={p1.y} r={5} fill="#10B981"/>
+      <circle cx={p2.x} cy={p2.y} r={5} fill="#10B981"/>
+    </g>);
+  };
+
+  const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0);
+  const catGroups=TAKEOFF_CATS.map(cat=>{
+    const its=items.filter(i=>i.category===cat.id);
+    return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
+  }).filter(Boolean);
+
+  const toolCursor={select:'default',area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
+
+  if(loading) return <div style={{textAlign:'center',padding:40,color:t.text4,fontSize:12,fontFamily:"'DM Mono',monospace"}}>Loading...</div>;
+
+  return (
+    <div style={{display:'flex',height:'100%',gap:0,overflow:'hidden'}}>
+
+      {/* ── Left: Plan Viewer ── */}
+      <div style={{flex:1,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,overflow:'hidden',minWidth:0}}>
+
+        {/* Plan toolbar */}
+        <div style={{display:'flex',gap:6,padding:'8px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,alignItems:'center',flexWrap:'wrap',background:t.bg2}}>
+
+          {/* Plan selector / upload */}
+          <div style={{display:'flex',gap:6,alignItems:'center',flex:1,minWidth:0}}>
+            {plans.length>0&&(
+              <select value={selPlan?.id||''} onChange={e=>{
+                const p=plans.find(x=>x.id===Number(e.target.value));
+                setSelPlan(p||null);
+                if(p?.scale_px_per_ft) setScale(p.scale_px_per_ft); else setScale(null);
+              }} style={{...inputStyle,fontSize:12,padding:'4px 8px',maxWidth:180}}>
+                {plans.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
+              </select>
+            )}
+            <button onClick={()=>fileRef.current?.click()} disabled={uploading}
+              style={{background:'none',border:`1px solid ${t.border2}`,color:t.text2,padding:'4px 10px',borderRadius:5,cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+              {uploading?'Uploading…':'📎 Upload Plan'}
+            </button>
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
+          </div>
+
+          {/* Scale indicator */}
+          {scale&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'3px 8px',borderRadius:4,flexShrink:0}}>⇔ Scale set</span>}
+          {!scale&&selPlan&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace",flexShrink:0}}>⚠ No scale</span>}
+
+          {/* AI Takeoff */}
+          {selPlan&&<button onClick={runAITakeoff} disabled={analyzing}
+            style={{background:'linear-gradient(135deg,#7c3aed,#a855f7)',border:'none',color:'#fff',padding:'5px 12px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+            {analyzing?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Analyzing…</>:<><span>✦</span> AI Takeoff</>}
+          </button>}
+        </div>
+
+        {/* Drawing toolbar */}
+        {selPlan&&(
+          <div style={{display:'flex',gap:4,padding:'6px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg,alignItems:'center'}}>
+            {[
+              {id:'select',icon:'↖',label:'Select'},
+              {id:'area',icon:'⬡',label:'Area'},
+              {id:'linear',icon:'━',label:'Linear'},
+              {id:'count',icon:'✕',label:'Count'},
+              {id:'scale',icon:'⇔',label:'Scale'},
+            ].map(tb=>(
+              <button key={tb.id} onClick={()=>{setTool(tb.id);setActivePts([]);if(tb.id==='scale'){setScaleStep('picking');setScalePts([]);}else setScaleStep(null);}}
+                title={tb.label}
+                style={{padding:'5px 10px',borderRadius:5,border:tool===tb.id?`1px solid #F97316`:`1px solid ${t.border}`,background:tool===tb.id?'rgba(249,115,22,0.1)':'none',color:tool===tb.id?'#F97316':t.text3,cursor:'pointer',fontSize:13,fontWeight:600,fontFamily:"'DM Mono',monospace"}}>
+                {tb.icon} <span style={{fontSize:9,marginLeft:3}}>{tb.label}</span>
+              </button>
+            ))}
+            {tool==='area'&&activePts.length>0&&(
+              <span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace",marginLeft:4}}>
+                {activePts.length} pts {activePts.length>=3?'• click first point to close':''}
+              </span>
+            )}
+            {tool==='linear'&&activePts.length===1&&(
+              <span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace",marginLeft:4}}>Click end point</span>
+            )}
+            {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginLeft:4}}>Click 2 points of known distance ({scalePts.length}/2)</span>}
+            {!scale&&tool!=='scale'&&<span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",marginLeft:'auto'}}>Set scale first for accurate measurements</span>}
+          </div>
+        )}
+
+        {/* Plan canvas */}
+        <div style={{flex:1,overflow:'auto',display:'flex',alignItems:'flex-start',justifyContent:'flex-start',background:t.bg,padding:selPlan?0:40}}>
+          {!selPlan?(
+            <div style={{width:'100%',textAlign:'center'}}>
+              <div style={{fontSize:40,marginBottom:16}}>📐</div>
+              <div style={{fontSize:14,color:t.text2,marginBottom:8}}>No plans uploaded yet</div>
+              <div style={{fontSize:11,color:t.text4,fontFamily:"'DM Mono',monospace",marginBottom:20}}>Upload a PDF or image of your plans to get started</div>
+              <button onClick={()=>fileRef.current?.click()}
+                style={{background:'#F97316',border:'none',color:'#000',padding:'10px 22px',borderRadius:8,cursor:'pointer',fontSize:13,fontWeight:700}}>
+                📎 Upload Plans
+              </button>
+            </div>
+          ):(
+            <div style={{position:'relative',display:'inline-block',minWidth:'100%'}}>
+              <img ref={imgRef} src={selPlan.file_url} alt="Plan"
+                style={{display:'block',maxWidth:'100%',userSelect:'none'}}
+                onLoad={handleImgLoad}
+                draggable={false}/>
+              <svg ref={svgRef}
+                style={{position:'absolute',top:0,left:0,width:'100%',height:'100%',cursor:toolCursor}}
+                onClick={handleSvgClick}
+                onMouseMove={handleSvgMove}
+                onMouseLeave={()=>setHoverPt(null)}>
+                {renderMeasurements()}
+                {renderActiveDrawing()}
+                {renderScaleLine()}
+              </svg>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Right: Takeoff Panel ── */}
+      <div style={{width:320,flexShrink:0,display:'flex',flexDirection:'column',overflow:'hidden',background:t.bg2}}>
+
+        {/* Right tab bar */}
+        <div style={{display:'flex',borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
+          {[['items','Items'],['estimate','Estimate']].map(([id,label])=>(
+            <button key={id} onClick={()=>setRightTab(id)}
+              style={{flex:1,padding:'10px 0',border:'none',background:'none',cursor:'pointer',fontSize:12,fontWeight:700,color:rightTab===id?'#F97316':t.text3,borderBottom:rightTab===id?'2px solid #F97316':'2px solid transparent',fontFamily:"'DM Mono',monospace"}}>
+              {label}{id==='items'?` (${items.length})`:''}
+            </button>
+          ))}
+        </div>
+
+        {/* Items tab */}
+        {rightTab==='items'&&(
+          <div style={{flex:1,overflowY:'auto',padding:10}}>
+            <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:8}}>
+              <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{items.length} ITEMS</span>
+              <button onClick={()=>setEditItem({project_id:project.id,plan_id:selPlan?.id})}
+                style={{background:'#F97316',border:'none',color:'#000',padding:'4px 10px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700}}>+ Add</button>
+            </div>
+            {items.length===0&&(
+              <div style={{textAlign:'center',padding:'40px 0',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace"}}>
+                {selPlan?<>Use tools to draw measurements<br/>or click ✦ AI Takeoff</>:'Upload a plan first'}
+              </div>
+            )}
+            {items.map(item=>{
+              const cat=TAKEOFF_CATS.find(c=>c.id===item.category)||TAKEOFF_CATS[TAKEOFF_CATS.length-1];
+              return(
+                <div key={item.id} onClick={()=>setEditItem(item)}
+                  style={{background:t.bg3,border:`1px solid ${t.border}`,borderLeft:`3px solid ${cat.color}`,borderRadius:6,padding:'8px 10px',marginBottom:5,cursor:'pointer',transition:'border-color 0.1s'}}
+                  onMouseEnter={e=>e.currentTarget.style.borderColor=t.border2}
+                  onMouseLeave={e=>e.currentTarget.style.borderColor=t.border}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',gap:6}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description}</div>
+                      <div style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",marginTop:2}}>{cat.label}</div>
+                    </div>
+                    <div style={{textAlign:'right',flexShrink:0}}>
+                      <div style={{fontSize:11,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>{item.quantity} {item.unit}</div>
+                      <div style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${(item.total_cost||0).toLocaleString()}</div>
+                    </div>
+                  </div>
+                  {item.ai_generated&&<span style={{fontSize:9,color:'#a855f7',fontFamily:"'DM Mono',monospace",marginTop:3,display:'inline-block'}}>✦ AI</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
+
+        {/* Estimate tab */}
+        {rightTab==='estimate'&&(
+          <div style={{flex:1,overflowY:'auto',padding:10}}>
+            {catGroups.length===0&&(
+              <div style={{textAlign:'center',padding:'40px 0',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace"}}>No items yet</div>
+            )}
+            {catGroups.map(cat=>(
+              <div key={cat.id} style={{marginBottom:10}}>
+                <div style={{display:'flex',alignItems:'center',gap:6,marginBottom:4}}>
+                  <span style={{width:8,height:8,borderRadius:2,background:cat.color,flexShrink:0}}/>
+                  <span style={{fontSize:10,fontWeight:700,color:t.text2,fontFamily:"'DM Mono',monospace",flex:1}}>{cat.label.toUpperCase()}</span>
+                  <span style={{fontSize:11,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${cat.subtotal.toLocaleString()}</span>
+                </div>
+                {cat.items.map(it=>(
+                  <div key={it.id} style={{display:'flex',justifyContent:'space-between',padding:'3px 8px 3px 16px',fontSize:11,color:t.text3}}>
+                    <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,fontFamily:"'DM Mono',monospace"}}>{it.quantity} {it.unit}</span>
+                    <span style={{color:t.text2,fontFamily:"'DM Mono',monospace",flexShrink:0}}>@ ${it.unit_cost} = <span style={{color:t.text}}>${(it.total_cost||0).toLocaleString()}</span></span>
+                  </div>
+                ))}
+              </div>
+            ))}
+            {catGroups.length>0&&(
+              <>
+                <div style={{borderTop:`2px solid ${t.border2}`,marginTop:10,paddingTop:10,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span style={{fontSize:12,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>TOTAL ESTIMATE</span>
+                  <span style={{fontSize:16,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString('en-US',{minimumFractionDigits:0})}</span>
+                </div>
+                {project.contract_value&&(
+                  <div style={{fontSize:10,color:totalEst>project.contract_value?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace",textAlign:'right',marginTop:4}}>
+                    {totalEst>project.contract_value?'▲ over contract':'▼ under contract'} by ${Math.abs(totalEst-project.contract_value).toLocaleString()}
+                  </div>
+                )}
+                <button onClick={pushToSOV} disabled={pushingSOV}
+                  style={{width:'100%',marginTop:14,background:'linear-gradient(135deg,#3b82f6,#1d4ed8)',border:'none',color:'#fff',padding:'10px 0',borderRadius:7,cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:6}}>
+                  {pushingSOV?'Pushing…':'⇒ Push to SOV'}
+                </button>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Scale entry dialog */}
+      {scaleStep==='entering'&&(
+        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}} onClick={()=>{setScaleStep(null);setScalePts([]);}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:t.bg3,border:`1px solid ${t.border2}`,borderRadius:12,padding:28,width:320}}>
+            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:16}}>⇔ Set Scale</div>
+            <div style={{fontSize:12,color:t.text3,marginBottom:12,fontFamily:"'DM Mono',monospace"}}>What is the real-world distance between the two points you selected?</div>
+            <div style={{display:'flex',gap:8,marginBottom:16}}>
+              <input type="number" value={scaleDist} onChange={e=>setScaleDist(e.target.value)} placeholder="Enter distance"
+                style={{...inputStyle,flex:1,fontSize:14}} autoFocus onKeyDown={e=>e.key==='Enter'&&confirmScale()}/>
+              <select value={scaleUnit} onChange={e=>setScaleUnit(e.target.value)} style={{...inputStyle,width:60}}>
+                <option value="ft">ft</option>
+                <option value="in">in</option>
+              </select>
+            </div>
+            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
+              <button onClick={()=>{setScaleStep(null);setScalePts([]);}} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'8px 16px',borderRadius:6,cursor:'pointer',fontSize:12}}>Cancel</button>
+              <button onClick={confirmScale} disabled={!scaleDist} style={{background:'#10B981',border:'none',color:'#000',padding:'8px 20px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700}}>Set Scale</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editItem&&(
+        <TakeoffItemModal item={editItem} onSave={(data,type)=>{
+          if(type==='delete') setItems(prev=>prev.filter(i=>i.id!==editItem.id));
+          else if(type===true) setItems(prev=>[...prev.filter(i=>i.id!==data.id),data]);
+          else setItems(prev=>prev.map(i=>i.id===data.id?data:i));
+          setEditItem(null);
+        }} onClose={()=>setEditItem(null)}/>
+      )}
+    </div>
+  );
+}
+
 // ── Project Detail ─────────────────────────────────────
 function ProjectDetail({ project, onBack, onEdit }) {
   const [tab, setTab] = useState("logs");
@@ -2905,6 +3484,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
   const totalMaterials = materials.reduce((sum,m)=>sum+(m.total_cost||0),0);
 
   const TABS = [
+    { id:"precon", label:"Precon", count:0 },
     { id:"schedule", label:"Schedule", count:scheduleItems.length },
     { id:"logs", label:"Daily Logs", count:logs.length },
     { id:"rfis", label:"RFIs", count:rfis.length },
@@ -2966,7 +3546,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
         {loading ? <div style={{ textAlign:"center", padding:40, color:"#333", fontFamily:"'DM Mono',monospace", fontSize:12 }}>Loading...</div> : (
           <>
             {/* Add button */}
-            {tab !== "financials" && tab !== "subcontracts" && tab !== "payapps" && tab !== "schedule" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
+            {tab !== "financials" && tab !== "subcontracts" && tab !== "payapps" && tab !== "schedule" && tab !== "precon" && <div style={{ display:"flex", justifyContent:"flex-end", marginBottom:12 }}>
               <button onClick={()=>setModal({type:tab,item:null})} style={{ background:"#F97316", border:"none", color:"#000", padding:"7px 16px", borderRadius:6, cursor:"pointer", fontSize:12, fontWeight:700 }}>
                 {tab==="financials" ? null : ("+ Add " + (tab==="logs"?"Log":tab==="rfis"?"RFI":tab==="submittals"?"Submittal":tab==="cos"?"Change Order":"Order"))}
               </button>
@@ -3103,6 +3683,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
             )}
 
             {/* Financials */}
+            {tab==="precon" && <PreconTab project={project} />}
             {tab==="schedule" && <ScheduleTab project={project} />}
             {tab==="subcontracts" && <SubcontractsTab project={project} />}
             {tab==="payapps" && <PayAppTab project={project} />}
