@@ -3009,10 +3009,12 @@ function PreconTab({ project }) {
   };
 
   const handleImgLoad=()=>{
-    if(!imgRef.current) return;
-    setImgNat({w:imgRef.current.naturalWidth,h:imgRef.current.naturalHeight});
-    const r=imgRef.current.getBoundingClientRect();
-    setImgDisp({w:r.width,h:r.height});
+    const img=imgRef.current;
+    if(!img) return;
+    // naturalWidth/Height = actual image pixels
+    // offsetWidth/Height = CSS layout size (unscaled by transform) — use for SVG coordinate space
+    setImgNat({w:img.naturalWidth, h:img.naturalHeight});
+    setImgDisp({w:img.offsetWidth||img.naturalWidth, h:img.offsetHeight||img.naturalHeight});
   };
 
   const renderPdfPage = async (doc, pageN=1) => {
@@ -4017,7 +4019,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const getSvgPos=(e)=>{
     const r=svgRef.current?.getBoundingClientRect();
     if(!r) return {x:0,y:0};
-    return {x:(e.clientX-r.left)/zoom,y:(e.clientY-r.top)/zoom};
+    // getBoundingClientRect of scaled SVG: r.left/top are correct screen coords,
+    // but the visual size is zoom * naturalSize. Dividing offset by zoom gives natural coords.
+    return {
+      x:(e.clientX - r.left) / zoom,
+      y:(e.clientY - r.top) / zoom
+    };
   };
 
   const calcArea=(pts)=>{
@@ -4039,10 +4046,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   };
 
   const handleImgLoad=()=>{
-    if(!imgRef.current) return;
-    setImgNat({w:imgRef.current.naturalWidth,h:imgRef.current.naturalHeight});
-    const r=imgRef.current.getBoundingClientRect();
-    setImgDisp({w:r.width,h:r.height});
+    const img=imgRef.current;
+    if(!img) return;
+    // naturalWidth/Height = actual image pixels
+    // offsetWidth/Height = CSS layout size (unscaled by transform) — use for SVG coordinate space
+    setImgNat({w:img.naturalWidth, h:img.naturalHeight});
+    setImgDisp({w:img.offsetWidth||img.naturalWidth, h:img.offsetHeight||img.naturalHeight});
   };
 
   const renderPdfPage = async (doc, pageN=1) => {
@@ -4160,6 +4169,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     setPdfDoc(null);
     setBlobUrl(null);
     setPlanErr(null);
+    setImgDisp({w:1,h:1});
+    setImgNat({w:1,h:1});
 
     if(selPlan.file_url?.startsWith('data:')){
       setBlobUrl(selPlan.file_url);
@@ -4811,7 +4822,7 @@ Return ONLY a valid JSON array, no markdown:
                     draggable={false}/>
                 ))}
                 <svg ref={svgRef}
-                  style={{position:'absolute',top:0,left:0,width:(canvasRef.current?.width||imgDisp.w||800)+'px',height:(canvasRef.current?.height||imgDisp.h||1100)+'px',cursor:toolCursor}}
+                  style={{position:'absolute',top:0,left:0,width:(isPdfPlan?(canvasRef.current?.width||imgDisp.w):imgDisp.w||800)+'px',height:(isPdfPlan?(canvasRef.current?.height||imgDisp.h):imgDisp.h||1100)+'px',cursor:toolCursor,pointerEvents:'all'}}
                   onClick={handleSvgClick}
                   onDoubleClick={(e)=>{
                     if((tool==='area'||tool==='perimeter')&&activePts.length>=3){
