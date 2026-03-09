@@ -53,7 +53,7 @@ function applyCSSVars(dark) {
     r.style.setProperty('--tx3',   '#555555');
     r.style.setProperty('--tx4',   '#444444');
     r.style.setProperty('--inp',   '#0e0e0e');
-    r.style.setProperty('--inpbd', '#252525');
+    r.style.setProperty('--inpbd', 'var(--bd)');
     r.style.setProperty('--inptx', '#e0e0e0');
   } else {
     r.style.setProperty('--bg',    '#f4f4f5');
@@ -104,7 +104,7 @@ const labelStyle = {
   color: "var(--tx3)", letterSpacing: 0.8, textTransform: "uppercase", marginBottom: 5
 };
 const inputStyle = {
-  width: "100%", background: "var(--bg)", border: "1px solid #252525",
+  width: "100%", background: "var(--bg)", border: "1px solid var(--bd)",
   borderRadius: 6, padding: "8px 10px", color: "var(--tx)", fontSize: 13,
   fontFamily: "'Syne', sans-serif", outline: "none", boxSizing: "border-box",
 };
@@ -218,7 +218,7 @@ function TaskCard({ task, onEdit, onMouseDownDrag, isDragging, team, attachmentC
     <div
       onMouseDown={(e) => onMouseDownDrag(e, task)}
       onClick={() => onEdit(task)}
-      style={{ background: "#161616", border: `1px solid ${isDragging ? "#F9731440" : "#262626"}`, borderRadius: 8, padding: "12px 14px", cursor: isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.25 : 1, transition: "opacity 0.12s, border-color 0.12s", userSelect: "none" }}
+      style={{ background: "var(--bg3)", border: `1px solid ${isDragging ? "#F9731440" : "var(--bd)"}`, borderRadius: 8, padding: "12px 14px", cursor: isDragging ? "grabbing" : "grab", opacity: isDragging ? 0.25 : 1, transition: "opacity 0.12s, border-color 0.12s", userSelect: "none" }}
     >
       <div style={{ display: "flex", gap: 6, marginBottom: 8, alignItems: "center" }}>
         <CompanyBadge companyId={task.company} small />
@@ -302,7 +302,7 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team, allProjects =
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000, padding: isMobile ? 0 : 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "var(--bg3)", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 12, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 540, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: isMobile ? "92vh" : "88vh", overflowY: "auto" }}>
+      <div style={{ background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: isMobile ? "16px 16px 0 0" : 12, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 540, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: isMobile ? "92vh" : "88vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
           <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 17, fontWeight: 700, color: "var(--tx)" }}>{isNew ? "New Task" : "Edit Task"}</span>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--tx3)", cursor: "pointer", fontSize: 22, padding: "0 4px" }}>×</button>
@@ -388,7 +388,7 @@ function TaskModal({ task, onClose, onSave, onDelete, isNew, team, allProjects =
         <div style={{ display: "flex", gap: 10, marginTop: 22, justifyContent: "space-between", flexWrap: "wrap" }}>
           {!isNew && <button onClick={() => onDelete(form.id)} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", padding: "10px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'DM Mono', monospace" }}>Delete</button>}
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-            <button onClick={onClose} style={{ background: "none", border: "1px solid #2a2a2a", color: "var(--tx2)", padding: "10px 18px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "'Syne', sans-serif" }}>Cancel</button>
+            <button onClick={onClose} style={{ background: "none", border: "1px solid var(--bd2)", color: "var(--tx2)", padding: "10px 18px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "'Syne', sans-serif" }}>Cancel</button>
             <button onClick={handleSave} disabled={saving} style={{ background: "#F97316", border: "none", color: "#000", padding: "10px 22px", borderRadius: 6, cursor: saving ? "not-allowed" : "pointer", fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", opacity: form.title.trim() && !saving ? 1 : 0.5 }}>
               {saving ? "Saving..." : isNew ? "Add Task" : "Save"}
             </button>
@@ -427,7 +427,7 @@ function MemberModal({ member, onClose, onSave, onDelete, isNew }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1100, padding: isMobile ? 0 : 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "var(--bg3)", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 12, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 460, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
+      <div style={{ background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: isMobile ? "16px 16px 0 0" : 12, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 460, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 22 }}>
           <span style={{ fontFamily: "'Syne', sans-serif", fontSize: 17, fontWeight: 700, color: "var(--tx)" }}>{isNew ? "Add Team Member" : "Edit Member"}</span>
           <button onClick={onClose} style={{ background: "none", border: "none", color: "var(--tx3)", cursor: "pointer", fontSize: 22 }}>×</button>
@@ -476,7 +476,7 @@ function MemberModal({ member, onClose, onSave, onDelete, isNew }) {
         <div style={{ display: "flex", gap: 10, marginTop: 24, justifyContent: "space-between" }}>
           {!isNew && <button onClick={() => onDelete(form.id)} style={{ background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.3)", color: "#ef4444", padding: "10px 16px", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'DM Mono', monospace" }}>Remove</button>}
           <div style={{ display: "flex", gap: 8, marginLeft: "auto" }}>
-            <button onClick={onClose} style={{ background: "none", border: "1px solid #2a2a2a", color: "var(--tx2)", padding: "10px 18px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "'Syne', sans-serif" }}>Cancel</button>
+            <button onClick={onClose} style={{ background: "none", border: "1px solid var(--bd2)", color: "var(--tx2)", padding: "10px 18px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontFamily: "'Syne', sans-serif" }}>Cancel</button>
             <button onClick={handleSave} disabled={saving || !form.name.trim() || !form.id.trim()} style={{ background: "#F97316", border: "none", color: "#000", padding: "10px 22px", borderRadius: 6, cursor: "pointer", fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", opacity: form.name.trim() && form.id.trim() && !saving ? 1 : 0.4 }}>
               {saving ? "Saving..." : isNew ? "Add Member" : "Save"}
             </button>
@@ -683,7 +683,7 @@ Interpret relative dates relative to today (${TODAY}).`,
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000, padding: isMobile ? 0 : 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "var(--bg3)", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 540, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
+      <div style={{ background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 540, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg, #a855f7, #7c3aed)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>✦</div>
@@ -734,7 +734,7 @@ Interpret relative dates relative to today (${TODAY}).`,
             </div>
             {preview.description && <div style={{ fontSize: 11, color: "var(--tx3)", fontFamily: "'DM Mono', monospace", borderTop: "1px solid #1a1a1a", paddingTop: 10 }}>{preview.description}</div>}
             <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
-              <button onClick={() => setPreview(null)} style={{ flex: 1, background: "none", border: "1px solid #2a2a2a", color: "var(--tx2)", padding: "10px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'Syne', sans-serif" }}>← Re-parse</button>
+              <button onClick={() => setPreview(null)} style={{ flex: 1, background: "none", border: "1px solid var(--bd2)", color: "var(--tx2)", padding: "10px 0", borderRadius: 6, cursor: "pointer", fontSize: 13, fontFamily: "'Syne', sans-serif" }}>← Re-parse</button>
               <button onClick={handleAdd} disabled={saving} style={{ flex: 2, background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", color: "#fff", padding: "10px 0", borderRadius: 6, cursor: saving ? "not-allowed" : "pointer", fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", opacity: saving ? 0.6 : 1 }}>
                 {saving ? "Adding..." : "✦ Add Task"}
               </button>
@@ -774,7 +774,7 @@ function DigestModal({ tasks, team, onClose }) {
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", display: "flex", alignItems: isMobile ? "flex-end" : "center", justifyContent: "center", zIndex: 1000, padding: isMobile ? 0 : 20 }}
       onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: "var(--bg3)", border: "1px solid #2a2a2a", borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 560, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
+      <div style={{ background: "var(--bg3)", border: "1px solid var(--bd2)", borderRadius: isMobile ? "16px 16px 0 0" : 14, padding: isMobile ? "24px 20px 32px" : 28, width: "100%", maxWidth: isMobile ? "100%" : 560, boxShadow: "0 24px 80px rgba(0,0,0,0.7)", maxHeight: "92vh", overflowY: "auto" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 28, height: 28, borderRadius: 8, background: "linear-gradient(135deg, #10B981, #059669)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 15 }}>✉</div>
@@ -917,7 +917,7 @@ function MobileKanban({ filtered, team, onEdit, onStatusChange, attachmentCounts
                 return (
                   <div key={task.id}
                     onTouchStart={e => handleTouchStart(e, task)}
-                    style={{ background: '#161616', border: `1px solid ${draggingId === task.id ? 'rgba(249,115,22,0.3)' : '#222'}`, borderRadius: 7, padding: '8px 9px', marginBottom: 5, opacity: draggingId === task.id ? 0.25 : 1, transition: 'opacity 0.1s', userSelect: 'none', touchAction: 'none' }}>
+                    style={{ background: 'var(--bg3)', border: `1px solid ${draggingId === task.id ? 'rgba(249,115,22,0.3)' : 'var(--bd)'}`, borderRadius: 7, padding: '8px 9px', marginBottom: 5, opacity: draggingId === task.id ? 0.25 : 1, transition: 'opacity 0.1s', userSelect: 'none', touchAction: 'none' }}>
                     <div style={{ display: 'flex', gap: 3, marginBottom: 4, alignItems: 'center' }}>
                       <CompanyBadge companyId={task.company} small />
                       <PriorityDot priorityId={task.priority} />
@@ -935,7 +935,7 @@ function MobileKanban({ filtered, team, onEdit, onStatusChange, attachmentCounts
                 );
               })}
               {colTasks.length === 0 && (
-                <div style={{ border: '1px dashed #1a1a1a', borderRadius: 7, padding: '14px 0', textAlign: 'center', color: '#252525', fontSize: 10, fontFamily: "'DM Mono', monospace" }}>empty</div>
+                <div style={{ border: '1px dashed #1a1a1a', borderRadius: 7, padding: '14px 0', textAlign: 'center', color: 'var(--bd)', fontSize: 10, fontFamily: "'DM Mono', monospace" }}>empty</div>
               )}
             </div>
           </div>
@@ -1175,7 +1175,7 @@ function ProjectModal({ project, onSave, onClose }) {
           {!isNew && <button onClick={()=>setConfirming(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete Project</button>}
         </div>
         <div style={{ display:"flex", gap:8 }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.name.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.name.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Create Project":"Save"}</button>
         </div>
       </div>
@@ -1224,7 +1224,7 @@ function DailyLogModal({ log, projectId, onSave, onClose }) {
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>{saving?"Saving...":isNew?"Add Log":"Save"}</button>
         </div>
       </div>
@@ -1239,11 +1239,11 @@ function ConfirmDialog({ message, onConfirm, onCancel, danger=true }) {
   return (
     <div style={{ position:"fixed", inset:0, background:"rgba(0,0,0,0.7)", display:"flex", alignItems:"center", justifyContent:"center", zIndex:9999 }}
       onClick={onCancel}>
-      <div onClick={e=>e.stopPropagation()} style={{ background:"var(--bg3)", border:"1px solid #2a2a2a", borderRadius:12, padding:28, maxWidth:360, width:"90%", boxShadow:"0 20px 60px rgba(0,0,0,0.6)" }}>
+      <div onClick={e=>e.stopPropagation()} style={{ background:"var(--bg3)", border:"1px solid var(--bd2)", borderRadius:12, padding:28, maxWidth:360, width:"90%", boxShadow:"0 20px 60px rgba(0,0,0,0.6)" }}>
         <div style={{ fontSize:14, color:"var(--tx)", marginBottom:22, lineHeight:1.5 }}>{message}</div>
         <div style={{ display:"flex", gap:10, justifyContent:"flex-end" }}>
-          <button onClick={onCancel} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"8px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
-          <button onClick={onConfirm} style={{ background:danger?"#1a0a0a":"#0a1a0a", border:danger?"1px solid #3a1a1a":"1px solid #1a3a1a", color:danger?"#ef4444":"#10B981", padding:"8px 20px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>Delete</button>
+          <button onClick={onCancel} style={{ background:"none", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"8px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onConfirm} style={{ background:danger?"rgba(239,68,68,0.08)":"rgba(16,185,129,0.08)", border:danger?"1px solid rgba(239,68,68,0.3)":"1px solid rgba(16,185,129,0.3)", color:danger?"#ef4444":"#10B981", padding:"8px 20px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700 }}>Delete</button>
         </div>
       </div>
     </div>
@@ -1344,7 +1344,7 @@ function RFIModal({ rfi, projectId, onSave, onClose }) {
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.subject.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.subject.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add RFI":"Save"}</button>
         </div>
       </div>
@@ -1395,7 +1395,7 @@ function SubmittalModal({ submittal, projectId, onSave, onClose }) {
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.description.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.description.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Submittal":"Save"}</button>
         </div>
       </div>
@@ -1446,7 +1446,7 @@ function COModal({ co, projectId, onSave, onClose }) {
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.description.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.description.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add CO":"Save"}</button>
         </div>
       </div>
@@ -1496,7 +1496,7 @@ function MaterialModal({ material, projectId, onSave, onClose }) {
       <div style={{ display:"flex", gap:8, marginTop:20, justifyContent:"space-between" }}>
         {!isNew && <button onClick={()=>setDelConfirm(true)} style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.item.trim()} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:form.item.trim()&&!saving?1:0.5 }}>{saving?"Saving...":isNew?"Add Order":"Save"}</button>
         </div>
       </div>
@@ -1606,7 +1606,7 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
           {preview ? (
             <div style={{ display:"flex", alignItems:"center", gap:12 }}>
               {preview.match(/\.(jpg|jpeg|png|gif|webp)/i) ? (
-                <img src={preview} style={{ width:80, height:60, objectFit:"cover", borderRadius:6, border:"1px solid #2a2a2a" }} />
+                <img src={preview} style={{ width:80, height:60, objectFit:"cover", borderRadius:6, border:"1px solid var(--bd2)" }} />
               ) : (
                 <div style={{ width:80, height:60, background:"var(--bg5)", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontSize:24 }}>📄</div>
               )}
@@ -1632,7 +1632,7 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
         </div>
 
         {extracting && (
-          <div style={{ background:"#0d1a0d", border:"1px solid #10B98130", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#10B981", display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#10B981", display:"flex", alignItems:"center", gap:8 }}>
             <span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span>
             Claude is reading your receipt...
           </div>
@@ -1657,7 +1657,7 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
             style={{ background:"rgba(239,68,68,0.08)", border:"1px solid rgba(239,68,68,0.25)", color:"#ef4444", padding:"9px 14px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Delete</button>
         )}
         <div style={{ display:"flex", gap:8, marginLeft:"auto" }}>
-          <button onClick={onClose} style={{ background:"none", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
+          <button onClick={onClose} style={{ background:"none", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"9px 18px", borderRadius:6, cursor:"pointer", fontSize:13 }}>Cancel</button>
           <button onClick={handleSave} disabled={saving||uploading||extracting} style={{ background:"#F97316", border:"none", color:"#000", padding:"9px 22px", borderRadius:6, cursor:"pointer", fontSize:13, fontWeight:700, opacity:!saving&&!uploading&&!extracting?1:0.5 }}>
             {saving?"Saving...":isNew?"Add Receipt":"Save"}
           </button>
@@ -1798,7 +1798,7 @@ function SubcontractModal({ sub, projectId, onSave, onClose }) {
           )}
         </div>
         {extracting && (
-          <div style={{ background:"#0d1a0d", border:"1px solid #10B98130", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#10B981", display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ background:"rgba(16,185,129,0.08)", border:"1px solid rgba(16,185,129,0.2)", borderRadius:8, padding:"10px 14px", fontSize:12, color:"#10B981", display:"flex", alignItems:"center", gap:8 }}>
             <span style={{ animation:"spin 0.8s linear infinite", display:"inline-block" }}>◌</span>
             Reading contract document...
           </div>
@@ -2941,7 +2941,7 @@ function ProjectDetail({ project, onBack, onEdit }) {
             </div>
             {project.address && <div style={{ fontSize:11, color:"var(--tx4)", fontFamily:"'DM Mono',monospace", marginTop:2 }}>{project.address}</div>}
           </div>
-          <button onClick={onEdit} style={{ background:"var(--bd)", border:"1px solid #2a2a2a", color:"var(--tx2)", padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Edit</button>
+          <button onClick={onEdit} style={{ background:"var(--bd)", border:"1px solid var(--bd2)", color:"var(--tx2)", padding:"6px 12px", borderRadius:6, cursor:"pointer", fontSize:12 }}>Edit</button>
         </div>
         {/* Summary strip */}
         <div style={{ display:"flex", gap:16, marginBottom:12, flexWrap:"wrap" }}>
