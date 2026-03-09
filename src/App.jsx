@@ -3069,8 +3069,12 @@ function PreconTab({ project }) {
     return ()=>{ if(blobUrl&&blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl); };
   },[blobUrl]);
 
+  // Sync spaceHeld into panRef so mousedown handler (non-closure) can read it
+  useEffect(()=>{ panRef.current._spaceHeld = spaceHeld; },[spaceHeld]);
+
   useEffect(()=>{
     const handleKey=(e)=>{
+      if(e.key===' ') setSpaceHeld(true);
       if(e.key==='Escape'){
         setActivePts([]);
         setScalePts([]);
@@ -3079,39 +3083,66 @@ function PreconTab({ project }) {
         setShowScalePicker(false);
       }
     };
+    const handleKeyUp=(e)=>{ if(e.key===' ') setSpaceHeld(false); };
     window.addEventListener('keydown',handleKey);
-    return ()=>window.removeEventListener('keydown',handleKey);
+    window.addEventListener('keyup',handleKeyUp);
+    return ()=>{ window.removeEventListener('keydown',handleKey); window.removeEventListener('keyup',handleKeyUp); };
   },[]);
 
-  // Wheel zoom toward cursor — 5% increments
+  // Determine if pan mode: space held OR middle mouse OR tool=select while dragging
+  const isPanMode = (e) => spaceHeld || e?.button===1 || tool==='select';
+
+  // Container callback ref — attaches wheel + pan handlers
   const containerCallbackRef = (el) => {
-    if(containerRef.current && containerRef._wheelHandler){
+    if(containerRef.current){
       containerRef.current.removeEventListener('wheel', containerRef._wheelHandler);
+      containerRef.current.removeEventListener('mousedown', containerRef._panDown);
     }
     if(el){
-      const handler = (e)=>{
+      // Wheel zoom toward cursor
+      const wheelHandler = (e)=>{
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.05 : 0.95;
         const rect = el.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const scrollLeft = el.scrollLeft;
-        const scrollTop = el.scrollTop;
-        const contentX = scrollLeft + mouseX;
-        const contentY = scrollTop + mouseY;
+        const contentX = el.scrollLeft + mouseX;
+        const contentY = el.scrollTop + mouseY;
         setZoom(prev => {
-          const raw = prev * factor;
-          const newZoom = Math.min(4, Math.max(0.05, parseFloat(raw.toFixed(2))));
+          const newZoom = Math.min(4, Math.max(0.05, parseFloat((prev*factor).toFixed(2))));
           requestAnimationFrame(()=>{
-            el.scrollLeft = contentX * (newZoom / prev) - mouseX;
-            el.scrollTop  = contentY * (newZoom / prev) - mouseY;
+            el.scrollLeft = contentX*(newZoom/prev) - mouseX;
+            el.scrollTop  = contentY*(newZoom/prev) - mouseY;
           });
           return newZoom;
         });
       };
-      el.addEventListener('wheel', handler, {passive:false});
+      // Pan on mousedown: space+drag or middle-click drag
+      const panDown = (e)=>{
+        const doingPan = e.button===1 || panRef.current._spaceHeld;
+        if(!doingPan) return;
+        if(e.button===1) e.preventDefault();
+        panRef.current = {...panRef.current, active:true, startX:e.clientX, startY:e.clientY, scrollX:el.scrollLeft, scrollY:el.scrollTop};
+        el.style.cursor='grabbing';
+        const onMove=(ev)=>{
+          if(!panRef.current.active) return;
+          el.scrollLeft = panRef.current.scrollX - (ev.clientX - panRef.current.startX);
+          el.scrollTop  = panRef.current.scrollY - (ev.clientY - panRef.current.startY);
+        };
+        const onUp=()=>{
+          panRef.current.active=false;
+          el.style.cursor='';
+          window.removeEventListener('mousemove',onMove);
+          window.removeEventListener('mouseup',onUp);
+        };
+        window.addEventListener('mousemove',onMove);
+        window.addEventListener('mouseup',onUp);
+      };
+      el.addEventListener('wheel', wheelHandler, {passive:false});
+      el.addEventListener('mousedown', panDown);
       containerRef.current = el;
-      containerRef._wheelHandler = handler;
+      containerRef._wheelHandler = wheelHandler;
+      containerRef._panDown = panDown;
     }
   };
 
@@ -3175,6 +3206,7 @@ function PreconTab({ project }) {
 
   const handleSvgClick=(e)=>{
     if(!selPlan) return;
+    if(spaceHeld || panRef.current.active) return; // panning — don't place points
     const pos=getSvgPos(e);
     const norm=toNorm(pos.x,pos.y);
 
@@ -3365,7 +3397,7 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
     return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
   }).filter(Boolean);
 
-  const toolCursor={select:'default',area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
+  const toolCursor=spaceHeld?'grab':{select:'default',area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
 
   if(loading) return <div style={{textAlign:'center',padding:40,color:t.text4,fontSize:12,fontFamily:"'DM Mono',monospace"}}>Loading...</div>;
 
@@ -3995,6 +4027,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const svgRef = useRef();
   const fileRef = useRef();
   const containerRef = useRef();
+  const panRef = useRef({active:false, startX:0, startY:0, scrollX:0, scrollY:0});
+  const [spaceHeld, setSpaceHeld] = useState(false);
 
 
   useEffect(()=>{
@@ -4100,8 +4134,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return ()=>{ if(blobUrl&&blobUrl.startsWith('blob:')) URL.revokeObjectURL(blobUrl); };
   },[blobUrl]);
 
+  // Sync spaceHeld into panRef so mousedown handler (non-closure) can read it
+  useEffect(()=>{ panRef.current._spaceHeld = spaceHeld; },[spaceHeld]);
+
   useEffect(()=>{
     const handleKey=(e)=>{
+      if(e.key===' ') setSpaceHeld(true);
       if(e.key==='Escape'){
         setActivePts([]);
         setScalePts([]);
@@ -4110,39 +4148,66 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         setShowScalePicker(false);
       }
     };
+    const handleKeyUp=(e)=>{ if(e.key===' ') setSpaceHeld(false); };
     window.addEventListener('keydown',handleKey);
-    return ()=>window.removeEventListener('keydown',handleKey);
+    window.addEventListener('keyup',handleKeyUp);
+    return ()=>{ window.removeEventListener('keydown',handleKey); window.removeEventListener('keyup',handleKeyUp); };
   },[]);
 
-  // Wheel zoom toward cursor — 5% increments
+  // Determine if pan mode: space held OR middle mouse OR tool=select while dragging
+  const isPanMode = (e) => spaceHeld || e?.button===1 || tool==='select';
+
+  // Container callback ref — attaches wheel + pan handlers
   const containerCallbackRef = (el) => {
-    if(containerRef.current && containerRef._wheelHandler){
+    if(containerRef.current){
       containerRef.current.removeEventListener('wheel', containerRef._wheelHandler);
+      containerRef.current.removeEventListener('mousedown', containerRef._panDown);
     }
     if(el){
-      const handler = (e)=>{
+      // Wheel zoom toward cursor
+      const wheelHandler = (e)=>{
         e.preventDefault();
         const factor = e.deltaY < 0 ? 1.05 : 0.95;
         const rect = el.getBoundingClientRect();
         const mouseX = e.clientX - rect.left;
         const mouseY = e.clientY - rect.top;
-        const scrollLeft = el.scrollLeft;
-        const scrollTop = el.scrollTop;
-        const contentX = scrollLeft + mouseX;
-        const contentY = scrollTop + mouseY;
+        const contentX = el.scrollLeft + mouseX;
+        const contentY = el.scrollTop + mouseY;
         setZoom(prev => {
-          const raw = prev * factor;
-          const newZoom = Math.min(4, Math.max(0.05, parseFloat(raw.toFixed(2))));
+          const newZoom = Math.min(4, Math.max(0.05, parseFloat((prev*factor).toFixed(2))));
           requestAnimationFrame(()=>{
-            el.scrollLeft = contentX * (newZoom / prev) - mouseX;
-            el.scrollTop  = contentY * (newZoom / prev) - mouseY;
+            el.scrollLeft = contentX*(newZoom/prev) - mouseX;
+            el.scrollTop  = contentY*(newZoom/prev) - mouseY;
           });
           return newZoom;
         });
       };
-      el.addEventListener('wheel', handler, {passive:false});
+      // Pan on mousedown: space+drag or middle-click drag
+      const panDown = (e)=>{
+        const doingPan = e.button===1 || panRef.current._spaceHeld;
+        if(!doingPan) return;
+        if(e.button===1) e.preventDefault();
+        panRef.current = {...panRef.current, active:true, startX:e.clientX, startY:e.clientY, scrollX:el.scrollLeft, scrollY:el.scrollTop};
+        el.style.cursor='grabbing';
+        const onMove=(ev)=>{
+          if(!panRef.current.active) return;
+          el.scrollLeft = panRef.current.scrollX - (ev.clientX - panRef.current.startX);
+          el.scrollTop  = panRef.current.scrollY - (ev.clientY - panRef.current.startY);
+        };
+        const onUp=()=>{
+          panRef.current.active=false;
+          el.style.cursor='';
+          window.removeEventListener('mousemove',onMove);
+          window.removeEventListener('mouseup',onUp);
+        };
+        window.addEventListener('mousemove',onMove);
+        window.addEventListener('mouseup',onUp);
+      };
+      el.addEventListener('wheel', wheelHandler, {passive:false});
+      el.addEventListener('mousedown', panDown);
       containerRef.current = el;
-      containerRef._wheelHandler = handler;
+      containerRef._wheelHandler = wheelHandler;
+      containerRef._panDown = panDown;
     }
   };
 
@@ -4226,7 +4291,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       if(parsed.found&&parsed.scale){
         const match=CONSTRUCTION_SCALES.find(s=>s.label===parsed.scale||s.label.replace('ft',"'")===parsed.scale);
         if(match){
-          const dpi=144; const pxPerFt=dpi/(match.ratio/12);
+          const pxPerFt=96/(match.ratio/12);
           setScale(pxPerFt); setPresetScale(match.label);
           if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
           alert('✓ Scale detected: '+match.label);
@@ -4251,6 +4316,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
   const handleSvgClick=(e)=>{
     if(!selPlan) return;
+    if(spaceHeld || panRef.current.active) return; // panning — don't place points
     const pt=getSvgPos(e); // raw SVG pixel coords
     if(tool==='scale'&&scaleStep==='picking'){
       const npts=[...scalePts,pt];
@@ -4545,7 +4611,7 @@ Return ONLY a valid JSON array, no markdown:
     const its=items.filter(i=>i.category===cat.id);
     return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
   }).filter(Boolean);
-  const toolCursor={select:'default',area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
+  const toolCursor=spaceHeld?'grab':{select:'default',area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
 
   const co = COMPANIES.find(c=>c.id===project.company)||COMPANIES[1];
   const STATUS_COLORS_BID = {estimating:'#F59E0B',bid_submitted:'#3B82F6',awarded:'#10B981',lost:'#EF4444',hold:'#555'};
@@ -4727,10 +4793,9 @@ Return ONLY a valid JSON array, no markdown:
                 if(val==='auto'){autoDetectScale();return;}
                 const s=CONSTRUCTION_SCALES.find(x=>x.label===val);
                 if(!s) return;
-                // Preset scales only valid for PDF plans (rendered at 144px/in).
-                // For image uploads, use ⊕ Calibrate instead.
-                if(!isPdfPlan){ alert('Preset scales are for PDF plans only (known DPI). Use ⊕ Calibrate to click two points of known distance on this image plan.'); return; }
-                const pxPerFt=144/(s.ratio/12);
+                // pxPerFt assumes 96px/in screen resolution (standard CSS px)
+                // For scanned images use ⊕ Calibrate to override
+                const pxPerFt=96/(s.ratio/12);
                 setScale(pxPerFt); setPresetScale(s.label);
                 if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
               }} style={{...inputStyle,width:'100%',fontSize:11,marginBottom:14}}>
