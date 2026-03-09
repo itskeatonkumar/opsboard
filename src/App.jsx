@@ -3079,35 +3079,44 @@ function PreconTab({ project }) {
     return ()=>window.removeEventListener('keydown',handleKey);
   },[]);
 
-  useEffect(()=>{
-    const el = containerRef.current;
-    if(!el) return;
-    const onWheel=(e)=>{
-      e.preventDefault();
-      const delta = e.deltaY>0 ? -0.1 : 0.1;
-      setZoom(z=>Math.min(4, Math.max(0.1, Math.round((z+delta)*10)/10)));
-    };
-    el.addEventListener('wheel', onWheel, {passive:false});
-    return ()=>el.removeEventListener('wheel', onWheel);
-  },[]);
+  // Wheel zoom — use callback ref pattern
+  const containerCallbackRef = (el) => {
+    if(containerRef.current && containerRef._wheelHandler){
+      containerRef.current.removeEventListener('wheel', containerRef._wheelHandler);
+    }
+    if(el){
+      const handler = (e)=>{
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.1 : -0.1;
+        setZoom(z=>Math.min(4, Math.max(0.1, Math.round((z+delta)*10)/10)));
+      };
+      el.addEventListener('wheel', handler, {passive:false});
+      containerRef.current = el;
+      containerRef._wheelHandler = handler;
+    }
+  };
+
+  // Compute isPdf synchronously in render — never use state for this
+  const isPdfPlan = !!(selPlan && (
+    selPlan.file_type?.includes('pdf')
+    || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
+    || selPlan.file_url?.startsWith('data:application/pdf')
+  ));
 
   useEffect(()=>{
     if(!selPlan) return;
-    const isPdf = selPlan.file_type?.includes('pdf')
-      || selPlan.file_url?.toLowerCase().includes('.pdf')
-      || selPlan.file_url?.startsWith('data:application/pdf');
-    setIsPdfPlan(isPdf);
+    const isPdf = !!(
+      selPlan.file_type?.includes('pdf')
+      || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
+      || selPlan.file_url?.startsWith('data:application/pdf')
+    );
     // Reset scale from saved value
     if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
     else { setScale(null); setPresetScale(''); }
+    pdfDocRef.current = null;
+    setPdfDoc(null);
     if(isPdf){
-      pdfDocRef.current = null;
-      setPdfDoc(null);
-      // renderPdfPage waits for canvas internally
       loadPdf(selPlan.file_url);
-    } else {
-      pdfDocRef.current = null;
-      setPdfDoc(null);
     }
   },[selPlan?.id, selPlan?.file_url]);
 
@@ -3933,7 +3942,6 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
   const [editProject, setEditProject] = useState(false);
   const [pdfDoc, setPdfDoc] = useState(null);
   const [rendering, setRendering] = useState(false);
-  const [isPdfPlan, setIsPdfPlan] = useState(false);
   const pdfDocRef = useRef(null);
   const imgRef = useRef();
   const canvasRef = useRef();
@@ -4053,35 +4061,44 @@ function TakeoffWorkspace({ project, onBack, apmProjects }) {
     return ()=>window.removeEventListener('keydown',handleKey);
   },[]);
 
-  useEffect(()=>{
-    const el = containerRef.current;
-    if(!el) return;
-    const onWheel=(e)=>{
-      e.preventDefault();
-      const delta = e.deltaY>0 ? -0.1 : 0.1;
-      setZoom(z=>Math.min(4, Math.max(0.1, Math.round((z+delta)*10)/10)));
-    };
-    el.addEventListener('wheel', onWheel, {passive:false});
-    return ()=>el.removeEventListener('wheel', onWheel);
-  },[]);
+  // Wheel zoom — use callback ref pattern
+  const containerCallbackRef = (el) => {
+    if(containerRef.current && containerRef._wheelHandler){
+      containerRef.current.removeEventListener('wheel', containerRef._wheelHandler);
+    }
+    if(el){
+      const handler = (e)=>{
+        e.preventDefault();
+        const delta = e.deltaY < 0 ? 0.1 : -0.1;
+        setZoom(z=>Math.min(4, Math.max(0.1, Math.round((z+delta)*10)/10)));
+      };
+      el.addEventListener('wheel', handler, {passive:false});
+      containerRef.current = el;
+      containerRef._wheelHandler = handler;
+    }
+  };
+
+  // Compute isPdf synchronously in render — never use state for this
+  const isPdfPlan = !!(selPlan && (
+    selPlan.file_type?.includes('pdf')
+    || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
+    || selPlan.file_url?.startsWith('data:application/pdf')
+  ));
 
   useEffect(()=>{
     if(!selPlan) return;
-    const isPdf = selPlan.file_type?.includes('pdf')
-      || selPlan.file_url?.toLowerCase().includes('.pdf')
-      || selPlan.file_url?.startsWith('data:application/pdf');
-    setIsPdfPlan(isPdf);
+    const isPdf = !!(
+      selPlan.file_type?.includes('pdf')
+      || (selPlan.file_url?.toLowerCase().includes('.pdf') && !selPlan.file_url?.startsWith('data:image'))
+      || selPlan.file_url?.startsWith('data:application/pdf')
+    );
     // Reset scale from saved value
     if(selPlan.scale_px_per_ft){ setScale(selPlan.scale_px_per_ft); }
     else { setScale(null); setPresetScale(''); }
+    pdfDocRef.current = null;
+    setPdfDoc(null);
     if(isPdf){
-      pdfDocRef.current = null;
-      setPdfDoc(null);
-      // renderPdfPage waits for canvas internally
       loadPdf(selPlan.file_url);
-    } else {
-      pdfDocRef.current = null;
-      setPdfDoc(null);
     }
   },[selPlan?.id, selPlan?.file_url]);
 
@@ -4569,7 +4586,7 @@ Return ONLY a valid JSON array, no markdown:
           )}
 
           {/* Plan canvas */}
-          <div ref={containerRef} style={{flex:1,overflow:'auto',background:'#2a2a2a',position:'relative',minHeight:0}}>
+          <div ref={containerCallbackRef} style={{flex:1,overflow:'auto',background:'#2a2a2a',position:'relative',minHeight:0}}>
             {!selPlan?(
               <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:40}}>
                 <div style={{fontSize:48,marginBottom:16}}>📐</div>
@@ -4587,8 +4604,14 @@ Return ONLY a valid JSON array, no markdown:
                   </>
                 ):(
                   <img ref={imgRef} src={selPlan.file_url} alt="Plan"
-                    style={{display:'block',maxWidth:'none',userSelect:'none'}}
+                    crossOrigin="anonymous"
+                    style={{display:'block',maxWidth:'none',userSelect:'none',minWidth:400,minHeight:300}}
                     onLoad={handleImgLoad}
+                    onError={(e)=>{
+                      console.error('Image load failed:', selPlan.file_url);
+                      e.target.style.outline='2px solid #ef4444';
+                      e.target.insertAdjacentHTML('afterend','<div style="position:absolute;top:20px;left:20px;background:#1a0505;color:#ef4444;padding:12px 16px;border-radius:8px;font-size:12px;font-family:monospace;border:1px solid #3a1010;max-width:500px">Failed to load: '+selPlan.file_url+'</div>');
+                    }}
                     draggable={false}/>
                 )}
                 <svg ref={svgRef}
