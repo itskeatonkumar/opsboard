@@ -4841,9 +4841,7 @@ Return ONLY a valid JSON array, no markdown:
 
               {planItems.length===0&&!editItem?._isNew&&(
                 <div style={{textAlign:'center',padding:'24px 12px',color:t.text4,fontSize:11,fontFamily:"'DM Mono',monospace",lineHeight:1.6}}>
-                  {!selPlan?'Upload a plan to start':!scale?'Set scale first, then
-use tools to measure':'Use Area ⬡ Linear ━
-Count ✕ or AI ✦'}
+                  {!selPlan?'Upload a plan to start':!scale?'Set scale first — then use tools':'Use Area ⬡  Linear ━  Count ✕  or AI ✦'}
                 </div>
               )}
 
