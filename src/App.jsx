@@ -2870,17 +2870,15 @@ function FinancialsTab({ project, cos }) {
 // ── Precon / Takeoff ──────────────────────────────────
 
 const TAKEOFF_CATS = [
-  { id:'concrete_slab',    label:'Concrete – Slab on Grade', unit:'SF',  cy:true,  defaultCost:6.50,  color:'#F59E0B' },
-  { id:'concrete_footing', label:'Concrete – Footings',      unit:'CY',  cy:false, defaultCost:125,   color:'#F97316' },
-  { id:'concrete_wall',    label:'Concrete – Walls/Columns', unit:'CY',  cy:false, defaultCost:150,   color:'#EF4444' },
-  { id:'masonry_cmu',      label:'Masonry – CMU Block',      unit:'SF',  cy:false, defaultCost:18,    color:'#8B5CF6' },
-  { id:'masonry_brick',    label:'Masonry – Brick',          unit:'SF',  cy:false, defaultCost:22,    color:'#6366F1' },
-  { id:'rebar',            label:'Rebar / Steel',            unit:'LB',  cy:false, defaultCost:1.20,  color:'#10B981' },
-  { id:'formwork',         label:'Formwork',                 unit:'SF',  cy:false, defaultCost:4.50,  color:'#06B6D4' },
-  { id:'excavation',       label:'Excavation',               unit:'CY',  cy:false, defaultCost:8,     color:'#84CC16' },
-  { id:'flatwork',         label:'Flatwork / Paving',        unit:'SF',  cy:false, defaultCost:6,     color:'#3B82F6' },
-  { id:'grout',            label:'Grout / Mortar',           unit:'CY',  cy:false, defaultCost:200,   color:'#EC4899' },
-  { id:'other',            label:'Other / General',          unit:'LS',  cy:false, defaultCost:0,     color:'#555'    },
+  { id:'site_concrete',     label:'Site Concrete',      color:'#F59E0B', unit:'SF', defaultCost:8.50  },
+  { id:'building_concrete', label:'Building Concrete',  color:'#F97316', unit:'SF', defaultCost:9.00  },
+  { id:'flatwork',          label:'Flatwork / Slabs',   color:'#EF4444', unit:'SF', defaultCost:7.00  },
+  { id:'foundations',       label:'Foundations',        color:'#8B5CF6', unit:'CY', defaultCost:650   },
+  { id:'curb_gutter',       label:'Curb & Gutter',      color:'#06B6D4', unit:'LF', defaultCost:28.00 },
+  { id:'masonry',           label:'Masonry / CMU',      color:'#10B981', unit:'SF', defaultCost:22.00 },
+  { id:'asphalt',           label:'Asphalt / Paving',   color:'#6B7280', unit:'SF', defaultCost:4.50  },
+  { id:'grading',           label:'Grading / Earthwork',color:'#84CC16', unit:'CY', defaultCost:18.00 },
+  { id:'other',             label:'Other',              color:'#94A3B8', unit:'LS', defaultCost:0     },
 ];
 
 function TakeoffItemModal({ item, onSave, onClose }) {
@@ -3989,87 +3987,148 @@ function TakeoffProjectModal({ project, apmProjects, onSave, onClose }) {
 
 // ── New Condition Creator ─────────────────────────────────────────
 // Fast: type name → pick measurement type → creates and arms
+function AddItemInline({ cat, selPlan, project, items, onCreated }) {
+  const { t } = useTheme();
+  const [open, setOpen] = useState(false);
+  const [name, setName] = useState('');
+  const [mt, setMt] = useState('area');
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef();
+
+  if(!open) return(
+    <div style={{padding:'4px 10px 4px 16px'}}>
+      <button onClick={()=>{setOpen(true);setTimeout(()=>inputRef.current?.focus(),40);}}
+        style={{width:'100%',background:'none',border:`1px dashed ${cat.color}55`,color:cat.color,
+          padding:'4px 0',borderRadius:4,cursor:'pointer',fontSize:9,fontWeight:700,
+          fontFamily:"'DM Mono',monospace",opacity:0.7}}>
+        + Add item
+      </button>
+    </div>
+  );
+
+  const handleCreate = async () => {
+    if(!name.trim()) return;
+    setSaving(true);
+    const unitMap = {area:'SF',linear:'LF',count:'EA',manual:'LS'};
+    const payload = {
+      project_id:project.id, plan_id:selPlan.id,
+      category:cat.id, description:name.trim(),
+      quantity:0, unit:unitMap[mt]||cat.unit, unit_cost:cat.defaultCost, total_cost:0,
+      measurement_type:mt, points:[], color:cat.color,
+      ai_generated:false, sort_order:items.length,
+    };
+    const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
+    if(data) onCreated(data);
+    setName(''); setOpen(false); setSaving(false);
+  };
+
+  return(
+    <div style={{padding:'6px 10px 6px 16px',background:`${cat.color}08`,borderTop:`1px dashed ${cat.color}40`}}>
+      <input ref={inputRef} value={name} onChange={e=>setName(e.target.value)}
+        placeholder={`Item name (e.g. Sidewalk, Footing...)`}
+        onKeyDown={e=>{if(e.key==='Enter'&&name.trim())handleCreate();if(e.key==='Escape')setOpen(false);}}
+        style={{width:'100%',background:t.bg3,border:`1px solid ${cat.color}60`,color:t.text,
+          borderRadius:4,padding:'5px 8px',fontSize:10,outline:'none',boxSizing:'border-box',marginBottom:6}}/>
+      <div style={{display:'flex',gap:4,marginBottom:6}}>
+        {[{id:'area',icon:'⬡',lbl:'SF'},{id:'linear',icon:'━',lbl:'LF'},{id:'count',icon:'✕',lbl:'EA'}].map(m=>(
+          <button key={m.id} onClick={()=>setMt(m.id)}
+            style={{flex:1,padding:'3px 0',border:`1px solid ${mt===m.id?cat.color:t.border}`,
+              background:mt===m.id?`${cat.color}25`:'transparent',
+              color:mt===m.id?cat.color:t.text4,
+              borderRadius:3,cursor:'pointer',fontSize:8,fontFamily:"'DM Mono',monospace",fontWeight:700}}>
+            {m.icon} {m.lbl}
+          </button>
+        ))}
+      </div>
+      <div style={{display:'flex',gap:4}}>
+        <button onClick={handleCreate} disabled={!name.trim()||saving}
+          style={{flex:1,background:cat.color,border:'none',color:'#000',padding:'5px 0',borderRadius:4,
+            cursor:name.trim()?'pointer':'not-allowed',fontSize:10,fontWeight:700,opacity:name.trim()?1:0.4}}>
+          {saving?'...':'✓ Add & Measure'}
+        </button>
+        <button onClick={()=>setOpen(false)}
+          style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'5px 8px',borderRadius:4,cursor:'pointer',fontSize:10}}>✕</button>
+      </div>
+    </div>
+  );
+}
+
 function NewConditionRow({ selPlan, project, items, onCreated }) {
   const { t } = useTheme();
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
-  const [mt, setMt] = useState('area'); // measurement_type
-  const [cat, setCat] = useState('concrete_slab');
+  const [cat, setCat] = useState('site_concrete');
+  const [mt, setMt] = useState('area');
   const [saving, setSaving] = useState(false);
   const inputRef = useRef();
 
-  const MT = [
-    {id:'area',   icon:'⬡', label:'SF', cat:'concrete_slab'},
-    {id:'linear', icon:'━', label:'LF', cat:'other'},
-    {id:'count',  icon:'✕', label:'EA', cat:'other'},
-    {id:'manual', icon:'✎', label:'LS', cat:'other'},
-  ];
-  const selMT = MT.find(m=>m.id===mt)||MT[0];
+  // Auto-set measure type from category default
+  const catDef = TAKEOFF_CATS.find(c=>c.id===cat)||TAKEOFF_CATS[0];
+  const unitLabel = catDef.unit;
 
   const handleCreate = async () => {
     if(!selPlan?.id||!name.trim()) return;
     setSaving(true);
-    const catDef = TAKEOFF_CATS.find(c=>c.id===cat)||TAKEOFF_CATS[0];
-    const costs = (() => { try{ return {...UNIT_COSTS_DEFAULT,...JSON.parse(localStorage.getItem('unitCosts')||'{}')}; }catch{return UNIT_COSTS_DEFAULT;} })();
-    const uc = (costs[cat]?.mat||0)+(costs[cat]?.lab||0)||catDef.defaultCost;
     const payload = {
       project_id: project.id, plan_id: selPlan.id,
       category: cat, description: name.trim(),
-      quantity: 0, unit: selMT.label, unit_cost: uc, total_cost: 0,
+      quantity: 0, unit: unitLabel, unit_cost: catDef.defaultCost, total_cost: 0,
       measurement_type: mt, points: [], color: catDef.color,
       ai_generated: false, sort_order: items.length,
     };
     const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
-    if(data){ onCreated(data); }
+    if(data) onCreated(data);
     setName(''); setOpen(false); setSaving(false);
   };
 
   if(!open) return(
-    <div style={{padding:'6px 8px',borderBottom:`1px solid var(--bd1,#333)`,flexShrink:0}}>
+    <div style={{padding:'6px 8px',borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
       <button onClick={()=>{setOpen(true);setTimeout(()=>inputRef.current?.focus(),50);}}
         disabled={!selPlan?.id}
-        style={{width:'100%',background:'rgba(249,115,22,0.1)',border:'1px dashed rgba(249,115,22,0.5)',color:'#F97316',padding:'6px 0',borderRadius:5,cursor:selPlan?.id?'pointer':'not-allowed',fontSize:10,fontWeight:700,fontFamily:"'DM Mono',monospace",opacity:selPlan?.id?1:0.5}}>
-        + NEW CONDITION
+        style={{width:'100%',background:'rgba(16,185,129,0.08)',border:'1px dashed rgba(16,185,129,0.4)',color:'#10B981',padding:'7px 0',borderRadius:5,cursor:selPlan?.id?'pointer':'not-allowed',fontSize:11,fontWeight:700,fontFamily:"'DM Mono',monospace",opacity:selPlan?.id?1:0.4}}>
+        + NEW ITEM
       </button>
     </div>
   );
 
   return(
-    <div style={{padding:'8px',borderBottom:`1px solid #F97316`,background:'rgba(249,115,22,0.06)',flexShrink:0}}>
-      {/* Name input */}
+    <div style={{padding:'10px 8px',borderBottom:`1px solid #10B981`,background:'rgba(16,185,129,0.04)',flexShrink:0}}>
+      {/* Step 1: Name */}
+      <div style={{fontSize:8,color:'#10B981',fontFamily:"'DM Mono',monospace",letterSpacing:0.8,marginBottom:4}}>ITEM NAME</div>
       <input ref={inputRef} value={name} onChange={e=>setName(e.target.value)}
-        placeholder="e.g. Slab on Grade, Footing, CMU Wall..."
+        placeholder="e.g. Sidewalk, Curb & Gutter, Footing..."
         onKeyDown={e=>{if(e.key==='Enter'&&name.trim()) handleCreate(); if(e.key==='Escape') setOpen(false);}}
-        style={{width:'100%',background:'rgba(0,0,0,0.3)',border:'1px solid rgba(249,115,22,0.5)',color:'#fff',borderRadius:4,padding:'5px 8px',fontSize:11,fontFamily:"'DM Mono',monospace",outline:'none',marginBottom:6,boxSizing:'border-box'}}/>
+        style={{width:'100%',background:t.bg3,border:`1px solid ${t.border2}`,color:t.text,borderRadius:4,padding:'6px 8px',fontSize:11,outline:'none',marginBottom:8,boxSizing:'border-box'}}/>
 
-      {/* Measurement type buttons */}
-      <div style={{display:'flex',gap:4,marginBottom:6}}>
-        {MT.map(m=>(
-          <button key={m.id} onClick={()=>{setMt(m.id);setCat(m.cat);}}
-            style={{flex:1,padding:'4px 0',border:`1px solid ${mt===m.id?'#F97316':'rgba(255,255,255,0.12)'}`,
-              background:mt===m.id?'rgba(249,115,22,0.2)':'rgba(0,0,0,0.25)',
-              color:mt===m.id?'#F97316':'#aaa',
+      {/* Step 2: Category */}
+      <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.8,marginBottom:4}}>CATEGORY</div>
+      <select value={cat} onChange={e=>setCat(e.target.value)}
+        style={{width:'100%',background:t.bg3,border:`1px solid ${t.border2}`,color:t.text,borderRadius:4,padding:'5px 7px',fontSize:11,marginBottom:8,boxSizing:'border-box'}}>
+        {TAKEOFF_CATS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+      </select>
+
+      {/* Step 3: Measure type */}
+      <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.8,marginBottom:4}}>MEASURE AS</div>
+      <div style={{display:'flex',gap:4,marginBottom:10}}>
+        {[{id:'area',icon:'⬡',label:'Area (SF)'},{id:'linear',icon:'━',label:'Linear (LF)'},{id:'count',icon:'✕',label:'Count (EA)'}].map(m=>(
+          <button key={m.id} onClick={()=>setMt(m.id)}
+            style={{flex:1,padding:'5px 0',border:`1px solid ${mt===m.id?'#10B981':t.border}`,
+              background:mt===m.id?'rgba(16,185,129,0.15)':'rgba(0,0,0,0.2)',
+              color:mt===m.id?'#10B981':'#888',
               borderRadius:4,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",fontWeight:700}}>
-            <div style={{fontSize:11}}>{m.icon}</div>
-            <div>{m.label}</div>
+            <div style={{fontSize:12}}>{m.icon}</div>
+            <div style={{fontSize:8,marginTop:1}}>{m.label}</div>
           </button>
         ))}
       </div>
 
-      {/* Category select */}
-      <select value={cat} onChange={e=>setCat(e.target.value)}
-        style={{width:'100%',background:'rgba(0,0,0,0.3)',border:'1px solid rgba(255,255,255,0.12)',color:'rgba(255,255,255,0.7)',borderRadius:4,padding:'4px 6px',fontSize:10,fontFamily:"'DM Mono',monospace",marginBottom:7,boxSizing:'border-box'}}>
-        {TAKEOFF_CATS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
-      </select>
-
-      {/* Actions */}
       <div style={{display:'flex',gap:5}}>
         <button onClick={handleCreate} disabled={!name.trim()||saving}
-          style={{flex:1,background:'#F97316',border:'none',color:'#000',padding:'6px 0',borderRadius:4,cursor:name.trim()?'pointer':'not-allowed',fontSize:10,fontWeight:700,opacity:name.trim()?1:0.5}}>
-          {saving?'...':`⬡ Create & Arm ${selMT.label}`}
+          style={{flex:1,background:'#10B981',border:'none',color:'#000',padding:'7px 0',borderRadius:4,cursor:name.trim()?'pointer':'not-allowed',fontSize:11,fontWeight:700,opacity:name.trim()?1:0.4}}>
+          {saving?'Saving...':'✓ Create & Start Measuring'}
         </button>
         <button onClick={()=>setOpen(false)}
-          style={{background:'none',border:'1px solid rgba(255,255,255,0.15)',color:'rgba(255,255,255,0.4)',padding:'6px 10px',borderRadius:4,cursor:'pointer',fontSize:10}}>✕</button>
+          style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'7px 10px',borderRadius:4,cursor:'pointer',fontSize:11}}>✕</button>
       </div>
     </div>
   );
@@ -4180,8 +4239,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   useEffect(()=>{ itemsRef.current = items; },[items]);
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [activeCondId, setActiveCondId] = useState(null); // condition currently armed for drawing
-  const [estSaving, setEstSaving] = useState(null); // item id currently saving in estimate
-  const [estHover, setEstHover] = useState(null);   // item id hovered in estimate grid
+  const [estSaving, setEstSaving] = useState(null);
+  const [estHover, setEstHover] = useState(null);
+  const [collapsedCats, setCollapsedCats] = useState({}); // which categories are collapsed in sidebar
 
 
   useEffect(()=>{
@@ -4946,132 +5006,117 @@ Return ONLY a valid JSON array, no markdown:
             </button>
           </div>
 
-          {/* Items tab — CONDITION-FIRST workflow */}
+          {/* Items tab — Category > Item hierarchy */}
           {rightTab==='items'&&(()=>{
-            const activeCond = items.find(i=>i.id===activeCondId);
-            // Measurement type config
-            const MT_OPTIONS = [
-              {id:'area',   icon:'⬡', label:'Area',   unit:'SF', defaultCat:'concrete_slab'},
-              {id:'linear', icon:'━', label:'Linear', unit:'LF', defaultCat:'other'},
-              {id:'count',  icon:'✕', label:'Count',  unit:'EA', defaultCat:'other'},
-              {id:'manual', icon:'✎', label:'Manual', unit:'LS', defaultCat:'other'},
-            ];
+            const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+            const armItem = (item) => {
+              setActiveCondId(item.id);
+              setTool(item.measurement_type==='area'?'area':item.measurement_type==='linear'?'linear':item.measurement_type==='count'?'count':'select');
+              setActivePts([]); setEditItem(null);
+            };
+            const disarm = () => { setActiveCondId(null); setTool('select'); setActivePts([]); };
             return(
-            <div style={{flex:1,overflowY:'auto',display:'flex',flexDirection:'column'}}>
+            <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
 
-              {/* ── Active condition status bar ─────────────────── */}
+              {/* Active item banner */}
               {activeCond?(
-                <div style={{padding:'6px 10px',background:'rgba(249,115,22,0.12)',borderBottom:`1px solid rgba(249,115,22,0.3)`,display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-                  <div style={{width:6,height:6,borderRadius:'50%',background:'#F97316',boxShadow:'0 0 6px #F97316',flexShrink:0,animation:'pulse 1.2s ease-in-out infinite'}}/>
+                <div style={{padding:'7px 10px',background:'rgba(249,115,22,0.12)',borderBottom:'2px solid #F97316',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                  <div style={{width:8,height:8,borderRadius:'50%',background:'#F97316',animation:'pulse 1.2s ease-in-out infinite',flexShrink:0}}/>
                   <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:10,fontWeight:700,color:'#F97316',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeCond.description||'Unnamed'}</div>
-                    <div style={{fontSize:8,color:'rgba(249,115,22,0.7)',fontFamily:"'DM Mono',monospace"}}>
-                      ARMED · {activeCond.measurement_type?.toUpperCase()} · {activeCond.unit} · click plan to measure
-                    </div>
+                    <div style={{fontSize:11,fontWeight:700,color:'#F97316',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeCond.description}</div>
+                    <div style={{fontSize:8,color:'rgba(249,115,22,0.75)',fontFamily:"'DM Mono',monospace",marginTop:1}}>DRAWING SHAPES INTO THIS ITEM — tap the plan</div>
                   </div>
-                  <button onClick={()=>{setActiveCondId(null);setTool('select');setActivePts([]);}}
-                    style={{background:'none',border:'1px solid rgba(249,115,22,0.4)',color:'#F97316',padding:'2px 6px',borderRadius:3,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",flexShrink:0}}>DONE</button>
+                  <button onClick={disarm} style={{background:'rgba(249,115,22,0.15)',border:'1px solid rgba(249,115,22,0.5)',color:'#F97316',padding:'3px 9px',borderRadius:4,cursor:'pointer',fontSize:9,fontWeight:700,fontFamily:"'DM Mono',monospace",flexShrink:0}}>DONE</button>
                 </div>
               ):(
                 <div style={{padding:'5px 10px',background:t.bg3,borderBottom:`1px solid ${t.border}`,fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0}}>
-                  {!selPlan?'Upload a plan first':!scale?'⚠ Set scale in Settings':'Select or create a condition below'}
+                  {!selPlan?'Upload a plan first':!scale?'⚠ Set scale in Settings':planItems.length?'← Select an item, then draw on the plan':'Expand a category below and add items'}
                 </div>
               )}
 
-              {/* ── New Condition creator ─────────────────────────── */}
-              <NewConditionRow
-                selPlan={selPlan} project={project} items={items}
-                onCreated={(newItem)=>{
-                  setItems(prev=>[...prev,newItem]);
-                  setActiveCondId(newItem.id);
-                  setTool(newItem.measurement_type==='area'?'area':newItem.measurement_type==='linear'?'linear':newItem.measurement_type==='count'?'count':'select');
-                  setActivePts([]);
-                }}
-              />
-
-              {/* ── Conditions list ─────────────────────────────── */}
-              <div style={{flex:1,overflowY:'auto',padding:'6px 8px'}}>
-                {planItems.length===0&&(
-                  <div style={{textAlign:'center',padding:'24px 8px',color:t.text4,fontSize:10,fontFamily:"'DM Mono',monospace",lineHeight:1.8}}>
-                    Create a condition above — then tap the plan to measure
-                  </div>
-                )}
-
+              {/* Category tree */}
+              <div style={{flex:1,overflowY:'auto'}}>
                 {TAKEOFF_CATS.map(cat=>{
-                  const catItems=planItems.filter(i=>i.category===cat.id);
-                  if(!catItems.length) return null;
-                  const catTotal=catItems.reduce((s,i)=>s+(i.total_cost||0),0);
+                  const catItems = planItems.filter(i=>i.category===cat.id);
+                  const catTotal = catItems.reduce((s,i)=>s+(i.total_cost||0),0);
+                  const collapsed = collapsedCats?.[cat.id];
+                  const hasActive = catItems.some(i=>i.id===activeCondId);
+
                   return(
-                    <div key={cat.id} style={{marginBottom:8}}>
-                      <div style={{display:'flex',alignItems:'center',gap:5,padding:'3px 6px',marginBottom:3,background:`${cat.color}15`,borderRadius:4,borderLeft:`3px solid ${cat.color}`}}>
-                        <span style={{fontSize:9,fontWeight:800,color:cat.color,fontFamily:"'DM Mono',monospace",letterSpacing:0.5,flex:1}}>{cat.label.toUpperCase()}</span>
-                        <span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",fontWeight:700}}>${catTotal.toLocaleString()}</span>
+                    <div key={cat.id} style={{borderBottom:`1px solid ${t.border}`}}>
+
+                      {/* Category header */}
+                      <div onClick={()=>setCollapsedCats(p=>({...p,[cat.id]:!collapsed}))}
+                        style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',cursor:'pointer',
+                          background:hasActive?`${cat.color}15`:`${cat.color}08`,
+                          borderLeft:`3px solid ${cat.color}`}}>
+                        <span style={{fontSize:9,color:cat.color,fontFamily:"'DM Mono',monospace",width:8,flexShrink:0}}>{collapsed?'▸':'▾'}</span>
+                        <span style={{fontSize:11,fontWeight:700,color:cat.color,flex:1}}>{cat.label}</span>
+                        {catItems.length>0&&<span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{catItems.length}</span>}
+                        {catTotal>0&&<span style={{fontSize:9,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",marginLeft:4}}>${catTotal.toLocaleString()}</span>}
                       </div>
 
-                      {catItems.map(item=>{
-                        const isActive = item.id===activeCondId;
-                        const isEditing = editItem?.id===item.id && !isActive;
-                        const shapes = (() => {
-                          if(!item.points||!item.points.length) return [];
-                          if(Array.isArray(item.points[0])) return item.points;
-                          if(item.points[0]&&typeof item.points[0].x==='number') return [item.points];
-                          return item.points;
-                        })();
-                        const typeIcon = {area:'⬡',perimeter:'⬠',linear:'━',count:'✕',manual:'✎'}[item.measurement_type]||'✎';
-                        return(
-                          <div key={item.id} style={{marginBottom:3,borderRadius:5,overflow:'hidden',
-                            border:`1px solid ${isActive?'#F97316':isEditing?cat.color:t.border}`,
-                            transition:'border-color 0.12s',
-                            boxShadow:isActive?'0 0 0 1px rgba(249,115,22,0.2)':'none'}}>
-
-                            {/* Condition row */}
-                            <div style={{display:'flex',alignItems:'center',gap:6,padding:'6px 8px',
-                              background:isActive?'rgba(249,115,22,0.08)':isEditing?`${cat.color}0a`:'none',cursor:'pointer'}}
-                              onClick={()=>{
-                                if(isActive){
-                                  // Tap active → deselect
-                                  setActiveCondId(null); setTool('select'); setActivePts([]);
-                                } else {
-                                  // Select → arm tool
-                                  setActiveCondId(item.id);
-                                  setTool(item.measurement_type==='area'?'area':item.measurement_type==='linear'?'linear':item.measurement_type==='count'?'count':'select');
-                                  setActivePts([]); setEditItem(null);
-                                }
-                              }}>
-                              {/* Armed indicator */}
-                              <span style={{fontSize:10,color:isActive?'#F97316':cat.color,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{typeIcon}</span>
-                              <div style={{flex:1,minWidth:0}}>
-                                <div style={{fontSize:10,fontWeight:600,color:isActive?'#F97316':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'Unnamed'}</div>
-                                <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",display:'flex',gap:6}}>
-                                  <span style={{color:item.quantity>0?t.text3:t.text4}}>{item.quantity||0} {item.unit}</span>
-                                  {shapes.length>0&&<span>· {shapes.length} shape{shapes.length!==1?'s':''}</span>}
-                                  {item.ai_generated&&<span style={{color:'#a855f7'}}>✦ AI</span>}
+                      {/* Items in category */}
+                      {!collapsed&&(
+                        <div>
+                          {catItems.map(item=>{
+                            const isActive  = item.id===activeCondId;
+                            const isEditing = editItem?.id===item.id && !isActive;
+                            const shapes = (() => {
+                              if(!item.points||!item.points.length) return [];
+                              if(Array.isArray(item.points[0])) return item.points;
+                              if(item.points[0]?.x!=null) return [item.points];
+                              return item.points;
+                            })();
+                            const typeIcon = {area:'⬡',linear:'━',count:'✕',manual:'✎'}[item.measurement_type]||'✎';
+                            return(
+                              <div key={item.id} style={{borderBottom:`1px solid ${t.border}`,background:isActive?'rgba(249,115,22,0.07)':isEditing?`${cat.color}05`:'transparent'}}>
+                                {/* Item row */}
+                                <div onClick={()=>isActive?disarm():armItem(item)}
+                                  style={{display:'flex',alignItems:'center',gap:7,padding:'6px 10px 6px 16px',cursor:'pointer',position:'relative'}}>
+                                  {isActive&&<div style={{position:'absolute',left:0,top:0,bottom:0,width:3,background:'#F97316'}}/>}
+                                  <span style={{fontSize:11,color:isActive?'#F97316':cat.color,flexShrink:0}}>{typeIcon}</span>
+                                  <div style={{flex:1,minWidth:0}}>
+                                    <div style={{fontSize:11,fontWeight:isActive?700:400,color:isActive?'#F97316':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'Unnamed'}</div>
+                                    <div style={{fontSize:8,fontFamily:"'DM Mono',monospace",color:isActive?'rgba(249,115,22,0.7)':t.text4,marginTop:1}}>
+                                      {isActive
+                                        ?`drawing → ${item.quantity||0} ${item.unit}${shapes.length?' · '+shapes.length+' shape'+(shapes.length!==1?'s':''):''}`
+                                        :`${item.quantity||0} ${item.unit}${shapes.length?' · '+shapes.length+' shape'+(shapes.length!==1?'s':''):''}`
+                                      }
+                                    </div>
+                                  </div>
+                                  <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
+                                    {item.total_cost>0&&<span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${(item.total_cost||0).toLocaleString()}</span>}
+                                    <button onClick={e=>{e.stopPropagation();setEditItem(isEditing?null:item);if(!isEditing)disarm();}}
+                                      style={{background:'none',border:`1px solid ${t.border2}`,color:t.text4,cursor:'pointer',fontSize:9,padding:'1px 5px',borderRadius:3,lineHeight:1.4}}>✎</button>
+                                  </div>
                                 </div>
+                                {/* Inline editor */}
+                                {isEditing&&<InlineItemEditor item={item} cat={cat} onSave={async(updated)=>{
+                                  const qty=Number(updated.quantity)||item.quantity||0;
+                                  const uc=Number(updated.unit_cost)||0;
+                                  const payload={...updated,quantity:qty,total_cost:qty*uc};
+                                  await supabase.from('takeoff_items').update(payload).eq('id',item.id);
+                                  setItems(prev=>prev.map(i=>i.id===item.id?{...i,...payload}:i));
+                                  setEditItem(null);
+                                }} onDelete={async()=>{
+                                  await supabase.from('takeoff_items').delete().eq('id',item.id);
+                                  setItems(prev=>prev.filter(i=>i.id!==item.id));
+                                  if(activeCondId===item.id) disarm();
+                                  setEditItem(null);
+                                }}/>}
                               </div>
-                              <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
-                                <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${(item.total_cost||0).toLocaleString()}</span>
-                                <button onClick={e=>{e.stopPropagation();setEditItem(isEditing?null:item);setActiveCondId(null);}}
-                                  style={{background:'none',border:`1px solid ${t.border2}`,color:t.text4,cursor:'pointer',fontSize:9,padding:'1px 5px',borderRadius:3,lineHeight:1.4}}>✎</button>
-                              </div>
-                            </div>
+                            );
+                          })}
 
-                            {/* Inline editor (edit mode only) */}
-                            {isEditing&&<InlineItemEditor item={item} cat={cat} onSave={async(updated)=>{
-                              const qty=Number(updated.quantity)||item.quantity||0;
-                              const uc=Number(updated.unit_cost)||0;
-                              const payload={...updated,quantity:qty,total_cost:qty*uc};
-                              await supabase.from('takeoff_items').update(payload).eq('id',item.id);
-                              setItems(prev=>prev.map(i=>i.id===item.id?{...i,...payload}:i));
-                              setEditItem(null);
-                            }} onDelete={async()=>{
-                              await supabase.from('takeoff_items').delete().eq('id',item.id);
-                              setItems(prev=>prev.filter(i=>i.id!==item.id));
-                              if(activeCondId===item.id){setActiveCondId(null);setTool('select');}
-                              setEditItem(null);
-                            }}/>}
-                          </div>
-                        );
-                      })}
+                          {/* Add item inside this category */}
+                          {selPlan?.id&&(
+                            <AddItemInline cat={cat} selPlan={selPlan} project={project} items={items}
+                              onCreated={(newItem)=>{ setItems(prev=>[...prev,newItem]); armItem(newItem); }}
+                            />
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
@@ -5079,7 +5124,6 @@ Return ONLY a valid JSON array, no markdown:
             </div>
             );
           })()}
-
           {/* Settings tab */}
           {rightTab==='settings'&&(
             <div style={{flex:1,overflowY:'auto',padding:12}}>
