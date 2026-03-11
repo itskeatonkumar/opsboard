@@ -4241,7 +4241,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [activeCondId, setActiveCondId] = useState(null); // condition currently armed for drawing
   const [estSaving, setEstSaving] = useState(null);
   const [estHover, setEstHover] = useState(null);
-  const [collapsedCats, setCollapsedCats] = useState({}); // which categories are collapsed in sidebar
+  const [collapsedCats, setCollapsedCats] = useState({});
+  const [showSheetsDD, setShowSheetsDD] = useState(false); // sheets dropdown open
 
 
   useEffect(()=>{
@@ -4857,21 +4858,22 @@ Return ONLY a valid JSON array, no markdown:
             const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
             const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
             const shapeArea = Math.round(calcArea(pts)*10)/10;
+            const lw=38/zoom, lh=padH*1.6;
             return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
-              <path d={d} fill={c+'28'} stroke={c} strokeWidth={isActive?sw*1.6:sw}/>
-              {isActive&&<path d={d} fill="none" stroke="#fff" strokeWidth={sw*0.4} opacity={0.3}/>}
-              <rect x={cx-26/zoom} y={cy-padH} width={52/zoom} height={padH*2} rx={2/zoom} fill="rgba(0,0,0,0.75)"/>
-              <text x={cx} y={cy+fs*0.38} fontSize={fs} fill={isActive?'#F97316':'#fff'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{shapeArea} SF</text>
+              <path d={d} fill={c+'22'} stroke={c} strokeWidth={isActive?sw*1.5:sw}/>
+              <rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
+              <text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{shapeArea} SF</text>
             </g>);
           }
           if(mt==='linear'&&pts.length>=2){
             const mx=(pts[0].x+pts[1].x)/2; const my=(pts[0].y+pts[1].y)/2;
             const dist = Math.round(calcLinear(pts[0],pts[1])*10)/10;
+            const lw=36/zoom, lh=padH*1.5;
             return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
-              <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*1.4} strokeDasharray={`${7/zoom},${3/zoom}`}/>
-              {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r} fill={c} stroke="#fff" strokeWidth={sw*0.5}/>)}
-              <rect x={mx-22/zoom} y={my-padH*1.8} width={44/zoom} height={padH*1.8} rx={2/zoom} fill="rgba(0,0,0,0.75)"/>
-              <text x={mx} y={my-padH*0.5} fontSize={fs} fill={isActive?'#F97316':'#fff'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{dist} LF</text>
+              <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${6/zoom},${3/zoom}`}/>
+              {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r*0.8} fill={c} stroke="#fff" strokeWidth={sw*0.4}/>)}
+              <rect x={mx-lw/2} y={my-lh*1.6} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
+              <text x={mx} y={my-lh*0.7} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{dist} LF</text>
             </g>);
           }
           if(mt==='count'&&pts[0]){
@@ -4916,34 +4918,104 @@ Return ONLY a valid JSON array, no markdown:
   const STATUS_COLORS_BID = {estimating:'#F59E0B',bid_submitted:'#3B82F6',awarded:'#10B981',lost:'#EF4444',hold:'#555'};
 
   // ── right tool icon helper
-  const RightBtn = ({icon, label, active, onClick, color}) => (
-    <button onClick={onClick} title={label} style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:3,padding:'10px 0',border:'none',background:active?'rgba(16,185,129,0.15)':'none',color:active?'#10B981':t.text3,cursor:'pointer',width:'100%',borderLeft:active?'2px solid #10B981':'2px solid transparent',transition:'all 0.15s'}}>
-      <span style={{fontSize:18,lineHeight:1}}>{icon}</span>
-      <span style={{fontSize:8,fontFamily:"'DM Mono',monospace",fontWeight:600,letterSpacing:0.3,color:active?'#10B981':t.text4}}>{label}</span>
+  const RightBtn = ({icon, label, active, onClick, color}) => {
+    const activeColor = color || '#10B981';
+    return(
+    <button onClick={onClick} title={label}
+      style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:2,
+        padding:'11px 0',border:'none',
+        background:active?activeColor+'18':'none',
+        color:active?activeColor:t.text3,
+        cursor:'pointer',width:'100%',
+        borderRight:active?`2px solid ${activeColor}`:'2px solid transparent',
+        transition:'all 0.12s'}}>
+      <span style={{fontSize:17,lineHeight:1}}>{icon}</span>
+      <span style={{fontSize:8,fontFamily:"'DM Mono',monospace",fontWeight:600,letterSpacing:0.2,color:active?activeColor:t.text4,marginTop:1}}>{label}</span>
     </button>
-  );
+    );
+  };
 
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden',position:'relative'}}>
 
       {/* ── Top Bar ── */}
-      <div style={{display:'flex',alignItems:'center',height:42,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
-        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:12,padding:'0 14px',height:'100%',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>← Projects</button>
-        {onExitToOps&&<button onClick={onExitToOps} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:'#F97316',cursor:'pointer',fontSize:11,padding:'0 12px',height:'100%',display:'flex',alignItems:'center',gap:4,flexShrink:0,fontWeight:700}}>⊞ OPS</button>}
-        <CompanyBadge companyId={project.company} small/>
-        <div style={{flex:1,padding:'0 12px',overflow:'hidden'}}>
-          <div style={{fontSize:13,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
-          {project.bid_date&&<div style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>Bid: {fmtDate(project.bid_date)} · <span style={{color:STATUS_COLORS_BID[project.status]||'#555'}}>{(project.status||'').replace(/_/g,' ').toUpperCase()}</span></div>}
+      <div style={{display:'flex',alignItems:'center',height:44,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
+
+        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:11,padding:'0 12px',height:'100%',display:'flex',alignItems:'center',gap:4,flexShrink:0,whiteSpace:'nowrap'}}>← Projects</button>
+        {onExitToOps&&<button onClick={onExitToOps} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:'#F97316',cursor:'pointer',fontSize:11,padding:'0 10px',height:'100%',display:'flex',alignItems:'center',fontWeight:700,flexShrink:0}}>⊞ OPS</button>}
+
+        {/* ── Sheets dropdown ── */}
+        <div style={{position:'relative',flexShrink:0}}>
+          <button onClick={()=>setShowSheetsDD(s=>!s)}
+            style={{background:showSheetsDD?t.bg3:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text,cursor:'pointer',fontSize:11,padding:'0 12px',height:44,display:'flex',alignItems:'center',gap:6,maxWidth:220}}>
+            <span style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0,letterSpacing:0.5}}>SHEET</span>
+            <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:150,color:selPlan?t.text:t.text4}}>{selPlan?selPlan.name:'— select —'}</span>
+            <span style={{fontSize:9,color:t.text4,flexShrink:0}}>{plans.length>1&&`${plans.length}`} {showSheetsDD?'▴':'▾'}</span>
+            {uploading&&<span style={{animation:'spin 0.8s linear infinite',display:'inline-block',color:'#10B981',flexShrink:0}}>◌</span>}
+          </button>
+
+          {showSheetsDD&&<>
+            <div style={{position:'fixed',inset:0,zIndex:199}} onClick={()=>setShowSheetsDD(false)}/>
+            <div style={{position:'absolute',top:44,left:0,width:290,background:t.bg2,border:`1px solid ${t.border2}`,borderRadius:'0 0 8px 8px',boxShadow:'0 12px 32px rgba(0,0,0,0.5)',zIndex:200,overflow:'hidden'}}>
+              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',borderBottom:`1px solid ${t.border}`,background:t.bg3}}>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.8}}>SHEETS ({plans.length})</span>
+                <button onClick={()=>fileRef.current?.click()} disabled={uploading}
+                  style={{background:'#10B981',border:'none',color:'#000',padding:'3px 9px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>+ Upload</button>
+                <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>{handleUpload(e.target.files[0]);setShowSheetsDD(false);}}/>
+              </div>
+              {uploading&&<div style={{padding:'6px 10px',fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",display:'flex',gap:5}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing PDF…</div>}
+              <div style={{maxHeight:340,overflowY:'auto'}}>
+                {plans.length===0&&<div style={{padding:'24px',textAlign:'center',fontSize:11,color:t.text4,fontFamily:"'DM Mono',monospace"}}>No sheets yet</div>}
+                {plans.map(p=>(
+                  <div key={p.id}
+                    onClick={()=>{setSelPlan(p);if(p.scale_px_per_ft)setScale(p.scale_px_per_ft);else{setScale(null);setPresetScale('');}setShowSheetsDD(false);}}
+                    onDoubleClick={async e=>{
+                      e.stopPropagation();
+                      const n=window.prompt('Rename sheet:',p.name||'');
+                      if(n?.trim()&&p.id&&p.id!=='preview'){
+                        await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
+                        setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
+                        if(selPlan?.id===p.id)setSelPlan(prev=>({...prev,name:n.trim()}));
+                      }
+                    }}
+                    style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',
+                      background:selPlan?.id===p.id?'rgba(16,185,129,0.08)':'transparent',
+                      borderLeft:`3px solid ${selPlan?.id===p.id?'#10B981':'transparent'}`,
+                      borderBottom:`1px solid ${t.border}`}}>
+                    <div style={{width:46,height:34,borderRadius:3,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`}}>
+                      <img src={p.file_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
+                    </div>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,fontWeight:selPlan?.id===p.id?700:400,color:selPlan?.id===p.id?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
+                      <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:1}}>{p.scale_px_per_ft?'⇔ scaled':'no scale'} · {items.filter(it=>it.plan_id===p.id).length} items</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </>}
         </div>
-        <button onClick={()=>setEditProject(true)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'4px 10px',borderRadius:4,cursor:'pointer',fontSize:10,flexShrink:0,marginRight:8}}>Edit</button>
-        <div style={{display:'flex',alignItems:'center',gap:2,padding:'0 10px',borderLeft:`1px solid ${t.border}`,height:'100%',flexShrink:0}}>
-          <button onClick={()=>setZoom(z=>Math.max(Math.round((z-0.05)*20)/20, 0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
-          <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
-          <button onClick={()=>setZoom(z=>Math.min(Math.round((z+0.05)*20)/20, 4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:26,height:26,borderRadius:4,cursor:'pointer',fontSize:14,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
-          <button onClick={()=>setZoom(1)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'3px 7px',borderRadius:4,cursor:'pointer',fontSize:9,fontFamily:"'DM Mono',monospace",marginLeft:2}}>1:1</button>
+
+        {/* Scale badge */}
+        {scale&&<span onClick={()=>setRightTab('settings')} title="Click to change scale" style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",padding:'0 10px',borderRight:`1px solid ${t.border}`,height:'100%',display:'flex',alignItems:'center',cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>⇔ {presetScale||'Cal.'}</span>}
+        {!scale&&selPlan&&<span onClick={()=>setRightTab('settings')} title="Set scale" style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace",padding:'0 10px',borderRight:`1px solid ${t.border}`,height:'100%',display:'flex',alignItems:'center',cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>⚠ Set scale</span>}
+
+        {/* Project name */}
+        <div style={{flex:1,padding:'0 12px',overflow:'hidden',minWidth:0}}>
+          <div style={{fontSize:12,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
+          {project.bid_date&&<div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>Bid {fmtDate(project.bid_date)} · <span style={{color:STATUS_COLORS_BID[project.status]||t.text4}}>{(project.status||'').replace(/_/g,' ').toUpperCase()}</span></div>}
         </div>
+
+        {/* Zoom */}
+        <div style={{display:'flex',alignItems:'center',gap:2,padding:'0 8px',borderLeft:`1px solid ${t.border}`,height:'100%',flexShrink:0}}>
+          <button onClick={()=>setZoom(z=>Math.max(Math.round((z-0.05)*20)/20,0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:24,height:24,borderRadius:3,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+          <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",minWidth:34,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
+          <button onClick={()=>setZoom(z=>Math.min(Math.round((z+0.05)*20)/20,4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:24,height:24,borderRadius:3,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+          <button onClick={()=>setZoom(1)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'2px 6px',borderRadius:3,cursor:'pointer',fontSize:8,fontFamily:"'DM Mono',monospace",marginLeft:2}}>1:1</button>
+        </div>
+
         <button onClick={()=>setShowBidSummary(true)} disabled={!items.length}
-          style={{height:'100%',padding:'0 16px',border:'none',borderLeft:`1px solid ${t.border}`,background:items.length?'linear-gradient(135deg,#10B981,#059669)':'none',color:items.length?'#000':t.text4,cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0,opacity:items.length?1:0.4}}>
+          style={{height:'100%',padding:'0 14px',border:'none',borderLeft:`1px solid ${t.border}`,background:items.length?'linear-gradient(135deg,#10B981,#059669)':'none',color:items.length?'#000':t.text4,cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0,opacity:items.length?1:0.4,whiteSpace:'nowrap'}}>
           📋 Bid Summary
         </button>
       </div>
@@ -4951,58 +5023,27 @@ Return ONLY a valid JSON array, no markdown:
       {/* ── Main Body ── */}
       <div style={{display:'flex',flex:1,overflow:'hidden'}}>
 
-        {/* ── Left Sidebar ── */}
-        <div style={{width:240,flexShrink:0,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,background:t.bg2,overflow:'hidden'}}>
+        {/* ── Left Sidebar — full height items tree ── */}
+        <div style={{width:260,flexShrink:0,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,background:t.bg2,overflow:'hidden'}}>
 
-          {/* SHEETS section — top half */}
-          <div style={{display:'flex',flexDirection:'column',borderBottom:`2px solid ${t.border}`,flexShrink:0}}>
-            <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px 6px',flexShrink:0}}>
-              <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.8}}>SHEETS ({plans.length})</span>
-              <button onClick={()=>fileRef.current?.click()} disabled={uploading}
-                style={{background:'#10B981',border:'none',color:'#000',padding:'3px 9px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700,display:'flex',alignItems:'center',gap:4}}>
-                {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span></>:<>+ Upload</>}
-              </button>
-              <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
-            </div>
-            {uploading&&<div style={{padding:'4px 10px 6px',fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",display:'flex',alignItems:'center',gap:4}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing PDF pages…</div>}
-            <div style={{maxHeight:220,overflowY:'auto',padding:'0 6px 6px'}}>
-              {plans.length===0&&<div style={{padding:'12px 6px',fontSize:11,color:t.text4,textAlign:'center',fontFamily:"'DM Mono',monospace"}}>No sheets yet</div>}
-              {plans.map((p,i)=>(
-                <div key={p.id}
-                  onClick={()=>{setSelPlan(p);if(p.scale_px_per_ft)setScale(p.scale_px_per_ft);else{setScale(null);setPresetScale('');} }}
-                  onDoubleClick={async()=>{
-                    const newName=window.prompt('Rename sheet:',p.name||'');
-                    if(newName&&newName.trim()&&p.id&&p.id!=='preview'){
-                      await supabase.from('precon_plans').update({name:newName.trim()}).eq('id',p.id);
-                      setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:newName.trim()}:x));
-                      if(selPlan?.id===p.id)setSelPlan(prev=>({...prev,name:newName.trim()}));
-                    }
-                  }}
-                  style={{display:'flex',alignItems:'center',gap:7,padding:'6px 8px',borderRadius:5,marginBottom:2,cursor:'pointer',background:selPlan?.id===p.id?'rgba(16,185,129,0.12)':'none',border:selPlan?.id===p.id?'1px solid rgba(16,185,129,0.3)':`1px solid transparent`}}>
-                  {/* Thumbnail */}
-                  <div style={{width:36,height:28,borderRadius:3,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                    <img src={p.file_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
-                  </div>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:10,fontWeight:selPlan?.id===p.id?700:500,color:selPlan?.id===p.id?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
-                    <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{p.scale_px_per_ft?'⇔ scaled':'no scale'} · {items.filter(it=>it.plan_id===p.id).length} items</div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          {/* TAKEOFF DATA section — bottom, tabbed */}
-          <div style={{display:'flex',borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
-            {[['items','Items'],['settings','Settings']].map(([id,lbl])=>(
+          {/* Tab strip — Items / Settings / $ Estimate */}
+          <div style={{display:'flex',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg2}}>
+            {[['items','Takeoffs'],['settings','Settings']].map(([id,lbl])=>(
               <button key={id} onClick={()=>setRightTab(id)}
-                style={{flex:1,padding:'7px 0',border:'none',background:'none',cursor:'pointer',fontSize:10,fontWeight:700,color:rightTab==='estimate'?t.text4:rightTab===id?'#10B981':t.text4,borderBottom:(!rightTab||rightTab==='estimate')?'2px solid transparent':rightTab===id?'2px solid #10B981':'2px solid transparent',fontFamily:"'DM Mono',monospace"}}>
+                style={{flex:1,padding:'9px 0',border:'none',background:'none',cursor:'pointer',fontSize:11,fontWeight:600,
+                  color:rightTab===id&&rightTab!=='estimate'?t.text:t.text4,
+                  borderBottom:rightTab===id&&rightTab!=='estimate'?`2px solid #10B981`:'2px solid transparent',
+                  fontFamily:"'DM Mono',monospace"}}>
                 {lbl}
               </button>
             ))}
             <button onClick={()=>setRightTab('estimate')}
-              style={{flex:1,padding:'7px 0',border:'none',background:rightTab==='estimate'?'linear-gradient(135deg,#10B981,#059669)':'none',cursor:'pointer',fontSize:10,fontWeight:700,color:rightTab==='estimate'?'#000':'#10B981',borderBottom:'2px solid transparent',fontFamily:"'DM Mono',monospace"}}>
-              $ Estimate →
+              style={{flex:1,padding:'9px 0',border:'none',
+                background:rightTab==='estimate'?'linear-gradient(135deg,#10B981,#059669)':'none',
+                cursor:'pointer',fontSize:11,fontWeight:700,
+                color:rightTab==='estimate'?'#000':'#10B981',
+                borderBottom:'2px solid transparent'}}>
+              $ Estimate
             </button>
           </div>
 
@@ -5174,35 +5215,65 @@ Return ONLY a valid JSON array, no markdown:
         {/* ── Plan Viewer ── */}
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0,position:'relative'}}>
 
-          {/* Drawing toolbar */}
-          <div style={{display:'flex',gap:2,padding:'5px 10px',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg2,alignItems:'center'}}>
-            {[
-              {id:'select',    icon:'↖', label:'Select',    color:'#aaa'},
-              {id:'area',      icon:'⬡', label:'Area',      color:'#F59E0B'},
-              {id:'linear',    icon:'━', label:'Linear',    color:'#06B6D4'},
-              {id:'count',     icon:'✕', label:'Count',     color:'#10B981'},
-            ].map(tb=>(
-              <button key={tb.id} onClick={()=>{setTool(tb.id);setActivePts([]);setScaleStep(null);}} title={tb.label}
-                style={{padding:'4px 10px',borderRadius:5,border:tool===tb.id?`1.5px solid ${tb.color}`:`1px solid ${t.border}`,background:tool===tb.id?tb.color+'18':'none',color:tool===tb.id?tb.color:t.text4,cursor:'pointer',fontSize:11,fontWeight:600,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap'}}>
-                <span style={{fontSize:13}}>{tb.icon}</span><span style={{fontSize:10}}>{tb.label}</span>
-              </button>
-            ))}
-            <div style={{width:1,height:18,background:t.border,margin:'0 4px'}}/>
-            {/* Assembly + AI inline */}
-            <button onClick={()=>setShowAssembly(true)} style={{padding:'4px 10px',borderRadius:5,border:`1px solid ${t.border}`,background:'none',color:'#8B5CF6',cursor:'pointer',fontSize:10,fontWeight:700,display:'flex',alignItems:'center',gap:3}}>⬡ Assembly</button>
-            <button onClick={runAITakeoff} disabled={analyzing||!selPlan}
-              style={{padding:'4px 10px',borderRadius:5,border:'none',background:'linear-gradient(135deg,#7c3aed,#a855f7)',color:'#fff',cursor:'pointer',fontSize:10,fontWeight:700,display:'flex',alignItems:'center',gap:3,opacity:selPlan?1:0.4}}>
-              {analyzing?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>AI…</>:<>✦ AI Takeoff</>}
+          {/* ── Sheet Tabs (Stack-style) ── */}
+          <div style={{display:'flex',alignItems:'stretch',height:38,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,overflowX:'auto',overflowY:'hidden',minWidth:0}}>
+            {/* Upload */}
+            <button onClick={()=>fileRef.current?.click()} disabled={uploading}
+              style={{height:'100%',padding:'0 14px',border:'none',borderRight:`1px solid ${t.border}`,
+                background:'none',color:uploading?t.text4:'#10B981',cursor:'pointer',fontSize:11,fontWeight:700,
+                display:'flex',alignItems:'center',gap:5,flexShrink:0,whiteSpace:'nowrap'}}>
+              {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block',fontSize:13}}>◌</span> Processing…</>:<>＋ Upload</>}
             </button>
+            <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
 
-            {/* Live measurement status */}
-            <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-              {tool==='area'&&activePts.length>0&&<span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>{!scale?`⚠ Set scale first`:(activePts.length>=3?`⬡ ${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF · click ● to close`:` ${activePts.length} pts`)}</span>}
+            {/* Sheet tabs */}
+            {plans.map((p,idx)=>{
+              const isActive = selPlan?.id===p.id;
+              const cnt = items.filter(it=>it.plan_id===p.id).length;
+              return(
+                <div key={p.id}
+                  onClick={()=>{setSelPlan(p);if(p.scale_px_per_ft)setScale(p.scale_px_per_ft);else{setScale(null);setPresetScale('');} }}
+                  onDoubleClick={async()=>{
+                    const n=window.prompt('Rename:',p.name||'');
+                    if(n?.trim()&&p.id!=='preview'){
+                      await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
+                      setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
+                      if(selPlan?.id===p.id)setSelPlan(prev=>({...prev,name:n.trim()}));
+                    }
+                  }}
+                  style={{height:'100%',display:'flex',alignItems:'center',gap:6,padding:'0 14px',
+                    borderRight:`1px solid ${t.border}`,cursor:'pointer',flexShrink:0,position:'relative',
+                    background:isActive?t.bg3:'transparent',
+                    borderBottom:isActive?'2px solid #10B981':'2px solid transparent',
+                    maxWidth:200,userSelect:'none'}}>
+                  <span style={{fontSize:10,fontWeight:isActive?600:400,color:isActive?t.text:t.text3,
+                    overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140}}>
+                    {p.name||`Sheet ${idx+1}`}
+                  </span>
+                  {cnt>0&&<span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0,background:t.bg3,padding:'1px 4px',borderRadius:2}}>{cnt}</span>}
+                </div>
+              );
+            })}
 
-              {tool==='linear'&&activePts.length===1&&hoverPt&&<span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>{scale?`━ ${Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF`:`⚠ Set scale first`}</span>}
-              {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Pick 2 pts ({scalePts.length}/2) · ESC cancel</span>}
-              {!scale&&!scaleStep&&selPlan&&<span style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>⚠ No scale set</span>}
-              {scale&&!scaleStep&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 6px',borderRadius:3}}>{presetScale||'SCALED'}</span>}
+            {plans.length===0&&(
+              <span style={{fontSize:10,color:t.text4,padding:'0 14px',display:'flex',alignItems:'center',fontFamily:"'DM Mono',monospace"}}>Upload a plan to get started</span>
+            )}
+
+            {/* Right: live measure status + scale badge */}
+            <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:10,padding:'0 12px',flexShrink:0}}>
+              {tool==='area'&&activePts.length>0&&(
+                <span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>
+                  {!scale?'⚠ Set scale':(activePts.length>=3?`${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF — click ● to close`:`${activePts.length} pts`)}
+                </span>
+              )}
+              {tool==='linear'&&activePts.length===1&&hoverPt&&(
+                <span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>
+                  {scale?`${Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF`:'⚠ Set scale'}
+                </span>
+              )}
+              {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Calibrating ({scalePts.length}/2 pts)</span>}
+              {scale&&!scaleStep&&selPlan&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 7px',borderRadius:3,border:'1px solid rgba(16,185,129,0.2)'}}>{presetScale||'Calibrated'}</span>}
+              {!scale&&selPlan&&!scaleStep&&<span style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>No scale</span>}
             </div>
           </div>
 
@@ -5287,20 +5358,21 @@ Return ONLY a valid JSON array, no markdown:
           </div>
         </div>
 
-        {/* ── Right Icon Toolbar ── */}
-        <div style={{width:58,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,overflowY:'auto'}}>
-          <RightBtn icon="⬡" label="Area" active={tool==='area'} onClick={()=>{setTool('area');setActivePts([]);setScaleStep(null);}}/>
-          <RightBtn icon="━" label="Linear" active={tool==='linear'} onClick={()=>{setTool('linear');setActivePts([]);setScaleStep(null);}}/>
-          <RightBtn icon="✕" label="Count" active={tool==='count'} onClick={()=>{setTool('count');setActivePts([]);setScaleStep(null);}}/>
-          <div style={{height:1,background:t.border,margin:'4px 8px'}}/>
-          <RightBtn icon="✦" label="AI" active={analyzing} onClick={runAITakeoff}/>
-          <RightBtn icon="⬡" label="Assemb." active={showAssembly} onClick={()=>setShowAssembly(true)}/>
-          <div style={{height:1,background:t.border,margin:'4px 8px'}}/>
-          <RightBtn icon="⇔" label="Scale" active={tool==='scale'} onClick={()=>{setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);}}/>
-          <RightBtn icon="$" label="Rates" active={showUnitCosts} onClick={()=>setShowUnitCosts(true)}/>
-          <div style={{height:1,background:t.border,margin:'4px 8px'}}/>
-          <RightBtn icon="🖨" label="Print" active={false} onClick={()=>setShowBidSummary(true)}/>
-          <RightBtn icon="↖" label="Select" active={tool==='select'} onClick={()=>{setTool('select');setActivePts([]);setScaleStep(null);}}/>
+        {/* ── Right Icon Bar (Stack-style) ── */}
+        <div style={{width:62,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,overflowY:'auto'}}>
+          <RightBtn icon="↖" label="Select"  active={tool==='select'}  onClick={()=>{setTool('select');setActivePts([]);setScaleStep(null);}}/>
+          <div style={{height:1,background:t.border,margin:'2px 10px'}}/>
+          <RightBtn icon="⬡" label="Area"    active={tool==='area'}    onClick={()=>{setTool('area');setActivePts([]);setScaleStep(null);}} color="#F59E0B"/>
+          <RightBtn icon="━" label="Linear"  active={tool==='linear'}  onClick={()=>{setTool('linear');setActivePts([]);setScaleStep(null);}} color="#06B6D4"/>
+          <RightBtn icon="✕" label="Count"   active={tool==='count'}   onClick={()=>{setTool('count');setActivePts([]);setScaleStep(null);}} color="#10B981"/>
+          <div style={{height:1,background:t.border,margin:'2px 10px'}}/>
+          <RightBtn icon="✦" label="AI"      active={analyzing}        onClick={runAITakeoff} color="#a855f7"/>
+          <RightBtn icon="⬡" label="Library" active={showAssembly}     onClick={()=>setShowAssembly(true)} color="#8B5CF6"/>
+          <div style={{height:1,background:t.border,margin:'2px 10px'}}/>
+          <RightBtn icon="⇔" label="Scale"   active={tool==='scale'}   onClick={()=>{setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);}}/>
+          <RightBtn icon="$" label="Rates"   active={showUnitCosts}    onClick={()=>setShowUnitCosts(true)}/>
+          <div style={{height:1,background:t.border,margin:'2px 10px'}}/>
+          <RightBtn icon="🖨" label="Print"   active={false}            onClick={()=>setShowBidSummary(true)}/>
         </div>
 
       </div>
@@ -5745,55 +5817,65 @@ function FCGEstimating({ onExit, deepLinkProjectId }) {
     </div>
   );
 
+  // When inside a project: full-screen workspace, no sidebar
+  if(selProject) return(
+    <TakeoffWorkspace
+      project={selProject}
+      onBack={()=>{ setSelProject(null); window.location.hash='/estimate'; }}
+      apmProjects={apmProjects}
+      onExitToOps={onExit}
+    />
+  );
+
   return (
     <div style={{display:'flex',height:'100vh',width:'100vw',position:'fixed',inset:0,background:'var(--bg)',fontFamily:"'Syne', sans-serif",zIndex:10,overflow:'hidden'}}>
 
       {/* ── FCG Estimating Sidebar ── */}
-      <div style={{width:220,flexShrink:0,background:'#0a0f0a',borderRight:'1px solid #1a2e1a',display:'flex',flexDirection:'column',overflow:'hidden'}}>
+      <div style={{width:200,flexShrink:0,background:'#0a0f0a',borderRight:'1px solid #1a2e1a',display:'flex',flexDirection:'column',overflow:'hidden'}}>
 
         {/* Logo */}
-        <div style={{padding:'18px 16px 14px',borderBottom:'1px solid #1a2e1a'}}>
-          <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:4}}>
-            <div style={{width:32,height:32,borderRadius:8,background:'linear-gradient(135deg,#10B981,#059669)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,flexShrink:0}}>📐</div>
+        <div style={{padding:'16px 14px 12px',borderBottom:'1px solid #1a2e1a'}}>
+          <div style={{display:'flex',alignItems:'center',gap:10}}>
+            <div style={{width:30,height:30,borderRadius:7,background:'linear-gradient(135deg,#10B981,#059669)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,flexShrink:0}}>📐</div>
             <div>
-              <div style={{fontSize:13,fontWeight:800,color:'#e5e5e5',letterSpacing:-0.3,lineHeight:1.1}}>FCG Estimating</div>
-              <div style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",letterSpacing:0.5}}>TAKEOFF · BID · ESTIMATE</div>
+              <div style={{fontSize:12,fontWeight:800,color:'#e5e5e5',letterSpacing:-0.3}}>FCG Estimating</div>
+              <div style={{fontSize:8,color:'#10B981',fontFamily:"'DM Mono',monospace",letterSpacing:0.5}}>TAKEOFF · BID · ESTIMATE</div>
             </div>
           </div>
         </div>
 
         {/* Nav */}
-        <div style={{padding:'10px 8px',flex:1}}>
+        <div style={{padding:'8px 6px',flex:1}}>
           {[
             {id:'projects',icon:'⊞',label:'Projects'},
             {id:'assemblies',icon:'⬡',label:'Assembly Library'},
             {id:'rates',icon:'$',label:'Unit Cost Rates'},
           ].map(item=>(
-            <button key={item.id} onClick={()=>{ if(item.id==='rates'){/* handled below */} setEstiPage(item.id); if(selProject) setSelProject(null); }}
-              style={{width:'100%',display:'flex',alignItems:'center',gap:10,padding:'8px 10px',borderRadius:6,cursor:'pointer',background:estiPage===item.id?'rgba(16,185,129,0.12)':'none',border:estiPage===item.id?'1px solid rgba(16,185,129,0.25)':'1px solid transparent',marginBottom:2,textAlign:'left'}}>
-              <span style={{fontSize:14,color:estiPage===item.id?'#10B981':'#4a6a4a'}}>{item.icon}</span>
-              <span style={{fontSize:12,fontWeight:600,color:estiPage===item.id?'#e5e5e5':'#6a8a6a'}}>{item.label}</span>
+            <button key={item.id} onClick={()=>{ setEstiPage(item.id); }}
+              style={{width:'100%',display:'flex',alignItems:'center',gap:9,padding:'7px 9px',borderRadius:5,cursor:'pointer',background:estiPage===item.id?'rgba(16,185,129,0.12)':'none',border:estiPage===item.id?'1px solid rgba(16,185,129,0.2)':'1px solid transparent',marginBottom:2,textAlign:'left'}}>
+              <span style={{fontSize:13,color:estiPage===item.id?'#10B981':'#4a6a4a'}}>{item.icon}</span>
+              <span style={{fontSize:11,fontWeight:600,color:estiPage===item.id?'#e5e5e5':'#6a8a6a'}}>{item.label}</span>
             </button>
           ))}
         </div>
 
         {/* Stats */}
-        <div style={{padding:'12px 14px',borderTop:'1px solid #1a2e1a'}}>
+        <div style={{padding:'10px 12px',borderTop:'1px solid #1a2e1a'}}>
           {[
             {label:'Total Bids',val:projects.length},
             {label:'Estimating',val:projects.filter(p=>p.status==='estimating').length,color:'#F59E0B'},
             {label:'Awarded',val:projects.filter(p=>p.status==='awarded').length,color:'#10B981'},
           ].map(s=>(
-            <div key={s.label} style={{display:'flex',justifyContent:'space-between',padding:'3px 0'}}>
-              <span style={{fontSize:10,color:'#4a6a4a',fontFamily:"'DM Mono',monospace"}}>{s.label}</span>
-              <span style={{fontSize:10,fontWeight:700,color:s.color||'#e5e5e5',fontFamily:"'DM Mono',monospace"}}>{s.val}</span>
+            <div key={s.label} style={{display:'flex',justifyContent:'space-between',padding:'2px 0'}}>
+              <span style={{fontSize:9,color:'#4a6a4a',fontFamily:"'DM Mono',monospace"}}>{s.label}</span>
+              <span style={{fontSize:9,fontWeight:700,color:s.color||'#e5e5e5',fontFamily:"'DM Mono',monospace"}}>{s.val}</span>
             </div>
           ))}
         </div>
 
         {/* Back to OPS */}
-        <div style={{padding:'10px 8px',borderTop:'1px solid #1a2e1a'}}>
-          <button onClick={onExit} style={{width:'100%',padding:'7px 10px',borderRadius:6,border:'1px solid #1a2e1a',background:'none',color:'#4a6a4a',cursor:'pointer',fontSize:11,fontFamily:"'DM Mono',monospace",display:'flex',alignItems:'center',gap:6}}>
+        <div style={{padding:'8px 6px',borderTop:'1px solid #1a2e1a'}}>
+          <button onClick={onExit} style={{width:'100%',padding:'6px 9px',borderRadius:5,border:'1px solid #1a2e1a',background:'none',color:'#4a6a4a',cursor:'pointer',fontSize:10,fontFamily:"'DM Mono',monospace",display:'flex',alignItems:'center',gap:6}}>
             ← Back to OPS Board
           </button>
         </div>
