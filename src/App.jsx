@@ -4192,6 +4192,15 @@ function InlineItemEditor({ item, cat, onSave, onDelete }) {
   );
 }
 
+const TAKEOFF_TYPES = [
+  {id:'area',   label:'Area',      icon:'⬟', desc:'Measure a flat area by clicking on each corner.',                                              unit:'SF', mt:'area',   color:'#10B981'},
+  {id:'linear', label:'Linear',    icon:'╱', desc:'Measure a distance by clicking on each point.',                                               unit:'LF', mt:'linear', color:'#3B82F6'},
+  {id:'count',  label:'Count',     icon:'✓', desc:'Count objects by clicking on the plan to place a symbol.',                                    unit:'EA', mt:'count',  color:'#F59E0B'},
+  {id:'vol2d',  label:'Volume 2D', icon:'2D',desc:'Enter the depth and measure volume by clicking on each corner. Often used for concrete slabs.',unit:'CY', mt:'area',  color:'#8B5CF6'},
+  {id:'vol3d',  label:'Volume 3D', icon:'3D',desc:'Enter the width and height and measure volume by clicking on each point.',                    unit:'CY', mt:'linear', color:'#EC4899'},
+];
+const TO_COLORS = ['#10B981','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#F97316','#06B6D4','#EC4899','#84CC16','#A855F7','#14B8A6','#F43F5E'];
+
 // ── Full Takeoff Workspace ────────────────────────────
 function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const { t } = useTheme();
@@ -4242,6 +4251,15 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [estSaving, setEstSaving] = useState(null);
   const [estHover, setEstHover] = useState(null);
   const [collapsedCats, setCollapsedCats] = useState({});
+  const [takeoffStep, setTakeoffStep] = useState(null); // null | 'type' | 'create' | 'settings'
+  const [newTOType, setNewTOType] = useState(null);
+  const [newTOName, setNewTOName] = useState('');
+  const [newTODesc, setNewTODesc] = useState('');
+  const [newTOColor, setNewTOColor] = useState('#10B981');
+  const [newTOSize, setNewTOSize] = useState('medium');
+  const [creatingTO, setCreatingTO] = useState(false);
+  const [toSearch, setToSearch] = useState('');
+  const [collapsedPlans, setCollapsedPlans] = useState({});
   const [showSheetsDD, setShowSheetsDD] = useState(false);
   const [showScalePanel, setShowScalePanel] = useState(false);
   const [openTabs, setOpenTabs] = useState([]); // plan IDs open as browser tabs
@@ -5052,102 +5070,322 @@ Return ONLY a valid JSON array, no markdown:
             </div>
           )}
 
-          {/* ── TAKEOFFS tab ── category > item tree */}
+          {/* ── TAKEOFFS tab ── Stack-style */}
           {leftTab==='takeoffs'&&(()=>{
             const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
             const armItem = (item) => {
               setActiveCondId(item.id);
               setTool(item.measurement_type==='area'?'area':item.measurement_type==='linear'?'linear':item.measurement_type==='count'?'count':'select');
-              setActivePts([]); setEditItem(null);
+              setActivePts([]); setEditItem(null); setTakeoffStep(null);
             };
             const disarm = () => { setActiveCondId(null); setTool('select'); setActivePts([]); };
+            const resetFlow = () => { setTakeoffStep(null); setNewTOType(null); setNewTOName(''); setNewTODesc(''); setNewTOColor('#10B981'); setNewTOSize('medium'); };
+
+            // ── STEP: TYPE SELECTOR ──────────────────────────────────────
+            if(takeoffStep==='type') return(
+              <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+                <div style={{padding:'12px 14px 8px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',alignItems:'center',gap:8}}>
+                  <button onClick={resetFlow} style={{background:'none',border:'none',color:t.text4,cursor:'pointer',fontSize:13,padding:'2px 4px'}}>←</button>
+                  <span style={{fontSize:13,fontWeight:700,color:t.text}}>New Takeoff</span>
+                </div>
+                <div style={{flex:1,overflowY:'auto',padding:'8px 0'}}>
+                  {TAKEOFF_TYPES.map(tt=>(
+                    <div key={tt.id} onClick={()=>{setNewTOType(tt);setNewTOColor(tt.color);setTakeoffStep('create');}}
+                      style={{display:'flex',alignItems:'flex-start',gap:12,padding:'10px 14px',cursor:'pointer',
+                        borderBottom:`1px solid ${t.border}`}}
+                      onMouseEnter={e=>e.currentTarget.style.background=t.bg3}
+                      onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                      <div style={{width:28,height:28,borderRadius:5,background:tt.color,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:1}}>
+                        <span style={{fontSize:tt.icon.length>1?9:14,fontWeight:800,color:'#fff'}}>{tt.icon}</span>
+                      </div>
+                      <div style={{flex:1,minWidth:0}}>
+                        <div style={{fontSize:13,fontWeight:600,color:t.text,marginBottom:2}}>{tt.label}</div>
+                        <div style={{fontSize:11,color:t.text4,lineHeight:1.4}}>{tt.desc}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            );
+
+            // ── STEP: CREATE (name + desc) ────────────────────────────────
+            if(takeoffStep==='create') return(
+              <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+                <div style={{padding:'10px 14px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{width:22,height:22,borderRadius:4,background:newTOType?.color||'#10B981',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                    <span style={{fontSize:newTOType?.icon?.length>1?8:12,fontWeight:800,color:'#fff'}}>{newTOType?.icon}</span>
+                  </div>
+                  <span style={{fontSize:13,fontWeight:700,color:t.text,flex:1}}>Create New {newTOType?.label} Takeoff</span>
+                </div>
+                <div style={{flex:1,overflowY:'auto',padding:'16px 14px'}}>
+                  <div style={{marginBottom:14}}>
+                    <label style={{fontSize:11,fontWeight:600,color:t.text3,display:'block',marginBottom:5}}>Takeoff Name</label>
+                    <input autoFocus value={newTOName} onChange={e=>setNewTOName(e.target.value)}
+                      onKeyDown={e=>e.key==='Enter'&&newTOName.trim()&&setTakeoffStep('settings')}
+                      style={{width:'100%',padding:'8px 10px',border:`1px solid ${t.border2}`,borderRadius:6,
+                        fontSize:13,color:t.text,background:t.bg,outline:'none',boxSizing:'border-box',
+                        transition:'border-color 0.15s'}}
+                      onFocus={e=>e.target.style.borderColor='#10B981'}
+                      onBlur={e=>e.target.style.borderColor=t.border2}
+                    />
+                  </div>
+                  <div style={{marginBottom:20}}>
+                    <label style={{fontSize:11,fontWeight:600,color:t.text3,display:'block',marginBottom:5}}>Description <span style={{fontWeight:400,color:t.text4}}>(optional)</span></label>
+                    <textarea value={newTODesc} onChange={e=>setNewTODesc(e.target.value)}
+                      rows={3}
+                      style={{width:'100%',padding:'8px 10px',border:`1px solid ${t.border2}`,borderRadius:6,
+                        fontSize:12,color:t.text,background:t.bg,outline:'none',resize:'vertical',boxSizing:'border-box',fontFamily:'inherit'}}
+                      onFocus={e=>e.target.style.borderColor='#10B981'}
+                      onBlur={e=>e.target.style.borderColor=t.border2}
+                    />
+                  </div>
+                  {/* Yellow info card like Stack */}
+                  <div style={{background:'#FEF9C3',border:'1px solid #FDE047',borderRadius:6,padding:'10px 12px',marginBottom:20}}>
+                    <div style={{fontSize:12,fontWeight:700,color:'#713F12',marginBottom:4}}>{newTOType?.label}</div>
+                    <div style={{fontSize:11,color:'#854D0E',lineHeight:1.5}}>{newTOType?.desc}</div>
+                  </div>
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={()=>setTakeoffStep('type')}
+                      style={{flex:1,padding:'8px 0',border:`1px solid ${t.border2}`,background:t.bg,color:t.text3,
+                        borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
+                      ← Takeoffs
+                    </button>
+                    <button onClick={()=>newTOName.trim()&&setTakeoffStep('settings')}
+                      style={{flex:2,padding:'8px 0',border:'none',
+                        background:newTOName.trim()?'#10B981':'#ccc',color:'#fff',
+                        borderRadius:6,cursor:newTOName.trim()?'pointer':'not-allowed',fontSize:12,fontWeight:700}}>
+                      Create Takeoff
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+
+            // ── STEP: SETTINGS (appearance + start measuring) ─────────────
+            if(takeoffStep==='settings') return(
+              <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+                <div style={{padding:'10px 14px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',alignItems:'center',gap:8}}>
+                  <div style={{width:22,height:22,borderRadius:4,background:newTOColor,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                    <span style={{fontSize:newTOType?.icon?.length>1?8:12,fontWeight:800,color:'#fff'}}>{newTOType?.icon}</span>
+                  </div>
+                  <span style={{fontSize:13,fontWeight:700,color:t.text,flex:1}}>{newTOType?.label} Settings</span>
+                </div>
+                <div style={{flex:1,overflowY:'auto',padding:'14px 14px'}}>
+                  <div style={{marginBottom:14}}>
+                    <label style={{fontSize:11,fontWeight:600,color:t.text3,display:'block',marginBottom:5}}>Takeoff Name</label>
+                    <input value={newTOName} onChange={e=>setNewTOName(e.target.value)}
+                      style={{width:'100%',padding:'7px 10px',border:`1px solid ${t.border2}`,borderRadius:6,
+                        fontSize:13,color:t.text,background:t.bg,outline:'none',boxSizing:'border-box'}}/>
+                  </div>
+
+                  <div style={{height:1,background:t.border,margin:'12px 0'}}/>
+                  <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:10,display:'flex',alignItems:'center',gap:6}}>
+                    <span>Appearance</span>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:12,marginBottom:14}}>
+                    <div>
+                      <div style={{fontSize:10,color:t.text4,marginBottom:5}}>Line Color</div>
+                      <div style={{display:'flex',flexWrap:'wrap',gap:4}}>
+                        {TO_COLORS.map(c=>(
+                          <button key={c} onClick={()=>setNewTOColor(c)}
+                            style={{width:20,height:20,borderRadius:4,background:c,border:newTOColor===c?`2px solid ${t.text}`:'2px solid transparent',cursor:'pointer',padding:0,flexShrink:0}}/>
+                        ))}
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{fontSize:10,color:t.text4,marginBottom:5}}>Line Size</div>
+                      <div style={{display:'flex',gap:4}}>
+                        {[['sm','Thin'],['medium','Medium'],['lg','Thick']].map(([id,lbl])=>(
+                          <button key={id} onClick={()=>setNewTOSize(id)}
+                            style={{flex:1,padding:'4px 0',fontSize:9,fontWeight:600,border:`1px solid ${newTOSize===id?newTOColor:t.border}`,
+                              background:newTOSize===id?newTOColor+'20':'transparent',color:newTOSize===id?newTOColor:t.text4,
+                              borderRadius:4,cursor:'pointer'}}>
+                            {lbl}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div style={{height:1,background:t.border,margin:'12px 0'}}/>
+                  <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:8}}>
+                    <div style={{fontSize:12,fontWeight:700,color:t.text}}>Items & Assemblies</div>
+                    <span style={{fontSize:10,color:t.text4,background:t.bg3,borderRadius:10,padding:'1px 7px',border:`1px solid ${t.border}`}}>0</span>
+                  </div>
+                  <div style={{fontSize:10,color:t.text4,lineHeight:1.5,marginBottom:10}}>
+                    Items and assemblies are optional. Adding them will produce a detailed Bill of Materials Report.
+                  </div>
+                  <button onClick={()=>setShowAssembly(true)}
+                    style={{width:'100%',padding:'7px 0',border:`1px solid ${t.border2}`,background:t.bg,color:t.text3,
+                      borderRadius:5,cursor:'pointer',fontSize:11,marginBottom:16,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
+                    + Add items and assemblies
+                  </button>
+
+                  <div style={{display:'flex',gap:8}}>
+                    <button onClick={()=>setTakeoffStep('create')}
+                      style={{flex:1,padding:'8px 0',border:`1px solid ${t.border2}`,background:t.bg,color:t.text3,
+                        borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
+                      ← Takeoffs
+                    </button>
+                    <button disabled={!selPlan||creatingTO} onClick={async()=>{
+                      if(!selPlan||!newTOName.trim()) return;
+                      setCreatingTO(true);
+                      const catId = newTOType?.id==='vol2d'||newTOType?.id==='vol3d'?'foundations':
+                                    newTOType?.mt==='area'?'flatwork':
+                                    newTOType?.mt==='linear'?'curb_gutter':'other';
+                      const payload = {
+                        project_id:project.id, plan_id:selPlan.id,
+                        category:catId,
+                        description:newTOName.trim(),
+                        quantity:0, unit:newTOType?.unit||'SF',
+                        unit_cost:0, total_cost:0,
+                        measurement_type:newTOType?.mt||'area',
+                        points:[], color:newTOColor,
+                        ai_generated:false, sort_order:items.length,
+                        notes:newTODesc||null,
+                      };
+                      const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
+                      if(data){
+                        setItems(prev=>[...prev,data]);
+                        armItem(data);
+                        resetFlow();
+                      }
+                      setCreatingTO(false);
+                    }}
+                      style={{flex:2,padding:'8px 0',border:'none',
+                        background:selPlan&&newTOName.trim()?'#10B981':'#ccc',color:'#fff',
+                        borderRadius:6,cursor:selPlan&&newTOName.trim()?'pointer':'not-allowed',fontSize:12,fontWeight:700,
+                        display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
+                      {creatingTO?'Creating…':'Start Measuring →'}
+                    </button>
+                  </div>
+                  {!selPlan&&<div style={{fontSize:10,color:'#F59E0B',textAlign:'center',marginTop:6}}>⚠ Open a plan first</div>}
+                </div>
+              </div>
+            );
+
+            // ── DEFAULT: Takeoff list grouped by plan ─────────────────────
+            const searchLower = toSearch.toLowerCase();
+            // All items, optionally filtered
+            const filteredItems = items.filter(i=>
+              !toSearch || i.description?.toLowerCase().includes(searchLower)
+            );
+            // Group by plan
+            const planGroups = plans.map(p=>{
+              const pItems = filteredItems.filter(i=>i.plan_id===p.id);
+              return {plan:p, items:pItems};
+            }).filter(g=>g.items.length>0 || !toSearch);
+
             return(
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-              {/* Active item banner */}
-              {activeCond?(
-                <div style={{padding:'6px 10px',background:'rgba(249,115,22,0.1)',borderBottom:'2px solid #F97316',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+              {/* Active measuring banner */}
+              {activeCond&&(
+                <div style={{padding:'6px 12px',background:'rgba(249,115,22,0.08)',borderBottom:'2px solid #F97316',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
                   <div style={{width:6,height:6,borderRadius:'50%',background:'#F97316',flexShrink:0,animation:'pulse 1.2s ease-in-out infinite'}}/>
                   <span style={{fontSize:11,fontWeight:600,color:'#F97316',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeCond.description}</span>
                   <button onClick={disarm} style={{background:'none',border:'1px solid rgba(249,115,22,0.4)',color:'#F97316',padding:'2px 8px',borderRadius:3,cursor:'pointer',fontSize:9,fontWeight:700,flexShrink:0}}>Done</button>
                 </div>
-              ):(
-                <div style={{padding:'5px 10px',borderBottom:`1px solid ${t.border}`,fontSize:9,color:t.text4,flexShrink:0}}>
-                  {!selPlan?'Open a plan from the Plans tab':!scale?'⚠ Set scale via the button on the canvas':planItems.length?'Select an item to measure':'Add items below'}
-                </div>
               )}
-              {/* Category tree */}
+
+              {/* Search + New Takeoff */}
+              <div style={{padding:'8px 10px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',gap:6,alignItems:'center'}}>
+                <div style={{flex:1,position:'relative'}}>
+                  <span style={{position:'absolute',left:7,top:'50%',transform:'translateY(-50%)',color:t.text4,fontSize:11}}>⌕</span>
+                  <input value={toSearch} onChange={e=>setToSearch(e.target.value)}
+                    placeholder="Search Takeoffs"
+                    style={{width:'100%',padding:'5px 8px 5px 22px',border:`1px solid ${t.border}`,borderRadius:5,
+                      fontSize:11,color:t.text,background:t.bg,outline:'none',boxSizing:'border-box'}}/>
+                </div>
+                <button onClick={()=>setTakeoffStep('type')}
+                  style={{background:'#10B981',border:'none',color:'#fff',padding:'5px 10px',borderRadius:5,
+                    cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:4,flexShrink:0,whiteSpace:'nowrap'}}>
+                  New Takeoff ▾
+                </button>
+              </div>
+
+              {/* Column headers */}
+              <div style={{display:'flex',alignItems:'center',padding:'4px 10px',borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,flex:1,letterSpacing:0.5}}>NAME</span>
+                <span style={{fontSize:9,fontWeight:700,color:t.text4,width:60,textAlign:'right',letterSpacing:0.5}}>QTY</span>
+                <span style={{width:40}}/>
+              </div>
+
+              {/* List grouped by plan */}
               <div style={{flex:1,overflowY:'auto'}}>
-                {TAKEOFF_CATS.map(cat=>{
-                  const catItems = planItems.filter(i=>i.category===cat.id);
-                  const catTotal = catItems.reduce((s,i)=>s+(i.total_cost||0),0);
-                  const collapsed = collapsedCats?.[cat.id] ?? (catItems.length===0);
-                  const hasActive = catItems.some(i=>i.id===activeCondId);
+                {planGroups.length===0&&(
+                  <div style={{textAlign:'center',padding:'40px 16px',color:t.text4,fontSize:11,lineHeight:1.8}}>
+                    No takeoffs yet.<br/>Click <strong>New Takeoff</strong> to start.
+                  </div>
+                )}
+                {planGroups.map(({plan, items:pItems})=>{
+                  const collapsed = collapsedPlans?.[plan.id];
+                  const planTotal = pItems.reduce((s,i)=>s+(i.total_cost||0),0);
                   return(
-                    <div key={cat.id} style={{borderBottom:`1px solid ${t.border}`}}>
-                      {/* Category header */}
-                      <div onClick={()=>setCollapsedCats(p=>({...p,[cat.id]:!collapsed}))}
-                        style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',cursor:'pointer',
-                          background:hasActive?`${cat.color}10`:collapsed?'transparent':`${cat.color}05`,
-                          borderLeft:`3px solid ${hasActive?cat.color:catItems.length?cat.color:t.border}`}}>
-                        <span style={{fontSize:9,color:catItems.length?cat.color:t.text4,width:10,flexShrink:0}}>{collapsed?'▸':'▾'}</span>
-                        <span style={{fontSize:11,fontWeight:600,color:catItems.length?cat.color:t.text4,flex:1}}>{cat.label}</span>
-                        {catItems.length>0&&<span style={{fontSize:9,color:t.text4,marginRight:4}}>{catItems.length}</span>}
-                        {catTotal>0&&<span style={{fontSize:10,fontWeight:700,color:'#10B981'}}>${catTotal.toLocaleString()}</span>}
+                    <div key={plan.id} style={{borderBottom:`1px solid ${t.border}`}}>
+                      {/* Plan folder header */}
+                      <div onClick={()=>setCollapsedPlans(p=>({...p,[plan.id]:!collapsed}))}
+                        style={{display:'flex',alignItems:'center',gap:7,padding:'7px 10px',cursor:'pointer',
+                          background:t.bg3,userSelect:'none'}}>
+                        <span style={{fontSize:9,color:t.text4}}>{collapsed?'▸':'▾'}</span>
+                        <span style={{fontSize:10}}>📁</span>
+                        <span style={{fontSize:11,fontWeight:700,color:t.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',letterSpacing:0.2,textTransform:'uppercase'}}>{plan.name||'Unnamed Sheet'}</span>
+                        {pItems.length>0&&<span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{pItems.length}</span>}
                       </div>
-                      {/* Items */}
-                      {!collapsed&&(
-                        <div>
-                          {catItems.map(item=>{
-                            const isActive  = item.id===activeCondId;
-                            const isEditing = editItem?.id===item.id && !isActive;
-                            const shapes = (() => {
-                              if(!item.points||!item.points.length) return [];
-                              if(Array.isArray(item.points[0])) return item.points;
-                              if(item.points[0]?.x!=null) return [item.points];
-                              return item.points;
-                            })();
-                            const typeIcon = {area:'⬡',linear:'━',count:'✕',manual:'✎'}[item.measurement_type]||'✎';
-                            return(
-                              <div key={item.id} style={{borderBottom:`1px solid ${t.border}`,background:isActive?'rgba(249,115,22,0.06)':'transparent'}}>
-                                <div onClick={()=>isActive?disarm():armItem(item)}
-                                  style={{display:'flex',alignItems:'center',gap:6,padding:'5px 8px 5px 14px',cursor:'pointer',position:'relative'}}>
-                                  {isActive&&<div style={{position:'absolute',left:0,top:0,bottom:0,width:3,background:'#F97316'}}/>}
-                                  <span style={{fontSize:10,color:isActive?'#F97316':cat.color,flexShrink:0,width:12,textAlign:'center'}}>{typeIcon}</span>
-                                  <div style={{flex:1,minWidth:0}}>
-                                    <div style={{fontSize:11,fontWeight:isActive?600:400,color:isActive?'#F97316':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'Unnamed'}</div>
-                                    <div style={{fontSize:9,color:t.text4,marginTop:1}}>
-                                      {item.quantity||0} {item.unit}{shapes.length>0?` · ${shapes.length} shape${shapes.length!==1?'s':''}`:isActive?' — drawing…':''}
-                                    </div>
-                                  </div>
-                                  <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
-                                    {item.total_cost>0&&<span style={{fontSize:10,fontWeight:600,color:'#10B981'}}>${(item.total_cost||0).toLocaleString()}</span>}
-                                    <button onClick={e=>{e.stopPropagation();setEditItem(isEditing?null:item);if(!isEditing)disarm();}}
-                                      style={{background:'none',border:'none',color:t.text4,cursor:'pointer',fontSize:13,padding:'0 2px',lineHeight:1,opacity:0.4}}>⋯</button>
-                                  </div>
-                                </div>
-                                {isEditing&&<InlineItemEditor item={item} cat={cat} onSave={async(updated)=>{
-                                  const qty=Number(updated.quantity)||item.quantity||0;
-                                  const uc=Number(updated.unit_cost)||0;
-                                  const payload={...updated,quantity:qty,total_cost:qty*uc};
-                                  await supabase.from('takeoff_items').update(payload).eq('id',item.id);
-                                  setItems(prev=>prev.map(i=>i.id===item.id?{...i,...payload}:i));
-                                  setEditItem(null);
-                                }} onDelete={async()=>{
-                                  await supabase.from('takeoff_items').delete().eq('id',item.id);
-                                  setItems(prev=>prev.filter(i=>i.id!==item.id));
-                                  if(activeCondId===item.id) disarm();
-                                  setEditItem(null);
-                                }}/>}
-                              </div>
-                            );
-                          })}
-                          {selPlan?.id&&(
-                            <AddItemInline cat={cat} selPlan={selPlan} project={project} items={items}
-                              onCreated={(newItem)=>{ setItems(prev=>[...prev,newItem]); armItem(newItem); }}
-                            />
-                          )}
-                        </div>
-                      )}
+
+                      {/* Items under this plan */}
+                      {!collapsed&&pItems.map(item=>{
+                        const isActive = item.id===activeCondId;
+                        const shapes = (() => {
+                          if(!item.points||!item.points.length) return [];
+                          if(Array.isArray(item.points[0])) return item.points;
+                          if(item.points[0]?.x!=null) return [item.points];
+                          return item.points;
+                        })();
+                        const qty = item.quantity||0;
+                        const itemColor = item.color||TAKEOFF_CATS.find(c=>c.id===item.category)?.color||'#10B981';
+                        const typeIcon = {area:'⬟',linear:'╱',count:'✓'}[item.measurement_type]||'✎';
+                        return(
+                          <div key={item.id}
+                            onClick={()=>{ isActive?disarm():armItem(item); }}
+                            style={{display:'flex',alignItems:'center',gap:8,padding:'6px 10px 6px 12px',cursor:'pointer',
+                              borderLeft:isActive?`3px solid #F97316`:'3px solid transparent',
+                              background:isActive?'rgba(249,115,22,0.05)':'transparent',
+                              borderBottom:`1px solid ${t.border}`}}
+                            onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background=t.bg3;}}
+                            onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background='transparent';}}>
+                            {/* Color + type icon */}
+                            <div style={{width:20,height:20,borderRadius:4,background:itemColor,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                              <span style={{fontSize:9,fontWeight:800,color:'#fff'}}>{typeIcon}</span>
+                            </div>
+                            {/* Name */}
+                            <div style={{flex:1,minWidth:0}}>
+                              <div style={{fontSize:11,fontWeight:isActive?600:400,color:isActive?'#F97316':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'Unnamed'}</div>
+                            </div>
+                            {/* Qty */}
+                            <div style={{width:56,textAlign:'right',flexShrink:0}}>
+                              <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",color:qty>0?t.text:t.text4,fontWeight:qty>0?600:400}}>
+                                {qty>0?`${Math.round(qty*10)/10} ${item.unit}`:'—'}
+                              </span>
+                            </div>
+                            {/* Navigate arrow */}
+                            <button onClick={e=>{
+                              e.stopPropagation();
+                              const p=plans.find(x=>x.id===item.plan_id);
+                              if(p){
+                                if(!openTabs.includes(p.id)) setOpenTabs(prev=>[...prev,p.id]);
+                                setSelPlan(p);
+                                if(p.scale_px_per_ft) setScale(p.scale_px_per_ft);
+                                else { setScale(null); setPresetScale(''); }
+                              }
+                            }} style={{background:'none',border:'none',color:t.text4,cursor:'pointer',fontSize:13,padding:'0 2px',flexShrink:0,lineHeight:1}}>→</button>
+                            {/* Context menu */}
+                            <button onClick={e=>{
+                              e.stopPropagation();
+                              setEditItem(editItem?.id===item.id?null:item);
+                            }} style={{background:'none',border:'none',color:t.text4,cursor:'pointer',fontSize:14,padding:'0 2px',flexShrink:0,lineHeight:1,opacity:0.5}}>⋮</button>
+                          </div>
+                        );
+                      })}
                     </div>
                   );
                 })}
