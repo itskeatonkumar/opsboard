@@ -5264,21 +5264,17 @@ Return ONLY a valid JSON array, no markdown:
               </div>
             );
 
-            // ── DEFAULT: Plan > Category > Items 3-level tree ─────────────
+            // ── DEFAULT: Category > Items (flat, no plan folder) ──────────
             const searchLower = toSearch.toLowerCase();
             const filteredItems = items.filter(i=>
               !toSearch || i.description?.toLowerCase().includes(searchLower)
             );
-            // Only show plans that have items (or all plans if no search)
-            const planGroups = plans.map(p=>{
-              const pItems = filteredItems.filter(i=>i.plan_id===p.id);
-              // Group pItems by category
-              const catGroups = TAKEOFF_CATS.map(cat=>{
-                const catItems = pItems.filter(i=>i.category===cat.id);
-                return {cat, items:catItems};
-              }).filter(g=>g.items.length>0);
-              return {plan:p, catGroups, total:pItems.length};
-            }).filter(g=>g.total>0 || !toSearch);
+            // All items for the current project, grouped by category
+            const catGroups = TAKEOFF_CATS.map(cat=>{
+              const catItems = filteredItems.filter(i=>i.category===cat.id);
+              return {cat, items:catItems};
+            });
+            const hasAny = catGroups.some(g=>g.items.length>0);
 
             return(
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
@@ -5311,133 +5307,121 @@ Return ONLY a valid JSON array, no markdown:
               <div style={{display:'flex',alignItems:'center',padding:'3px 10px',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg3}}>
                 <span style={{fontSize:9,fontWeight:700,color:t.text4,flex:1,letterSpacing:0.8,textTransform:'uppercase'}}>Name</span>
                 <span style={{fontSize:9,fontWeight:700,color:t.text4,width:64,textAlign:'right',letterSpacing:0.8,textTransform:'uppercase'}}>Qty</span>
-                <span style={{width:28}}/>
+                <span style={{width:20}}/>
               </div>
 
-              {/* 3-level tree */}
+              {/* Category > Items tree */}
               <div style={{flex:1,overflowY:'auto'}}>
-                {planGroups.length===0&&(
+                {!hasAny&&(
                   <div style={{textAlign:'center',padding:'40px 16px',color:t.text4,fontSize:11,lineHeight:1.8}}>
                     No takeoffs yet.<br/>Click <strong style={{color:t.text}}>New Takeoff</strong> to get started.
                   </div>
                 )}
 
-                {planGroups.map(({plan, catGroups, total})=>{
-                  const planCollapsed = collapsedPlans?.[plan.id+'_plan'] ?? false;
-                  const planKey = plan.id+'_plan';
+                {catGroups.map(({cat, items:catItems})=>{
+                  // Always show all categories (collapsed if empty), but hide empties when searching
+                  if(toSearch && catItems.length===0) return null;
+                  const catKey = 'cat_'+cat.id;
+                  const catCollapsed = collapsedPlans?.[catKey] ?? (catItems.length===0);
+                  const catCost = catItems.reduce((s,i)=>s+(i.total_cost||0),0);
+
                   return(
-                    <div key={plan.id}>
-                      {/* ── Level 1: Plan folder ── */}
-                      <div onClick={()=>setCollapsedPlans(p=>({...p,[planKey]:!planCollapsed}))}
-                        style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',cursor:'pointer',
-                          background:t.bg3,borderBottom:`1px solid ${t.border}`,userSelect:'none',
-                          position:'sticky',top:0,zIndex:2}}>
-                        <span style={{fontSize:8,color:t.text4,width:10,flexShrink:0}}>{planCollapsed?'▶':'▼'}</span>
-                        <span style={{fontSize:13}}>🗂</span>
-                        <span style={{fontSize:11,fontWeight:700,color:t.text,flex:1,overflow:'hidden',
-                          textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                          {plan.name||'Unnamed Sheet'}
+                    <div key={cat.id} style={{borderBottom:`1px solid ${t.border}`}}>
+                      {/* ── Category header ── */}
+                      <div onClick={()=>setCollapsedPlans(p=>({...p,[catKey]:!catCollapsed}))}
+                        style={{display:'flex',alignItems:'center',gap:7,padding:'7px 10px',
+                          cursor:'pointer',userSelect:'none',
+                          borderLeft:`3px solid ${catItems.length>0?cat.color:t.border}`,
+                          background:catItems.length>0?`${cat.color}08`:'transparent'}}>
+                        <span style={{fontSize:8,color:catItems.length>0?cat.color:t.text4,width:10,flexShrink:0}}>
+                          {catCollapsed?'▶':'▼'}
                         </span>
-                        <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0}}>{total}</span>
+                        <div style={{width:12,height:12,borderRadius:3,background:catItems.length>0?cat.color:t.border2,flexShrink:0}}/>
+                        <span style={{fontSize:12,fontWeight:600,color:catItems.length>0?t.text:t.text4,flex:1}}>
+                          {cat.label}
+                        </span>
+                        {catItems.length>0&&(
+                          <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>
+                            {catItems.length} item{catItems.length!==1?'s':''}
+                          </span>
+                        )}
+                        {catCost>0&&(
+                          <span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",marginLeft:6}}>
+                            ${Math.round(catCost).toLocaleString()}
+                          </span>
+                        )}
                       </div>
 
-                      {!planCollapsed && catGroups.map(({cat, items:catItems})=>{
-                        const catKey = plan.id+'_cat_'+cat.id;
-                        const catCollapsed = collapsedPlans?.[catKey] ?? false;
-                        const catQty = catItems.reduce((s,i)=>s+(i.quantity||0),0);
-                        const catCost = catItems.reduce((s,i)=>s+(i.total_cost||0),0);
-                        return(
-                          <div key={cat.id}>
-                            {/* ── Level 2: Category folder ── */}
-                            <div onClick={()=>setCollapsedPlans(p=>({...p,[catKey]:!catCollapsed}))}
-                              style={{display:'flex',alignItems:'center',gap:7,padding:'5px 10px 5px 20px',
-                                cursor:'pointer',borderBottom:`1px solid ${t.border}`,
-                                borderLeft:`3px solid ${cat.color}`,
-                                background:catCollapsed?'transparent':`${cat.color}06`,userSelect:'none'}}>
-                              <span style={{fontSize:8,color:cat.color,width:10,flexShrink:0}}>{catCollapsed?'▶':'▼'}</span>
-                              <div style={{width:14,height:14,borderRadius:3,background:cat.color,flexShrink:0}}/>
-                              <span style={{fontSize:11,fontWeight:600,color:t.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                                {cat.label}
-                              </span>
-                              <span style={{fontSize:9,fontFamily:"'DM Mono',monospace",color:cat.color,flexShrink:0}}>
-                                {catItems.length}
-                              </span>
-                              {catCost>0&&<span style={{fontSize:9,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",flexShrink:0,marginLeft:4}}>
-                                ${Math.round(catCost).toLocaleString()}
-                              </span>}
-                            </div>
-
-                            {/* ── Level 3: Items ── */}
-                            {!catCollapsed && catItems.map(item=>{
-                              const isActive = item.id===activeCondId;
-                              const shapes = (()=>{
-                                if(!item.points||!item.points.length) return [];
-                                if(Array.isArray(item.points[0])) return item.points;
-                                if(item.points[0]?.x!=null) return [item.points];
-                                return item.points;
-                              })();
-                              const qty = item.quantity||0;
-                              const itemColor = item.color||cat.color;
-                              const typeIcon = {area:'⬟',linear:'╱',count:'✓'}[item.measurement_type]||'✎';
-                              return(
-                                <div key={item.id}
-                                  onClick={()=>isActive?disarm():armItem(item)}
-                                  style={{display:'flex',alignItems:'center',gap:7,
-                                    padding:'5px 8px 5px 30px',
-                                    cursor:'pointer',
-                                    borderBottom:`1px solid ${t.border}`,
-                                    borderLeft:isActive?`3px solid #F97316`:`3px solid ${cat.color}`,
-                                    background:isActive?'rgba(249,115,22,0.06)':'transparent'}}
-                                  onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background=t.bg3;}}
-                                  onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background='transparent';}}>
-                                  {/* Type icon chip */}
-                                  <div style={{width:18,height:18,borderRadius:3,background:isActive?'#F97316':itemColor,
-                                    display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
-                                    <span style={{fontSize:8,fontWeight:800,color:'#fff'}}>{typeIcon}</span>
-                                  </div>
-                                  {/* Name + shape count */}
-                                  <div style={{flex:1,minWidth:0}}>
-                                    <div style={{fontSize:11,fontWeight:isActive?600:400,
-                                      color:isActive?'#F97316':t.text,
-                                      overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
-                                      {item.description||'Unnamed'}
-                                    </div>
-                                    {shapes.length>0&&<div style={{fontSize:9,color:t.text4}}>
-                                      {shapes.length} shape{shapes.length!==1?'s':''}
-                                    </div>}
-                                  </div>
-                                  {/* Qty */}
-                                  <div style={{width:56,textAlign:'right',flexShrink:0}}>
-                                    <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",
-                                      color:qty>0?t.text:t.text4,fontWeight:qty>0?600:400}}>
-                                      {qty>0?`${Math.round(qty*10)/10} ${item.unit}`:'—'}
-                                    </span>
-                                  </div>
-                                  {/* → jump to plan */}
-                                  <button onClick={e=>{
-                                    e.stopPropagation();
-                                    const p=plans.find(x=>x.id===item.plan_id);
-                                    if(p){
-                                      if(!openTabs.includes(p.id)) setOpenTabs(prev=>[...prev,p.id]);
-                                      setSelPlan(p);
-                                      if(p.scale_px_per_ft) setScale(p.scale_px_per_ft);
-                                      else { setScale(null); setPresetScale(''); }
-                                    }
-                                  }} title="Jump to plan"
-                                    style={{background:'none',border:'none',color:t.text4,cursor:'pointer',
-                                      fontSize:12,padding:'0 2px',flexShrink:0,lineHeight:1,opacity:0.6}}>→</button>
+                      {/* ── Items ── */}
+                      {!catCollapsed&&(
+                        <div>
+                          {catItems.map(item=>{
+                            const isActive = item.id===activeCondId;
+                            const shapes=(()=>{
+                              if(!item.points||!item.points.length) return [];
+                              if(Array.isArray(item.points[0])) return item.points;
+                              if(item.points[0]?.x!=null) return [item.points];
+                              return item.points;
+                            })();
+                            const qty = item.quantity||0;
+                            const itemColor = item.color||cat.color;
+                            const typeIcon = {area:'⬟',linear:'╱',count:'✓'}[item.measurement_type]||'✎';
+                            const planName = plans.find(p=>p.id===item.plan_id)?.name||'';
+                            return(
+                              <div key={item.id}
+                                onClick={()=>isActive?disarm():armItem(item)}
+                                style={{display:'flex',alignItems:'center',gap:7,
+                                  padding:'5px 8px 5px 24px',cursor:'pointer',
+                                  borderBottom:`1px solid ${t.border}`,
+                                  borderLeft:isActive?`3px solid #F97316`:`3px solid ${cat.color}`,
+                                  background:isActive?'rgba(249,115,22,0.05)':'transparent'}}
+                                onMouseEnter={e=>{if(!isActive)e.currentTarget.style.background=t.bg3;}}
+                                onMouseLeave={e=>{if(!isActive)e.currentTarget.style.background='transparent';}}>
+                                {/* Type chip */}
+                                <div style={{width:18,height:18,borderRadius:3,
+                                  background:isActive?'#F97316':itemColor,
+                                  display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
+                                  <span style={{fontSize:8,fontWeight:800,color:'#fff'}}>{typeIcon}</span>
                                 </div>
-                              );
-                            })}
-
-                            {/* + Add item inside this category (only when plan is open) */}
-                            {!catCollapsed && selPlan?.id===plan.id && (
-                              <AddItemInline cat={cat} selPlan={selPlan} project={project} items={items}
-                                onCreated={(newItem)=>{ setItems(prev=>[...prev,newItem]); armItem(newItem); }}/>
-                            )}
-                          </div>
-                        );
-                      })}
+                                {/* Name + plan label */}
+                                <div style={{flex:1,minWidth:0}}>
+                                  <div style={{fontSize:11,fontWeight:isActive?600:400,
+                                    color:isActive?'#F97316':t.text,
+                                    overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
+                                    {item.description||'Unnamed'}
+                                  </div>
+                                  {planName&&<div style={{fontSize:9,color:t.text4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{planName}</div>}
+                                </div>
+                                {/* Qty */}
+                                <div style={{width:60,textAlign:'right',flexShrink:0}}>
+                                  <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",
+                                    color:qty>0?t.text:t.text4,fontWeight:qty>0?600:400}}>
+                                    {qty>0?`${Math.round(qty*10)/10} ${item.unit}`:'—'}
+                                  </span>
+                                </div>
+                                {/* → jump to plan */}
+                                <button onClick={e=>{
+                                  e.stopPropagation();
+                                  const p=plans.find(x=>x.id===item.plan_id);
+                                  if(p){
+                                    if(!openTabs.includes(p.id)) setOpenTabs(prev=>[...prev,p.id]);
+                                    setSelPlan(p);
+                                    if(p.scale_px_per_ft) setScale(p.scale_px_per_ft);
+                                    else{setScale(null);setPresetScale('');}
+                                  }
+                                }} title="Go to plan"
+                                  style={{background:'none',border:'none',color:t.text4,cursor:'pointer',
+                                    fontSize:12,padding:'0 2px',flexShrink:0,lineHeight:1,opacity:0.5}}>→</button>
+                              </div>
+                            );
+                          })}
+                          {/* Add item (only if a plan is open) */}
+                          {selPlan&&(
+                            <AddItemInline cat={cat} selPlan={selPlan} project={project} items={items}
+                              onCreated={(newItem)=>{setItems(prev=>[...prev,newItem]);armItem(newItem);}}/>
+                          )}
+                        </div>
+                      )}
                     </div>
                   );
                 })}
