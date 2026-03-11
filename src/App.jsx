@@ -4939,84 +4939,83 @@ Return ONLY a valid JSON array, no markdown:
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden',position:'relative'}}>
 
       {/* ── Top Bar ── */}
-      <div style={{display:'flex',alignItems:'center',height:44,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
-
-        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:11,padding:'0 12px',height:'100%',display:'flex',alignItems:'center',gap:4,flexShrink:0,whiteSpace:'nowrap'}}>← Projects</button>
-        {onExitToOps&&<button onClick={onExitToOps} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:'#F97316',cursor:'pointer',fontSize:11,padding:'0 10px',height:'100%',display:'flex',alignItems:'center',fontWeight:700,flexShrink:0}}>⊞ OPS</button>}
-
-        {/* ── Sheets dropdown ── */}
-        <div style={{position:'relative',flexShrink:0}}>
-          <button onClick={()=>setShowSheetsDD(s=>!s)}
-            style={{background:showSheetsDD?t.bg3:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text,cursor:'pointer',fontSize:11,padding:'0 12px',height:44,display:'flex',alignItems:'center',gap:6,maxWidth:220}}>
-            <span style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0,letterSpacing:0.5}}>SHEET</span>
-            <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:150,color:selPlan?t.text:t.text4}}>{selPlan?selPlan.name:'— select —'}</span>
-            <span style={{fontSize:9,color:t.text4,flexShrink:0}}>{plans.length>1&&`${plans.length}`} {showSheetsDD?'▴':'▾'}</span>
-            {uploading&&<span style={{animation:'spin 0.8s linear infinite',display:'inline-block',color:'#10B981',flexShrink:0}}>◌</span>}
-          </button>
-
-          {showSheetsDD&&<>
-            <div style={{position:'fixed',inset:0,zIndex:199}} onClick={()=>setShowSheetsDD(false)}/>
-            <div style={{position:'absolute',top:44,left:0,width:290,background:t.bg2,border:`1px solid ${t.border2}`,borderRadius:'0 0 8px 8px',boxShadow:'0 12px 32px rgba(0,0,0,0.5)',zIndex:200,overflow:'hidden'}}>
-              <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',padding:'8px 10px',borderBottom:`1px solid ${t.border}`,background:t.bg3}}>
-                <span style={{fontSize:9,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:0.8}}>SHEETS ({plans.length})</span>
-                <button onClick={()=>fileRef.current?.click()} disabled={uploading}
-                  style={{background:'#10B981',border:'none',color:'#000',padding:'3px 9px',borderRadius:4,cursor:'pointer',fontSize:10,fontWeight:700}}>+ Upload</button>
-                <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>{handleUpload(e.target.files[0]);setShowSheetsDD(false);}}/>
-              </div>
-              {uploading&&<div style={{padding:'6px 10px',fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",display:'flex',gap:5}}><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing PDF…</div>}
-              <div style={{maxHeight:340,overflowY:'auto'}}>
-                {plans.length===0&&<div style={{padding:'24px',textAlign:'center',fontSize:11,color:t.text4,fontFamily:"'DM Mono',monospace"}}>No sheets yet</div>}
-                {plans.map(p=>(
-                  <div key={p.id}
-                    onClick={()=>{setSelPlan(p);if(p.scale_px_per_ft)setScale(p.scale_px_per_ft);else{setScale(null);setPresetScale('');}setShowSheetsDD(false);}}
-                    onDoubleClick={async e=>{
-                      e.stopPropagation();
-                      const n=window.prompt('Rename sheet:',p.name||'');
-                      if(n?.trim()&&p.id&&p.id!=='preview'){
-                        await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
-                        setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
-                        if(selPlan?.id===p.id)setSelPlan(prev=>({...prev,name:n.trim()}));
-                      }
-                    }}
-                    style={{display:'flex',alignItems:'center',gap:8,padding:'7px 10px',cursor:'pointer',
-                      background:selPlan?.id===p.id?'rgba(16,185,129,0.08)':'transparent',
-                      borderLeft:`3px solid ${selPlan?.id===p.id?'#10B981':'transparent'}`,
-                      borderBottom:`1px solid ${t.border}`}}>
-                    <div style={{width:46,height:34,borderRadius:3,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`}}>
-                      <img src={p.file_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
-                    </div>
-                    <div style={{flex:1,minWidth:0}}>
-                      <div style={{fontSize:11,fontWeight:selPlan?.id===p.id?700:400,color:selPlan?.id===p.id?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name}</div>
-                      <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:1}}>{p.scale_px_per_ft?'⇔ scaled':'no scale'} · {items.filter(it=>it.plan_id===p.id).length} items</div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </>}
-        </div>
-
-        {/* Scale badge */}
-        {scale&&<span onClick={()=>setRightTab('settings')} title="Click to change scale" style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",padding:'0 10px',borderRight:`1px solid ${t.border}`,height:'100%',display:'flex',alignItems:'center',cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>⇔ {presetScale||'Cal.'}</span>}
-        {!scale&&selPlan&&<span onClick={()=>setRightTab('settings')} title="Set scale" style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace",padding:'0 10px',borderRight:`1px solid ${t.border}`,height:'100%',display:'flex',alignItems:'center',cursor:'pointer',flexShrink:0,whiteSpace:'nowrap'}}>⚠ Set scale</span>}
+      <div style={{display:'flex',alignItems:'center',height:42,borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,gap:0}}>
+        {/* Left nav */}
+        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text4,cursor:'pointer',fontSize:11,padding:'0 14px',height:'100%',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
+          <span style={{fontSize:13}}>←</span> Projects
+        </button>
+        {onExitToOps&&<button onClick={onExitToOps} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:11,padding:'0 12px',height:'100%',display:'flex',alignItems:'center',gap:4,fontWeight:600,flexShrink:0}}>
+          ⊞ <span>OPS</span>
+        </button>}
 
         {/* Project name */}
-        <div style={{flex:1,padding:'0 12px',overflow:'hidden',minWidth:0}}>
+        <div style={{padding:'0 16px',borderRight:`1px solid ${t.border}`,height:'100%',display:'flex',flexDirection:'column',justifyContent:'center',minWidth:0,maxWidth:220,flexShrink:0}}>
           <div style={{fontSize:12,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
-          {project.bid_date&&<div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>Bid {fmtDate(project.bid_date)} · <span style={{color:STATUS_COLORS_BID[project.status]||t.text4}}>{(project.status||'').replace(/_/g,' ').toUpperCase()}</span></div>}
+          {project.bid_date&&<div style={{fontSize:9,color:t.text4}}>Bid {fmtDate(project.bid_date)}</div>}
+        </div>
+
+        {/* Tool group */}
+        <div style={{display:'flex',alignItems:'center',height:'100%',borderRight:`1px solid ${t.border}`,flexShrink:0}}>
+          {[
+            {id:'select', label:'Select', icon:'↖'},
+            {id:'area',   label:'Area',   icon:'⬡'},
+            {id:'linear', label:'Linear', icon:'━'},
+            {id:'count',  label:'Count',  icon:'✕'},
+          ].map(({id,label,icon})=>{
+            const isActive = tool===id;
+            const colors = {select:'#94A3B8',area:'#F59E0B',linear:'#06B6D4',count:'#10B981'};
+            const c = colors[id];
+            return(
+              <button key={id} onClick={()=>{setTool(id);setActivePts([]);setScaleStep(null);}}
+                title={label}
+                style={{height:'100%',padding:'0 14px',border:'none',borderRight:`1px solid ${t.border}`,
+                  background:isActive?`${c}18`:'none',
+                  color:isActive?c:t.text3,
+                  cursor:'pointer',fontSize:11,fontWeight:isActive?700:400,
+                  display:'flex',alignItems:'center',gap:5,flexShrink:0,
+                  borderBottom:isActive?`2px solid ${c}`:'2px solid transparent',
+                  boxSizing:'border-box'}}>
+                <span style={{fontSize:14}}>{icon}</span>
+                <span style={{fontSize:11}}>{label}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Scale badge / status */}
+        <div style={{padding:'0 14px',borderRight:`1px solid ${t.border}`,height:'100%',display:'flex',alignItems:'center',flexShrink:0,cursor:'pointer'}}
+          onClick={()=>setRightTab('settings')}>
+          {scale
+            ? <span style={{fontSize:10,color:'#10B981',fontWeight:600}}>{presetScale||'Calibrated'}</span>
+            : <span style={{fontSize:10,color:selPlan?'#F59E0B':t.text4}}>{selPlan?'Set scale':'No plan'}</span>
+          }
+        </div>
+
+        {/* Live measure readout */}
+        <div style={{padding:'0 14px',flex:1,display:'flex',alignItems:'center',minWidth:0,overflow:'hidden'}}>
+          {tool==='area'&&activePts.length>0&&scale&&activePts.length>=3&&(
+            <span style={{fontSize:11,color:'#F59E0B',fontWeight:600}}>{Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF — click ● to close</span>
+          )}
+          {tool==='linear'&&activePts.length===1&&hoverPt&&scale&&(
+            <span style={{fontSize:11,color:'#06B6D4',fontWeight:600}}>{Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF</span>
+          )}
+          {scaleStep==='picking'&&<span style={{fontSize:11,color:'#10B981',fontWeight:600}}>Calibrating — click 2 points ({scalePts.length}/2)</span>}
         </div>
 
         {/* Zoom */}
-        <div style={{display:'flex',alignItems:'center',gap:2,padding:'0 8px',borderLeft:`1px solid ${t.border}`,height:'100%',flexShrink:0}}>
-          <button onClick={()=>setZoom(z=>Math.max(Math.round((z-0.05)*20)/20,0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:24,height:24,borderRadius:3,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
-          <span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",minWidth:34,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
-          <button onClick={()=>setZoom(z=>Math.min(Math.round((z+0.05)*20)/20,4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:24,height:24,borderRadius:3,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
-          <button onClick={()=>setZoom(1)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'2px 6px',borderRadius:3,cursor:'pointer',fontSize:8,fontFamily:"'DM Mono',monospace",marginLeft:2}}>1:1</button>
+        <div style={{display:'flex',alignItems:'center',gap:3,padding:'0 10px',borderLeft:`1px solid ${t.border}`,height:'100%',flexShrink:0}}>
+          <button onClick={()=>setZoom(z=>Math.max(Math.round((z-0.1)*10)/10,0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:22,height:22,borderRadius:3,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
+          <span style={{fontSize:10,color:t.text3,minWidth:38,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
+          <button onClick={()=>setZoom(z=>Math.min(Math.round((z+0.1)*10)/10,4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:22,height:22,borderRadius:3,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+          <button onClick={()=>setZoom(1)} style={{background:'none',border:`1px solid ${t.border}`,color:t.text4,padding:'2px 5px',borderRadius:3,cursor:'pointer',fontSize:9,marginLeft:1}}>Fit</button>
         </div>
 
+        {/* Bid Summary */}
         <button onClick={()=>setShowBidSummary(true)} disabled={!items.length}
-          style={{height:'100%',padding:'0 14px',border:'none',borderLeft:`1px solid ${t.border}`,background:items.length?'linear-gradient(135deg,#10B981,#059669)':'none',color:items.length?'#000':t.text4,cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0,opacity:items.length?1:0.4,whiteSpace:'nowrap'}}>
-          📋 Bid Summary
+          style={{height:'100%',padding:'0 16px',border:'none',borderLeft:`1px solid ${t.border}`,
+            background:items.length?'#10B981':'none',color:items.length?'#000':t.text4,
+            cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0,opacity:items.length?1:0.3}}>
+          Bid Summary
         </button>
       </div>
 
@@ -5026,23 +5025,22 @@ Return ONLY a valid JSON array, no markdown:
         {/* ── Left Sidebar — full height items tree ── */}
         <div style={{width:260,flexShrink:0,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,background:t.bg2,overflow:'hidden'}}>
 
-          {/* Tab strip — Items / Settings / $ Estimate */}
-          <div style={{display:'flex',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg2}}>
+          {/* Tab strip */}
+          <div style={{display:'flex',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg2,height:36}}>
             {[['items','Takeoffs'],['settings','Settings']].map(([id,lbl])=>(
               <button key={id} onClick={()=>setRightTab(id)}
-                style={{flex:1,padding:'9px 0',border:'none',background:'none',cursor:'pointer',fontSize:11,fontWeight:600,
+                style={{flex:1,height:'100%',border:'none',background:'none',cursor:'pointer',fontSize:11,fontWeight:500,
                   color:rightTab===id&&rightTab!=='estimate'?t.text:t.text4,
                   borderBottom:rightTab===id&&rightTab!=='estimate'?`2px solid #10B981`:'2px solid transparent',
-                  fontFamily:"'DM Mono',monospace"}}>
+                  boxSizing:'border-box'}}>
                 {lbl}
               </button>
             ))}
             <button onClick={()=>setRightTab('estimate')}
-              style={{flex:1,padding:'9px 0',border:'none',
-                background:rightTab==='estimate'?'linear-gradient(135deg,#10B981,#059669)':'none',
-                cursor:'pointer',fontSize:11,fontWeight:700,
-                color:rightTab==='estimate'?'#000':'#10B981',
-                borderBottom:'2px solid transparent'}}>
+              style={{flex:1,height:'100%',border:'none',background:'none',cursor:'pointer',fontSize:11,fontWeight:600,
+                color:'#10B981',
+                borderBottom:rightTab==='estimate'?'2px solid #10B981':'2px solid transparent',
+                boxSizing:'border-box'}}>
               $ Estimate
             </button>
           </div>
@@ -5061,17 +5059,14 @@ Return ONLY a valid JSON array, no markdown:
 
               {/* Active item banner */}
               {activeCond?(
-                <div style={{padding:'7px 10px',background:'rgba(249,115,22,0.12)',borderBottom:'2px solid #F97316',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
-                  <div style={{width:8,height:8,borderRadius:'50%',background:'#F97316',animation:'pulse 1.2s ease-in-out infinite',flexShrink:0}}/>
-                  <div style={{flex:1,minWidth:0}}>
-                    <div style={{fontSize:11,fontWeight:700,color:'#F97316',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeCond.description}</div>
-                    <div style={{fontSize:8,color:'rgba(249,115,22,0.75)',fontFamily:"'DM Mono',monospace",marginTop:1}}>DRAWING SHAPES INTO THIS ITEM — tap the plan</div>
-                  </div>
-                  <button onClick={disarm} style={{background:'rgba(249,115,22,0.15)',border:'1px solid rgba(249,115,22,0.5)',color:'#F97316',padding:'3px 9px',borderRadius:4,cursor:'pointer',fontSize:9,fontWeight:700,fontFamily:"'DM Mono',monospace",flexShrink:0}}>DONE</button>
+                <div style={{padding:'6px 10px',background:'rgba(249,115,22,0.1)',borderBottom:'2px solid #F97316',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                  <div style={{width:6,height:6,borderRadius:'50%',background:'#F97316',flexShrink:0,animation:'pulse 1.2s ease-in-out infinite'}}/>
+                  <span style={{fontSize:11,fontWeight:600,color:'#F97316',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeCond.description}</span>
+                  <button onClick={disarm} style={{background:'none',border:'1px solid rgba(249,115,22,0.4)',color:'#F97316',padding:'2px 8px',borderRadius:3,cursor:'pointer',fontSize:9,fontWeight:700,flexShrink:0}}>Done</button>
                 </div>
               ):(
-                <div style={{padding:'5px 10px',background:t.bg3,borderBottom:`1px solid ${t.border}`,fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0}}>
-                  {!selPlan?'Upload a plan first':!scale?'⚠ Set scale in Settings':planItems.length?'← Select an item, then draw on the plan':'Expand a category below and add items'}
+                <div style={{padding:'5px 10px',background:'transparent',borderBottom:`1px solid ${t.border}`,fontSize:9,color:t.text4,flexShrink:0}}>
+                  {!selPlan?'Upload a plan to begin':!scale?'⚠ Set scale in Settings':planItems.length?'Select an item to measure':'Add items below'}
                 </div>
               )}
 
@@ -5080,7 +5075,7 @@ Return ONLY a valid JSON array, no markdown:
                 {TAKEOFF_CATS.map(cat=>{
                   const catItems = planItems.filter(i=>i.category===cat.id);
                   const catTotal = catItems.reduce((s,i)=>s+(i.total_cost||0),0);
-                  const collapsed = collapsedCats?.[cat.id];
+                  const collapsed = collapsedCats?.[cat.id] ?? (catItems.length===0); // empty = collapsed by default
                   const hasActive = catItems.some(i=>i.id===activeCondId);
 
                   return(
@@ -5088,13 +5083,13 @@ Return ONLY a valid JSON array, no markdown:
 
                       {/* Category header */}
                       <div onClick={()=>setCollapsedCats(p=>({...p,[cat.id]:!collapsed}))}
-                        style={{display:'flex',alignItems:'center',gap:6,padding:'7px 10px',cursor:'pointer',
-                          background:hasActive?`${cat.color}15`:`${cat.color}08`,
-                          borderLeft:`3px solid ${cat.color}`}}>
-                        <span style={{fontSize:9,color:cat.color,fontFamily:"'DM Mono',monospace",width:8,flexShrink:0}}>{collapsed?'▸':'▾'}</span>
-                        <span style={{fontSize:11,fontWeight:700,color:cat.color,flex:1}}>{cat.label}</span>
-                        {catItems.length>0&&<span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{catItems.length}</span>}
-                        {catTotal>0&&<span style={{fontSize:9,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace",marginLeft:4}}>${catTotal.toLocaleString()}</span>}
+                        style={{display:'flex',alignItems:'center',gap:6,padding:'6px 10px',cursor:'pointer',
+                          background:hasActive?`${cat.color}12`:collapsed?'transparent':`${cat.color}06`,
+                          borderLeft:`3px solid ${hasActive?cat.color:catItems.length?cat.color:t.border}`}}>
+                        <span style={{fontSize:9,color:catItems.length?cat.color:t.text4,width:10,flexShrink:0}}>{collapsed?'▸':'▾'}</span>
+                        <span style={{fontSize:11,fontWeight:600,color:catItems.length?cat.color:t.text4,flex:1}}>{cat.label}</span>
+                        {catItems.length>0&&<span style={{fontSize:9,color:t.text4,marginRight:4}}>{catItems.length}</span>}
+                        {catTotal>0&&<span style={{fontSize:10,fontWeight:700,color:'#10B981'}}>${catTotal.toLocaleString()}</span>}
                       </div>
 
                       {/* Items in category */}
@@ -5111,25 +5106,22 @@ Return ONLY a valid JSON array, no markdown:
                             })();
                             const typeIcon = {area:'⬡',linear:'━',count:'✕',manual:'✎'}[item.measurement_type]||'✎';
                             return(
-                              <div key={item.id} style={{borderBottom:`1px solid ${t.border}`,background:isActive?'rgba(249,115,22,0.07)':isEditing?`${cat.color}05`:'transparent'}}>
+                              <div key={item.id} style={{borderBottom:`1px solid ${t.border}`,background:isActive?'rgba(249,115,22,0.06)':'transparent'}}>
                                 {/* Item row */}
                                 <div onClick={()=>isActive?disarm():armItem(item)}
-                                  style={{display:'flex',alignItems:'center',gap:7,padding:'6px 10px 6px 16px',cursor:'pointer',position:'relative'}}>
+                                  style={{display:'flex',alignItems:'center',gap:6,padding:'5px 8px 5px 14px',cursor:'pointer',position:'relative'}}>
                                   {isActive&&<div style={{position:'absolute',left:0,top:0,bottom:0,width:3,background:'#F97316'}}/>}
-                                  <span style={{fontSize:11,color:isActive?'#F97316':cat.color,flexShrink:0}}>{typeIcon}</span>
+                                  <span style={{fontSize:10,color:isActive?'#F97316':cat.color,flexShrink:0,width:12,textAlign:'center'}}>{typeIcon}</span>
                                   <div style={{flex:1,minWidth:0}}>
-                                    <div style={{fontSize:11,fontWeight:isActive?700:400,color:isActive?'#F97316':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'Unnamed'}</div>
-                                    <div style={{fontSize:8,fontFamily:"'DM Mono',monospace",color:isActive?'rgba(249,115,22,0.7)':t.text4,marginTop:1}}>
-                                      {isActive
-                                        ?`drawing → ${item.quantity||0} ${item.unit}${shapes.length?' · '+shapes.length+' shape'+(shapes.length!==1?'s':''):''}`
-                                        :`${item.quantity||0} ${item.unit}${shapes.length?' · '+shapes.length+' shape'+(shapes.length!==1?'s':''):''}`
-                                      }
+                                    <div style={{fontSize:11,fontWeight:isActive?600:400,color:isActive?'#F97316':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{item.description||'Unnamed'}</div>
+                                    <div style={{fontSize:9,color:t.text4,marginTop:1}}>
+                                      {item.quantity||0} {item.unit}{shapes.length>0?` · ${shapes.length} shape${shapes.length!==1?'s':''}`:isActive?' — drawing…':''}
                                     </div>
                                   </div>
-                                  <div style={{display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
-                                    {item.total_cost>0&&<span style={{fontSize:10,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${(item.total_cost||0).toLocaleString()}</span>}
+                                  <div style={{display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+                                    {item.total_cost>0&&<span style={{fontSize:10,fontWeight:600,color:'#10B981'}}>${(item.total_cost||0).toLocaleString()}</span>}
                                     <button onClick={e=>{e.stopPropagation();setEditItem(isEditing?null:item);if(!isEditing)disarm();}}
-                                      style={{background:'none',border:`1px solid ${t.border2}`,color:t.text4,cursor:'pointer',fontSize:9,padding:'1px 5px',borderRadius:3,lineHeight:1.4}}>✎</button>
+                                      style={{background:'none',border:'none',color:t.text4,cursor:'pointer',fontSize:13,padding:'0 2px',lineHeight:1,opacity:0.4}}>⋯</button>
                                   </div>
                                 </div>
                                 {/* Inline editor */}
@@ -5215,18 +5207,9 @@ Return ONLY a valid JSON array, no markdown:
         {/* ── Plan Viewer ── */}
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0,position:'relative'}}>
 
-          {/* ── Sheet Tabs (Stack-style) ── */}
-          <div style={{display:'flex',alignItems:'stretch',height:38,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,overflowX:'auto',overflowY:'hidden',minWidth:0}}>
-            {/* Upload */}
-            <button onClick={()=>fileRef.current?.click()} disabled={uploading}
-              style={{height:'100%',padding:'0 14px',border:'none',borderRight:`1px solid ${t.border}`,
-                background:'none',color:uploading?t.text4:'#10B981',cursor:'pointer',fontSize:11,fontWeight:700,
-                display:'flex',alignItems:'center',gap:5,flexShrink:0,whiteSpace:'nowrap'}}>
-              {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block',fontSize:13}}>◌</span> Processing…</>:<>＋ Upload</>}
-            </button>
+          {/* ── Sheet Tabs ── */}
+          <div style={{display:'flex',alignItems:'stretch',height:36,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,overflowX:'auto',overflowY:'hidden',minWidth:0}}>
             <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
-
-            {/* Sheet tabs */}
             {plans.map((p,idx)=>{
               const isActive = selPlan?.id===p.id;
               const cnt = items.filter(it=>it.plan_id===p.id).length;
@@ -5241,40 +5224,33 @@ Return ONLY a valid JSON array, no markdown:
                       if(selPlan?.id===p.id)setSelPlan(prev=>({...prev,name:n.trim()}));
                     }
                   }}
-                  style={{height:'100%',display:'flex',alignItems:'center',gap:6,padding:'0 14px',
-                    borderRight:`1px solid ${t.border}`,cursor:'pointer',flexShrink:0,position:'relative',
-                    background:isActive?t.bg3:'transparent',
-                    borderBottom:isActive?'2px solid #10B981':'2px solid transparent',
-                    maxWidth:200,userSelect:'none'}}>
-                  <span style={{fontSize:10,fontWeight:isActive?600:400,color:isActive?t.text:t.text3,
-                    overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:140}}>
+                  style={{height:'100%',display:'flex',alignItems:'center',gap:5,padding:'0 14px',
+                    borderRight:`1px solid ${t.border}`,cursor:'pointer',flexShrink:0,
+                    background:'transparent',
+                    borderBottom:isActive?`2px solid #10B981`:'2px solid transparent',
+                    boxSizing:'border-box',userSelect:'none',minWidth:0}}>
+                  <span style={{fontSize:11,fontWeight:isActive?600:400,color:isActive?t.text:t.text4,
+                    overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',maxWidth:160}}>
                     {p.name||`Sheet ${idx+1}`}
                   </span>
-                  {cnt>0&&<span style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace",flexShrink:0,background:t.bg3,padding:'1px 4px',borderRadius:2}}>{cnt}</span>}
+                  {cnt>0&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",flexShrink:0}}>{cnt}</span>}
                 </div>
               );
             })}
-
-            {plans.length===0&&(
-              <span style={{fontSize:10,color:t.text4,padding:'0 14px',display:'flex',alignItems:'center',fontFamily:"'DM Mono',monospace"}}>Upload a plan to get started</span>
-            )}
-
-            {/* Right: live measure status + scale badge */}
-            <div style={{marginLeft:'auto',display:'flex',alignItems:'center',gap:10,padding:'0 12px',flexShrink:0}}>
-              {tool==='area'&&activePts.length>0&&(
-                <span style={{fontSize:10,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>
-                  {!scale?'⚠ Set scale':(activePts.length>=3?`${Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10} SF — click ● to close`:`${activePts.length} pts`)}
-                </span>
-              )}
-              {tool==='linear'&&activePts.length===1&&hoverPt&&(
-                <span style={{fontSize:10,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>
-                  {scale?`${Math.round(calcLinear(activePts[0],hoverPt)*10)/10} LF`:'⚠ Set scale'}
-                </span>
-              )}
-              {scaleStep==='picking'&&<span style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>Calibrating ({scalePts.length}/2 pts)</span>}
-              {scale&&!scaleStep&&selPlan&&<span style={{fontSize:9,color:'#10B981',fontFamily:"'DM Mono',monospace",background:'rgba(16,185,129,0.1)',padding:'2px 7px',borderRadius:3,border:'1px solid rgba(16,185,129,0.2)'}}>{presetScale||'Calibrated'}</span>}
-              {!scale&&selPlan&&!scaleStep&&<span style={{fontSize:9,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>No scale</span>}
-            </div>
+            {/* Upload tab */}
+            <button onClick={()=>fileRef.current?.click()} disabled={uploading}
+              style={{height:'100%',padding:'0 12px',border:'none',borderRight:`1px solid ${t.border}`,
+                background:'none',color:uploading?t.text4:t.text4,cursor:'pointer',fontSize:11,
+                display:'flex',alignItems:'center',gap:4,flexShrink:0,whiteSpace:'nowrap'}}>
+              {uploading?<span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>:<span style={{fontSize:14}}>＋</span>}
+            </button>
+            {/* AI Takeoff button */}
+            {selPlan&&<button onClick={runAITakeoff} disabled={analyzing}
+              style={{height:'100%',padding:'0 14px',border:'none',borderLeft:'none',borderRight:`1px solid ${t.border}`,
+                background:'none',color:analyzing?t.text4:'#a855f7',cursor:'pointer',fontSize:11,fontWeight:700,
+                display:'flex',alignItems:'center',gap:5,flexShrink:0,whiteSpace:'nowrap'}}>
+              {analyzing?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Analyzing…</>:<>✦ AI Takeoff</>}
+            </button>}
           </div>
 
           {/* Plan canvas */}
@@ -5358,22 +5334,7 @@ Return ONLY a valid JSON array, no markdown:
           </div>
         </div>
 
-        {/* ── Right Icon Bar (Stack-style) ── */}
-        <div style={{width:62,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,overflowY:'auto'}}>
-          <RightBtn icon="↖" label="Select"  active={tool==='select'}  onClick={()=>{setTool('select');setActivePts([]);setScaleStep(null);}}/>
-          <div style={{height:1,background:t.border,margin:'2px 10px'}}/>
-          <RightBtn icon="⬡" label="Area"    active={tool==='area'}    onClick={()=>{setTool('area');setActivePts([]);setScaleStep(null);}} color="#F59E0B"/>
-          <RightBtn icon="━" label="Linear"  active={tool==='linear'}  onClick={()=>{setTool('linear');setActivePts([]);setScaleStep(null);}} color="#06B6D4"/>
-          <RightBtn icon="✕" label="Count"   active={tool==='count'}   onClick={()=>{setTool('count');setActivePts([]);setScaleStep(null);}} color="#10B981"/>
-          <div style={{height:1,background:t.border,margin:'2px 10px'}}/>
-          <RightBtn icon="✦" label="AI"      active={analyzing}        onClick={runAITakeoff} color="#a855f7"/>
-          <RightBtn icon="⬡" label="Library" active={showAssembly}     onClick={()=>setShowAssembly(true)} color="#8B5CF6"/>
-          <div style={{height:1,background:t.border,margin:'2px 10px'}}/>
-          <RightBtn icon="⇔" label="Scale"   active={tool==='scale'}   onClick={()=>{setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);}}/>
-          <RightBtn icon="$" label="Rates"   active={showUnitCosts}    onClick={()=>setShowUnitCosts(true)}/>
-          <div style={{height:1,background:t.border,margin:'2px 10px'}}/>
-          <RightBtn icon="🖨" label="Print"   active={false}            onClick={()=>setShowBidSummary(true)}/>
-        </div>
+
 
       </div>
 
