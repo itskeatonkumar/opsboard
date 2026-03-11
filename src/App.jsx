@@ -4243,6 +4243,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [estHover, setEstHover] = useState(null);
   const [collapsedCats, setCollapsedCats] = useState({});
   const [showSheetsDD, setShowSheetsDD] = useState(false);
+  const [showScalePanel, setShowScalePanel] = useState(false);
   const [openTabs, setOpenTabs] = useState([]); // plan IDs open as browser tabs
   const [leftTab, setLeftTab] = useState('takeoffs'); // 'plans' | 'takeoffs'
 
@@ -5071,7 +5072,7 @@ Return ONLY a valid JSON array, no markdown:
                 </div>
               ):(
                 <div style={{padding:'5px 10px',borderBottom:`1px solid ${t.border}`,fontSize:9,color:t.text4,flexShrink:0}}>
-                  {!selPlan?'Open a plan from the Plans tab':!scale?'⚠ Set scale in Settings':planItems.length?'Select an item to measure':'Add items below'}
+                  {!selPlan?'Open a plan from the Plans tab':!scale?'⚠ Set scale via the button on the canvas':planItems.length?'Select an item to measure':'Add items below'}
                 </div>
               )}
               {/* Category tree */}
@@ -5158,25 +5159,11 @@ Return ONLY a valid JSON array, no markdown:
           {/* ── SETTINGS tab ── */}
           {leftTab==='settings'&&(
             <div style={{flex:1,overflowY:'auto',padding:14}}>
-              <div style={{fontSize:10,fontWeight:700,color:t.text4,letterSpacing:0.8,marginBottom:10}}>SCALE</div>
-              <select value={presetScale} onChange={async e=>{
-                const val=e.target.value;
-                if(val==='cal'){setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);return;}
-                if(val==='auto'){autoDetectScale();return;}
-                const s=CONSTRUCTION_SCALES.find(x=>x.label===val);
-                if(!s) return;
-                const pxPerFt=(planDpi*12)/s.ratio;
-                setScale(pxPerFt); setPresetScale(s.label);
-                if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
-              }} style={{...inputStyle,width:'100%',fontSize:11,marginBottom:10}}>
-                <option value="">Set Scale…</option>
-                <option value="auto">✦ Auto-Detect</option>
-                <option value="cal">⊕ Calibrate (2 pts)</option>
-                <optgroup label="Civil">{CONSTRUCTION_SCALES.filter(s=>s.group==='civil').map(s=><option key={s.label+s.group} value={s.label}>{s.label}</option>)}</optgroup>
-                <optgroup label="Architectural">{CONSTRUCTION_SCALES.filter(s=>s.group==='arch').map(s=><option key={s.label+s.group} value={s.label}>{s.label}</option>)}</optgroup>
-                <optgroup label="Detail">{CONSTRUCTION_SCALES.filter(s=>s.group==='detail').map(s=><option key={s.label+s.group} value={s.label}>{s.label}</option>)}</optgroup>
-              </select>
-              {scale&&<div style={{fontSize:10,color:'#10B981',marginBottom:10}}>✓ {presetScale||'Calibrated'} · {Math.round(scale*10)/10} px/ft</div>}
+              <div style={{fontSize:10,fontWeight:700,color:t.text4,letterSpacing:0.8,marginBottom:8}}>SCALE</div>
+              <div style={{fontSize:10,color:scale?'#10B981':t.text4,marginBottom:8,padding:'6px 10px',background:t.bg3,borderRadius:5,border:`1px solid ${t.border}`}}>
+                {scale?`✓ ${presetScale||'Calibrated'} · ${Math.round(scale*10)/10} px/ft`:'Not set for this page'}
+              </div>
+              <div style={{fontSize:10,color:t.text4,marginBottom:8}}>Use the <strong style={{color:'#10B981'}}>+ Set Scale</strong> button in the lower-right of the canvas to set scale per page.</div>
               {!isPdfPlan&&(
                 <div style={{marginBottom:14}}>
                   <div style={{fontSize:10,color:t.text4,marginBottom:4}}>Scan DPI</div>
@@ -5265,8 +5252,9 @@ Return ONLY a valid JSON array, no markdown:
             <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
           </div>
 
-          {/* Plan canvas */}
-          <div ref={containerCallbackRef} style={{flex:1,overflow:'auto',background:'#1e1e1e',position:'relative',minHeight:0}}>
+          {/* Plan canvas + floating overlays */}
+          <div style={{flex:1,position:'relative',overflow:'hidden',minHeight:0}}>
+          <div ref={containerCallbackRef} style={{position:'absolute',inset:0,overflow:'auto',background:'#1e1e1e'}}>
             {!selPlan?(
               <div style={{display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',height:'100%',padding:40}}>
                 <div style={{fontSize:48,marginBottom:16}}>📐</div>
@@ -5334,22 +5322,114 @@ Return ONLY a valid JSON array, no markdown:
               );
             })()}
           </div>
+
+          {/* ── Floating Scale Bar (Stack-style, bottom of canvas) ── */}
+          {selPlan&&(
+            <div style={{position:'absolute',bottom:12,right:16,zIndex:30,display:'flex',alignItems:'center',gap:6,pointerEvents:'all'}}>
+              {/* Calibrating status */}
+              {scaleStep==='picking'&&(
+                <div style={{background:'rgba(16,185,129,0.95)',color:'#fff',borderRadius:6,padding:'5px 12px',fontSize:11,fontWeight:600,boxShadow:'0 2px 10px rgba(0,0,0,0.4)',backdropFilter:'blur(4px)'}}>
+                  Click 2 known points ({scalePts.length}/2)
+                </div>
+              )}
+              {/* Scale distance input when 2 pts picked */}
+              {scaleStep==='entering'&&(
+                <div style={{background:'rgba(10,10,10,0.92)',border:'1px solid rgba(16,185,129,0.4)',borderRadius:8,padding:'8px 12px',boxShadow:'0 4px 20px rgba(0,0,0,0.6)',display:'flex',alignItems:'center',gap:8,backdropFilter:'blur(8px)'}}>
+                  <span style={{fontSize:11,color:'rgba(255,255,255,0.5)'}}>Known distance =</span>
+                  <input autoFocus type="number" value={scaleDist} onChange={e=>setScaleDist(e.target.value)}
+                    placeholder="e.g. 20"
+                    style={{width:72,background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'#fff',borderRadius:4,padding:'4px 8px',fontSize:12,outline:'none'}}
+                    onKeyDown={e=>{ if(e.key==='Enter') { confirmScale(); setShowScalePanel(false); } }}/>
+                  <select value={scaleUnit} onChange={e=>setScaleUnit(e.target.value)} style={{background:'rgba(255,255,255,0.08)',border:'1px solid rgba(255,255,255,0.15)',color:'#fff',borderRadius:4,padding:'4px 6px',fontSize:11}}>
+                    <option value="ft">ft</option>
+                    <option value="in">in</option>
+                  </select>
+                  <button onClick={()=>{confirmScale();setShowScalePanel(false);}} style={{background:'#10B981',border:'none',color:'#fff',borderRadius:5,padding:'4px 12px',cursor:'pointer',fontSize:11,fontWeight:700}}>Set</button>
+                  <button onClick={()=>{setScaleStep(null);setScalePts([]);setTool('select');}} style={{background:'none',border:'none',color:'rgba(255,255,255,0.4)',cursor:'pointer',fontSize:14,padding:'0 2px'}}>×</button>
+                </div>
+              )}
+
+              {/* Scale preset panel */}
+              {showScalePanel&&!scaleStep&&(
+                <>
+                  <div style={{position:'fixed',inset:0,zIndex:29}} onClick={()=>setShowScalePanel(false)}/>
+                  <div style={{position:'absolute',bottom:'100%',right:0,marginBottom:6,
+                    background:'#1a1a1a',border:'1px solid rgba(255,255,255,0.12)',borderRadius:8,
+                    boxShadow:'0 8px 32px rgba(0,0,0,0.6)',minWidth:200,zIndex:31,overflow:'hidden',backdropFilter:'blur(8px)'}}>
+                    <div style={{padding:'8px 12px',borderBottom:'1px solid rgba(255,255,255,0.08)',fontSize:10,fontWeight:700,color:'rgba(255,255,255,0.4)',letterSpacing:0.8}}>SET SCALE — {selPlan?.name}</div>
+                    <button onClick={()=>{setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);setShowScalePanel(false);}}
+                      style={{width:'100%',background:'none',border:'none',color:'#10B981',padding:'9px 14px',cursor:'pointer',fontSize:11,fontWeight:700,textAlign:'left',borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
+                      ⊕ Calibrate — click 2 points
+                    </button>
+                    <button onClick={()=>{autoDetectScale();setShowScalePanel(false);}}
+                      style={{width:'100%',background:'none',border:'none',color:'#a855f7',padding:'9px 14px',cursor:'pointer',fontSize:11,fontWeight:700,textAlign:'left',borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
+                      ✦ Auto-Detect from drawing
+                    </button>
+                    <div style={{padding:'6px 12px 2px',fontSize:9,color:'rgba(255,255,255,0.3)',letterSpacing:0.6}}>CIVIL / ENGINEERING</div>
+                    {CONSTRUCTION_SCALES.filter(s=>s.group==='civil').map(s=>(
+                      <button key={s.label} onClick={async()=>{
+                        const pxPerFt=(planDpi*12)/s.ratio;
+                        setScale(pxPerFt); setPresetScale(s.label);
+                        if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+                        setShowScalePanel(false);
+                      }} style={{width:'100%',background:presetScale===s.label?'rgba(16,185,129,0.15)':'none',border:'none',
+                        color:presetScale===s.label?'#10B981':'rgba(255,255,255,0.7)',
+                        padding:'6px 14px',cursor:'pointer',fontSize:11,textAlign:'left',display:'flex',alignItems:'center',gap:6}}>
+                        {presetScale===s.label&&<span style={{color:'#10B981',fontSize:9}}>✓</span>}{s.label}
+                      </button>
+                    ))}
+                    <div style={{padding:'6px 12px 2px',fontSize:9,color:'rgba(255,255,255,0.3)',letterSpacing:0.6}}>ARCHITECTURAL</div>
+                    {CONSTRUCTION_SCALES.filter(s=>s.group==='arch').map(s=>(
+                      <button key={s.label} onClick={async()=>{
+                        const pxPerFt=(planDpi*12)/s.ratio;
+                        setScale(pxPerFt); setPresetScale(s.label);
+                        if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+                        setShowScalePanel(false);
+                      }} style={{width:'100%',background:presetScale===s.label?'rgba(16,185,129,0.15)':'none',border:'none',
+                        color:presetScale===s.label?'#10B981':'rgba(255,255,255,0.7)',
+                        padding:'6px 14px',cursor:'pointer',fontSize:11,textAlign:'left',display:'flex',alignItems:'center',gap:6}}>
+                        {presetScale===s.label&&<span style={{color:'#10B981',fontSize:9}}>✓</span>}{s.label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {/* Current scale chip */}
+              {scale&&presetScale&&(
+                <button onClick={()=>setShowScalePanel(s=>!s)}
+                  style={{background:'rgba(0,0,0,0.7)',border:'1px solid rgba(16,185,129,0.4)',color:'#10B981',
+                    borderRadius:5,padding:'4px 10px',cursor:'pointer',fontSize:11,fontWeight:600,
+                    display:'flex',alignItems:'center',gap:5,backdropFilter:'blur(4px)',
+                    boxShadow:'0 2px 8px rgba(0,0,0,0.4)'}}>
+                  ✓ {presetScale}
+                </button>
+              )}
+
+              {/* + New Scale / Set Scale button */}
+              <button onClick={()=>setShowScalePanel(s=>!s)}
+                style={{background:'#10B981',border:'none',color:'#fff',
+                  borderRadius:6,padding:'5px 14px',cursor:'pointer',fontSize:11,fontWeight:700,
+                  boxShadow:'0 2px 8px rgba(16,185,129,0.4)',display:'flex',alignItems:'center',gap:5}}>
+                {scale&&presetScale?'⇔ Change Scale':scale?`⇔ ${Math.round(scale*10)/10} px/ft`:'+ Set Scale'}
+              </button>
+            </div>
+          )}
+          </div>
         </div>
 
-        {/* ── Right Tool Bar — Stack-style ── */}
-        <div style={{width:56,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,alignItems:'center',paddingTop:4}}>
+        {/* ── Right Tool Bar ── */}
+        <div style={{width:56,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,alignItems:'center',paddingTop:6}}>
           {[
             {id:'select', icon:'↖', label:'Select', color:'#94A3B8'},
             null,
             {id:'area',   icon:'⬡', label:'Area',   color:'#F59E0B'},
             {id:'linear', icon:'━', label:'Linear', color:'#06B6D4'},
             {id:'count',  icon:'✕', label:'Count',  color:'#10B981'},
-            null,
-            {id:'scale',  icon:'⇔', label:'Scale',  color:'#8B5CF6', action:()=>{setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);}},
           ].map((btn,i)=>{
             if(!btn) return <div key={i} style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>;
             const isActive = tool===btn.id;
-            const onClick = btn.action || (()=>{setTool(btn.id);setActivePts([]);setScaleStep(null);});
+            const onClick = ()=>{setTool(btn.id);setActivePts([]);setScaleStep(null);setShowScalePanel(false);};
             return(
               <button key={btn.id} onClick={onClick} title={btn.label}
                 style={{width:'100%',padding:'10px 0',border:'none',background:isActive?`${btn.color}18`:'none',
@@ -5363,25 +5443,23 @@ Return ONLY a valid JSON array, no markdown:
             );
           })}
           <div style={{flex:1}}/>
-          {/* Live measure readout */}
-          {(tool==='area'&&activePts.length>0||tool==='linear'&&activePts.length===1)&&(
-            <div style={{padding:'6px 4px',textAlign:'center',borderTop:`1px solid ${t.border}`,width:'100%'}}>
-              {tool==='area'&&activePts.length>=3&&scale&&(
-                <span style={{fontSize:8,color:'#F59E0B',fontFamily:"'DM Mono',monospace",lineHeight:1.3,display:'block'}}>
-                  {Math.round(calcArea([...activePts,(hoverPt||activePts[0])])*10)/10}<br/>SF
-                </span>
-              )}
-              {tool==='linear'&&activePts.length===1&&hoverPt&&scale&&(
-                <span style={{fontSize:8,color:'#06B6D4',fontFamily:"'DM Mono',monospace",lineHeight:1.3,display:'block'}}>
-                  {Math.round(calcLinear(activePts[0],hoverPt)*10)/10}<br/>LF
-                </span>
-              )}
+          {/* Live measure readout at bottom of tool bar */}
+          {tool==='area'&&activePts.length>=3&&scale&&hoverPt&&(
+            <div style={{padding:'6px 2px',textAlign:'center',borderTop:`1px solid ${t.border}`,width:'100%'}}>
+              <span style={{fontSize:9,color:'#F59E0B',fontWeight:700,display:'block',lineHeight:1.4}}>
+                {Math.round(calcArea([...activePts,hoverPt])*10)/10}
+              </span>
+              <span style={{fontSize:8,color:t.text4}}>SF</span>
             </div>
           )}
-          {/* Scale badge */}
-          {scale&&<div style={{padding:'6px 4px',textAlign:'center',borderTop:`1px solid ${t.border}`,width:'100%',cursor:'pointer'}} onClick={()=>setLeftTab('settings')}>
-            <span style={{fontSize:8,color:'#10B981',fontWeight:700,display:'block'}}>{presetScale||'Cal.'}</span>
-          </div>}
+          {tool==='linear'&&activePts.length===1&&hoverPt&&scale&&(
+            <div style={{padding:'6px 2px',textAlign:'center',borderTop:`1px solid ${t.border}`,width:'100%'}}>
+              <span style={{fontSize:9,color:'#06B6D4',fontWeight:700,display:'block',lineHeight:1.4}}>
+                {Math.round(calcLinear(activePts[0],hoverPt)*10)/10}
+              </span>
+              <span style={{fontSize:8,color:t.text4}}>LF</span>
+            </div>
+          )}
         </div>
 
       </div>
@@ -5638,24 +5716,6 @@ Return ONLY a valid JSON array, no markdown:
       })()}
 
       {/* Modals */}
-      {scaleStep==='entering'&&(
-        <div style={{position:'fixed',inset:0,background:'rgba(0,0,0,0.7)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:9999}} onClick={()=>{setScaleStep(null);setScalePts([]);}}>
-          <div onClick={e=>e.stopPropagation()} style={{background:t.bg3,border:`1px solid ${t.border2}`,borderRadius:12,padding:28,width:320}}>
-            <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:12}}>⇔ Calibrate Scale</div>
-            <div style={{fontSize:12,color:t.text3,marginBottom:14,fontFamily:"'DM Mono',monospace"}}>Real-world distance between your 2 points?</div>
-            <div style={{display:'flex',gap:8,marginBottom:16}}>
-              <input type="number" value={scaleDist} onChange={e=>setScaleDist(e.target.value)} placeholder="Distance" style={{...inputStyle,flex:1,fontSize:14}} autoFocus onKeyDown={e=>e.key==='Enter'&&confirmScale()}/>
-              <select value={scaleUnit} onChange={e=>setScaleUnit(e.target.value)} style={{...inputStyle,width:60}}>
-                <option value="ft">ft</option><option value="in">in</option>
-              </select>
-            </div>
-            <div style={{display:'flex',gap:8,justifyContent:'flex-end'}}>
-              <button onClick={()=>{setScaleStep(null);setScalePts([]);}} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'7px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Cancel</button>
-              <button onClick={confirmScale} disabled={!scaleDist} style={{background:'#10B981',border:'none',color:'#000',padding:'7px 18px',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700,opacity:scaleDist?1:0.4}}>Set Scale</button>
-            </div>
-          </div>
-        </div>
-      )}
       {editItem&&<TakeoffItemModal item={editItem} onSave={(data,type)=>{
         if(type==='delete'){setItems(prev=>prev.filter(i=>i.id!==editItem.id));}
         else if(type===true){setItems(prev=>[...prev.filter(i=>i.id!==data.id),data]);}
