@@ -76,7 +76,7 @@ function applyCSSVars(dark) {
 function ThemeProvider({ children }) {
   const [dark, setDark] = useState(() => {
     let isDark = true;
-    try { const s = localStorage.getItem("theme"); isDark = s ? s === "dark" : true; } catch {}
+    try { const s = localStorage.getItem("theme"); isDark = s ? s === "dark" : false; } catch {}
     applyCSSVars(isDark); // set vars synchronously on first render
     return isDark;
   });
@@ -6592,10 +6592,7 @@ function AppInner() {
   if (authLoading) return <div style={{ minHeight: "100dvh", background: "var(--bg)", display: "flex", alignItems: "center", justifyContent: "center", color: "#333", fontFamily: "monospace" }}>◌</div>;
   if (!user) return <LoginScreen />;
 
-  // FCG Estimating — full-screen takeover
-  if (appSection === "precon") {
-    return <FCGEstimating onExit={() => setAppSection("ops")} deepLinkProjectId={deepLinkProjectId}/>;
-  }
+  // Note: precon no longer does full-screen takeover — lives in tab shell below
 
   if (isMobile) {
     return (
@@ -6737,7 +6734,7 @@ function AppInner() {
   return (
     <>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Syne:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=DM+Mono:wght@400;500&display=swap');
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body { background: var(--bg); }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
@@ -6746,214 +6743,251 @@ function AppInner() {
         select option { background: var(--bg3); color: var(--tx); }
         @keyframes slideIn { from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)} }
         @keyframes spin { from{transform:rotate(0deg)}to{transform:rotate(360deg)} }
+        @keyframes pulse { 0%,100%{opacity:1}50%{opacity:0.4} }
       `}</style>
 
       {ghostTask && ghostPos && <DragGhost task={ghostTask} pos={ghostPos} team={team} />}
 
-      <div style={{ display: "flex", height: "100vh", background: "var(--bg)", fontFamily: "'Syne', sans-serif", overflow: "hidden", cursor: draggingId ? "grabbing" : "default" }}>
+      <div style={{ display: "flex", flexDirection: "column", height: "100vh", background: "var(--bg)", fontFamily: "'Inter', 'Syne', sans-serif", overflow: "hidden", cursor: draggingId ? "grabbing" : "default" }}>
 
-        {/* SIDEBAR */}
-        <div style={{ width: sidebarOpen ? 220 : 0, minWidth: sidebarOpen ? 220 : 0, background: "var(--bg2)", borderRight: "1px solid var(--bd)", display: "flex", flexDirection: "column", overflow: "hidden", transition: "width 0.2s, min-width 0.2s", flexShrink: 0 }}>
-          <div style={{ padding: "16px 14px 12px", borderBottom: "1px solid #1a1a1a" }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
-              <div style={{ width: 28, height: 28, borderRadius: 6, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center" }}>
-                <span style={{ fontSize: 14 }}>⬡</span>
-              </div>
-              <div>
-                <div style={{ fontSize: 13, fontWeight: 800, color: "var(--tx)", letterSpacing: -0.3 }}>FCG / BR OPS</div>
-                <div style={{ fontSize: 9.5, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", letterSpacing: 0.5 }}>OPERATIONS</div>
-              </div>
-            </div>
-            <div style={{ display: "flex", background: "var(--bg4)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
-              <button onClick={() => setAppSection("ops")} style={{ flex: 1, padding: "6px 0", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS BOARD</button>
-              <button onClick={() => setAppSection("apm")} style={{ flex: 1, padding: "6px 0", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
-              <button onClick={() => setAppSection("precon")} style={{ flex: 1, padding: "6px 0", background: appSection === "precon" ? "#10B98118" : "none", border: "none", color: appSection === "precon" ? "#10B981" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>ESTIMATE</button>
-            </div>
+        {/* ── Global Top Nav ── */}
+        <div style={{ display: "flex", alignItems: "stretch", height: 44, borderBottom: "1px solid var(--bd)", background: "var(--bg2)", flexShrink: 0, zIndex: 50 }}>
+          {/* Logo */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 18px", borderRight: "1px solid var(--bd)", flexShrink: 0 }}>
+            <div style={{ width: 22, height: 22, borderRadius: 5, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11 }}>⬡</div>
+            <span style={{ fontSize: 13, fontWeight: 700, color: "var(--tx)", letterSpacing: -0.3, whiteSpace: "nowrap" }}>FCG / BR OPS</span>
           </div>
 
-          <div style={{ padding: "14px 10px", flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
-            <div style={{ marginBottom: 16 }}>
-              {[["tasks","Tasks","⊞"],["settings","Settings","⚙"]].map(([id, label, icon]) => (
-                <button key={id} onClick={() => setPage(id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "7px 8px", borderRadius: 6, cursor: "pointer", background: page === id ? "#F9731615" : "none", border: page === id ? "1px solid #F9731630" : "1px solid transparent", marginBottom: 2, textAlign: "left" }}>
-                  <span style={{ fontSize: 13, color: page === id ? "#F97316" : "var(--tx4)" }}>{icon}</span>
-                  <span style={{ fontSize: 12, color: page === id ? "var(--tx)" : "var(--tx3)" }}>{label}</span>
+          {/* Main nav tabs */}
+          <div style={{ display: "flex", alignItems: "stretch", flex: 1 }}>
+            {[
+              { id: "ops",    label: "Ops Board",  icon: "⊞", color: "#F97316" },
+              { id: "apm",    label: "PM View",    icon: "◈", color: "#3B82F6" },
+              { id: "precon", label: "Estimating", icon: "📐", color: "#10B981" },
+            ].map(tab => {
+              const isActive = appSection === tab.id;
+              return (
+                <button key={tab.id} onClick={() => setAppSection(tab.id)}
+                  style={{ display: "flex", alignItems: "center", gap: 7, padding: "0 20px",
+                    border: "none", background: "none", cursor: "pointer",
+                    color: isActive ? tab.color : "var(--tx3)",
+                    borderBottom: isActive ? `2px solid ${tab.color}` : "2px solid transparent",
+                    fontSize: 13, fontWeight: isActive ? 600 : 400,
+                    boxSizing: "border-box", transition: "all 0.12s", whiteSpace: "nowrap" }}>
+                  <span style={{ fontSize: 14 }}>{tab.icon}</span>
+                  {tab.label}
                 </button>
-              ))}
-            </div>
+              );
+            })}
+          </div>
 
-            {page === "tasks" && (
+          {/* Right side: search (ops only) + actions + theme */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "0 14px", borderLeft: "1px solid var(--bd)" }}>
+            {appSection === "ops" && page === "tasks" && (
               <>
-                <div style={{ fontSize: 9.5, color: "#3a3a3a", letterSpacing: 1.2, fontFamily: "'DM Mono', monospace", padding: "0 8px", marginBottom: 8 }}>COMPANIES</div>
-                {COMPANIES.map(co => {
-                  const count = co.id === "all" ? tasks.length : tasks.filter(t => t.company === co.id).length;
-                  const active = activeCompany === co.id;
-                  return (
-                    <button key={co.id} onClick={() => setActiveCompany(co.id)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 10, padding: "7px 8px", borderRadius: 6, cursor: "pointer", background: active ? co.color + "15" : "none", border: active ? `1px solid ${co.color}30` : "1px solid transparent", marginBottom: 2, textAlign: "left" }}>
-                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: co.id === "all" ? "#F97316" : co.color, flexShrink: 0, opacity: active ? 1 : 0.4 }} />
-                      <span style={{ fontSize: 12, color: active ? "var(--tx)" : "var(--tx3)", flex: 1, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{co.id === "all" ? "All Companies" : co.name}</span>
-                      <span style={{ fontSize: 10, fontFamily: "'DM Mono', monospace", color: active ? co.color : "var(--tx4)" }}>{count}</span>
-                    </button>
-                  );
-                })}
-                <div style={{ fontSize: 9.5, color: "#3a3a3a", letterSpacing: 1.2, fontFamily: "'DM Mono', monospace", padding: "0 8px", marginBottom: 8, marginTop: 18 }}>TEAM</div>
-                {team.map(m => (
-                  <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", marginBottom: 2 }}>
-                    <Avatar member={m} size={22} />
-                    <span style={{ fontSize: 12, color: "var(--tx3)" }}>{m.name}</span>
-                    <span style={{ fontSize: 10, color: "var(--tx4)", marginLeft: "auto", fontFamily: "'DM Mono', monospace" }}>{tasks.filter(t => t.assignee === m.id && t.status !== "done").length}</span>
-                  </div>
-                ))}
+                <div style={{ position: "relative" }}>
+                  <span style={{ position: "absolute", left: 9, top: "50%", transform: "translateY(-50%)", color: "var(--tx4)", fontSize: 12 }}>⌕</span>
+                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks…"
+                    style={{ background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6,
+                      padding: "5px 10px 5px 26px", color: "var(--tx)", fontSize: 12, outline: "none", width: 170 }} />
+                </div>
+                <div style={{ display: "flex", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 5, overflow: "hidden" }}>
+                  {[["kanban","⊞"],["list","≡"]].map(([v, icon]) => (
+                    <button key={v} onClick={() => setView(v)}
+                      style={{ padding: "5px 10px", background: view === v ? "var(--bg5)" : "none",
+                        border: "none", cursor: "pointer", color: view === v ? "var(--tx)" : "var(--tx4)", fontSize: 14 }}>{icon}</button>
+                  ))}
+                </div>
+                <button onClick={() => setAiOpen(true)}
+                  style={{ background: "linear-gradient(135deg,#7c3aed,#a855f7)", border: "none", color: "#fff",
+                    padding: "5px 12px", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 700,
+                    display: "flex", alignItems: "center", gap: 4 }}>
+                  ✦ AI
+                </button>
+                <button onClick={openNew}
+                  style={{ background: "#F97316", border: "none", color: "#fff",
+                    padding: "5px 14px", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 700,
+                    display: "flex", alignItems: "center", gap: 4 }}>
+                  + New Task
+                </button>
               </>
             )}
-
-            <div style={{ marginTop: "auto", paddingTop: 16, borderTop: "1px solid var(--bd)" }}>
-              <button onClick={() => setDigestOpen(true)} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "#0a1a12", border: "1px solid #10B98130", color: "#10B981", fontSize: 12, fontWeight: 600, fontFamily: "'Syne', sans-serif", marginBottom: 6 }}
-                onMouseEnter={e => e.currentTarget.style.background = "#0d2218"}
-                onMouseLeave={e => e.currentTarget.style.background = "#0a1a12"}
-              >
-                <span style={{ fontSize: 14 }}>✉</span> Send Digest
-              </button>
-              <button onClick={handleSignOut} style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "9px 10px", borderRadius: 6, cursor: "pointer", background: "none", border: "1px solid var(--bd2)", color: "var(--tx4)", fontSize: 12, fontFamily: "'Syne', sans-serif" }}
-                onMouseEnter={e => e.currentTarget.style.color = "var(--tx)"}
-                onMouseLeave={e => e.currentTarget.style.color = "var(--tx4)"}
-              >
-                <span style={{ fontSize: 13 }}>⏻</span> Sign Out
-              </button>
-            </div>
+            <ThemeToggle />
+            <button onClick={handleSignOut} title="Sign out"
+              style={{ background: "none", border: "1px solid var(--bd)", borderRadius: 5, padding: "5px 8px",
+                color: "var(--tx4)", cursor: "pointer", fontSize: 12 }}>⏻</button>
           </div>
         </div>
 
-        {/* MAIN */}
-        <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
-          {/* TOPBAR */}
-          <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "0 20px", height: 56, borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
-            <button onClick={() => setSidebarOpen(s => !s)} style={{ background: "none", border: "none", cursor: "pointer", color: "var(--tx4)", fontSize: 16, padding: "4px 6px" }}>☰</button>
-            {!sidebarOpen && (
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <div style={{ width: 20, height: 20, borderRadius: 4, background: "linear-gradient(135deg, #F97316, #ea580c)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10 }}>⬡</div>
-                <span style={{ fontSize: 13, fontWeight: 800, color: "var(--tx)" }}>FCG / BR OPS</span>
-              </div>
-            )}
-            {/* Dark mode toggle */}
-            <ThemeToggle />
-            {/* OPS / APM toggle — always visible */}
-            <div style={{ display: "flex", background: "var(--bg4)", borderRadius: 6, overflow: "hidden", border: "1px solid var(--bd2)" }}>
-              <button onClick={() => setAppSection("ops")} style={{ padding: "5px 12px", background: appSection === "ops" ? "#F9731618" : "none", border: "none", color: appSection === "ops" ? "#F97316" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>OPS</button>
-              <button onClick={() => setAppSection("apm")} style={{ padding: "5px 12px", background: appSection === "apm" ? "#3B82F618" : "none", border: "none", color: appSection === "apm" ? "#3B82F6" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>APM</button>
-              <button onClick={() => setAppSection("precon")} style={{ padding: "5px 12px", background: appSection === "precon" ? "#10B98118" : "none", border: "none", color: appSection === "precon" ? "#10B981" : "var(--tx4)", fontSize: 10, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Mono', monospace" }}>ESTIMATE</button>
-            </div>
-            <div style={{ flex: 1 }}>
-              {appSection === "ops" && page === "tasks" && activeCompany !== "all" && <CompanyBadge companyId={activeCompany} />}
-            </div>
-            {page === "tasks" && (
-              <>
-                <div style={{ position: "relative" }}>
-                  <span style={{ position: "absolute", left: 10, top: "50%", transform: "translateY(-50%)", color: "#333", fontSize: 13 }}>⌕</span>
-                  <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search tasks..." style={{ background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6, padding: "6px 12px 6px 30px", color: "var(--tx2)", fontSize: 12, fontFamily: "'DM Mono', monospace", outline: "none", width: 190 }} />
-                </div>
-                <div style={{ display: "flex", background: "var(--bg3)", border: "1px solid var(--bd)", borderRadius: 6, overflow: "hidden" }}>
-                  {[["kanban","⊞"],["list","≡"]].map(([v, icon]) => (
-                    <button key={v} onClick={() => setView(v)} style={{ padding: "6px 12px", background: view === v ? "var(--bg5)" : "none", border: "none", cursor: "pointer", color: view === v ? "var(--tx)" : "var(--tx4)", fontSize: 14 }}>{icon}</button>
-                  ))}
-                </div>
-                <button onClick={() => setAiOpen(true)} style={{ background: "linear-gradient(135deg, #7c3aed, #a855f7)", border: "none", color: "#fff", padding: "7px 14px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
-                  <span>✦</span> AI Add
-                </button>
-                <button onClick={openNew} style={{ background: "#F97316", border: "none", color: "#000", padding: "7px 16px", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 700, display: "flex", alignItems: "center", gap: 5 }}>
-                  <span style={{ fontSize: 16, lineHeight: 1 }}>+</span> New Task
-                </button>
-              </>
-            )}
-          </div>
+        {/* ── Content Area (below nav) ── */}
+        <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
 
-          {/* STATS */}
-          {page === "tasks" && (
-            <div style={{ display: "flex", borderBottom: "1px solid var(--bd)", flexShrink: 0 }}>
-              {[
-                { label: "Total", val: stats.total, color: "var(--tx3)" },
-                { label: "In Progress", val: stats.inprogress, color: "#F59E0B" },
-                { label: "Overdue", val: stats.overdue, color: "#EF4444" },
-                { label: "Done", val: stats.done, color: "#10B981" },
-              ].map((s, i) => (
-                <div key={i} style={{ padding: "10px 20px", borderRight: "1px solid var(--bd)", display: "flex", alignItems: "center", gap: 8 }}>
-                  <span style={{ fontSize: 20, fontWeight: 800, color: s.color, fontFamily: "'DM Mono', monospace" }}>{s.val}</span>
-                  <span style={{ fontSize: 10.5, color: "#3a3a3a", fontFamily: "'DM Mono', monospace", letterSpacing: 0.5 }}>{s.label.toUpperCase()}</span>
+          {/* OPS BOARD */}
+          {appSection === "ops" && (
+            <div style={{ flex: 1, display: "flex", overflow: "hidden" }}>
+              {/* Sidebar */}
+              <div style={{ width: sidebarOpen ? 220 : 0, minWidth: sidebarOpen ? 220 : 0, background: "var(--bg2)", borderRight: "1px solid var(--bd)", display: "flex", flexDirection: "column", overflow: "hidden", transition: "width 0.2s, min-width 0.2s", flexShrink: 0 }}>
+                <div style={{ padding: "12px 14px 10px", borderBottom: "1px solid var(--bd)" }}>
+                  <div style={{ display: "flex", background: "var(--bg4)", borderRadius: 5, overflow: "hidden", border: "1px solid var(--bd2)", marginBottom: 10 }}>
+                    {[["tasks","Tasks"],["settings","Settings"]].map(([id,lbl]) => (
+                      <button key={id} onClick={() => setPage(id)}
+                        style={{ flex: 1, padding: "5px 0", background: page===id?"var(--bg5)":"none", border: "none",
+                          color: page===id?"var(--tx)":"var(--tx4)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>
+                        {lbl}
+                      </button>
+                    ))}
+                  </div>
                 </div>
-              ))}
+                <div style={{ padding: "10px 14px", flex: 1, overflowY: "auto", display: "flex", flexDirection: "column" }}>
+                  {page === "tasks" && (
+                    <>
+                      <div style={{ fontSize: 9, color: "var(--tx4)", letterSpacing: 1, fontFamily: "'DM Mono',monospace", marginBottom: 6 }}>COMPANIES</div>
+                      {COMPANIES.map(co => {
+                        const count = co.id === "all" ? tasks.length : tasks.filter(t => t.company === co.id).length;
+                        const active = activeCompany === co.id;
+                        return (
+                          <button key={co.id} onClick={() => setActiveCompany(co.id)}
+                            style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "6px 8px",
+                              borderRadius: 5, cursor: "pointer", background: active ? co.color+"12" : "none",
+                              border: active ? `1px solid ${co.color}25` : "1px solid transparent", marginBottom: 2, textAlign: "left" }}>
+                            <span style={{ width: 7, height: 7, borderRadius: "50%", background: co.id==="all"?"#F97316":co.color, flexShrink: 0, opacity: active?1:0.4 }}/>
+                            <span style={{ fontSize: 12, color: active?"var(--tx)":"var(--tx3)", flex: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{co.id==="all"?"All Companies":co.name}</span>
+                            <span style={{ fontSize: 10, fontFamily: "'DM Mono',monospace", color: active?co.color:"var(--tx4)" }}>{count}</span>
+                          </button>
+                        );
+                      })}
+                      <div style={{ fontSize: 9, color: "var(--tx4)", letterSpacing: 1, fontFamily: "'DM Mono',monospace", marginBottom: 6, marginTop: 14 }}>TEAM</div>
+                      {team.map(m => (
+                        <div key={m.id} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", marginBottom: 2 }}>
+                          <Avatar member={m} size={20} />
+                          <span style={{ fontSize: 12, color: "var(--tx3)" }}>{m.name}</span>
+                          <span style={{ fontSize: 10, color: "var(--tx4)", marginLeft: "auto", fontFamily: "'DM Mono',monospace" }}>{tasks.filter(t=>t.assignee===m.id&&t.status!=="done").length}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                  <div style={{ marginTop: "auto", paddingTop: 12, borderTop: "1px solid var(--bd)" }}>
+                    <button onClick={() => setDigestOpen(true)}
+                      style={{ width: "100%", display: "flex", alignItems: "center", gap: 8, padding: "8px 10px",
+                        borderRadius: 5, cursor: "pointer", background: "none", border: "1px solid var(--bd)",
+                        color: "#10B981", fontSize: 12, fontWeight: 600 }}>
+                      ✉ Send Digest
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Main ops area */}
+              <div style={{ flex: 1, display: "flex", flexDirection: "column", overflow: "hidden" }}>
+                {/* Sub-topbar: sidebar toggle + stats */}
+                <div style={{ display: "flex", alignItems: "center", gap: 0, borderBottom: "1px solid var(--bd)", background: "var(--bg2)", flexShrink: 0 }}>
+                  <button onClick={() => setSidebarOpen(s => !s)}
+                    style={{ background: "none", border: "none", borderRight: "1px solid var(--bd)", cursor: "pointer",
+                      color: "var(--tx4)", fontSize: 15, padding: "0 14px", height: 40, display: "flex", alignItems: "center" }}>☰</button>
+                  {appSection === "ops" && page === "tasks" && activeCompany !== "all" && (
+                    <div style={{ padding: "0 14px", borderRight: "1px solid var(--bd)", height: "100%", display: "flex", alignItems: "center" }}>
+                      <CompanyBadge companyId={activeCompany} />
+                    </div>
+                  )}
+                  {page === "tasks" && (
+                    <>
+                      {[
+                        { label: "Total", val: stats.total, color: "var(--tx3)" },
+                        { label: "In Progress", val: stats.inprogress, color: "#F59E0B" },
+                        { label: "Overdue", val: stats.overdue, color: "#EF4444" },
+                        { label: "Done", val: stats.done, color: "#10B981" },
+                      ].map((s, i) => (
+                        <div key={i} style={{ padding: "0 18px", borderRight: "1px solid var(--bd)", height: 40, display: "flex", alignItems: "center", gap: 7 }}>
+                          <span style={{ fontSize: 18, fontWeight: 800, color: s.color, fontFamily: "'DM Mono',monospace" }}>{s.val}</span>
+                          <span style={{ fontSize: 9.5, color: "var(--tx4)", fontFamily: "'DM Mono',monospace", letterSpacing: 0.5 }}>{s.label.toUpperCase()}</span>
+                        </div>
+                      ))}
+                    </>
+                  )}
+                </div>
+
+                {page === "settings" ? (
+                  <SettingsPage team={team} onTeamChange={setTeam} />
+                ) : (
+                  <div style={{ flex: 1, overflow: "auto", padding: 20, background: "var(--bg)" }}>
+                    {loading ? (
+                      <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "var(--tx4)", fontFamily: "'DM Mono',monospace", fontSize: 12, gap: 10 }}>
+                        <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Loading...
+                      </div>
+                    ) : view === "kanban" ? (
+                      <div style={{ display: "flex", gap: 16, minWidth: "max-content", alignItems: "stretch", minHeight: "100%" }}>
+                        {STATUSES.map(status => {
+                          const colTasks = filtered.filter(t => t.status === status.id);
+                          const isOver = overColumn === status.id && draggingId !== null;
+                          return (
+                            <div key={status.id} ref={el => { columnRefs.current[status.id] = el; }}
+                              style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: "100%" }}>
+                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, paddingBottom: 10, borderBottom: `1.5px solid ${isOver?"#F97316":"var(--bd)"}`, transition: "border-color 0.12s" }}>
+                                <span style={{ fontSize: 14, color: isOver?"#F97316":"var(--tx4)" }}>{status.icon}</span>
+                                <span style={{ fontSize: 11, fontWeight: 700, color: isOver?"#F97316":"var(--tx3)", letterSpacing: 1, fontFamily: "'DM Mono',monospace", textTransform: "uppercase" }}>{status.label}</span>
+                                <span style={{ marginLeft: "auto", background: "var(--bg5)", color: "var(--tx4)", borderRadius: 10, padding: "2px 7px", fontSize: 11, fontFamily: "'DM Mono',monospace" }}>{colTasks.length}</span>
+                              </div>
+                              <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 200, borderRadius: 8, padding: isOver?"6px":"0", background: isOver?"#F9731610":"transparent", border: isOver?"1.5px dashed #F9731650":"1.5px solid transparent", transition: "all 0.12s" }}>
+                                {colTasks.map(t => <TaskCard key={t.id} task={t} onEdit={openEdit} onMouseDownDrag={handleMouseDownDrag} isDragging={draggingId===t.id} team={team} attachmentCounts={attachmentCounts} />)}
+                                {colTasks.length===0&&!isOver&&<div style={{ border: "1px dashed var(--bd2)", borderRadius: 8, padding: "18px 0", textAlign: "center", color: "var(--tx4)", fontSize: 11, fontFamily: "'DM Mono',monospace" }}>empty</div>}
+                                {isOver&&<div style={{ border: "1.5px dashed #F9731680", borderRadius: 8, padding: "14px 0", textAlign: "center", color: "#F97316", fontSize: 11, fontFamily: "'DM Mono',monospace" }}>↓ drop here</div>}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div style={{ maxWidth: 900 }}>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 80px 100px 90px", gap: 10, padding: "8px 14px", marginBottom: 6, fontSize: 9.5, fontFamily: "'DM Mono',monospace", color: "var(--tx4)", letterSpacing: 0.8, textTransform: "uppercase" }}>
+                          <span>Task</span><span>Company</span><span>Assignee</span><span>Priority</span><span>Status</span><span>Due</span>
+                        </div>
+                        {filtered.length===0&&<div style={{ textAlign:"center", padding:40, color:"var(--tx4)", fontFamily:"'DM Mono',monospace", fontSize:12 }}>No tasks found</div>}
+                        {filtered.map(task => {
+                          const member = getMember(task.assignee, team);
+                          const isOverdue = task.status!=="done"&&task.due&&new Date(task.due)<new Date();
+                          const attachCount = attachmentCounts?.[task.id]||0;
+                          return (
+                            <div key={task.id} onClick={()=>openEdit(task)}
+                              style={{ display:"grid", gridTemplateColumns:"1fr 80px 110px 80px 100px 90px", gap:10, padding:"11px 14px", borderRadius:7, cursor:"pointer", background:"var(--bg2)", border:"1px solid var(--bd)", marginBottom:4, alignItems:"center", animation:"slideIn 0.15s ease-out" }}
+                              onMouseEnter={e=>e.currentTarget.style.borderColor="var(--bd2)"}
+                              onMouseLeave={e=>e.currentTarget.style.borderColor="var(--bd)"}
+                            >
+                              <div style={{ display:"flex", alignItems:"center", gap:8, minWidth:0 }}>
+                                <span style={{ fontSize:13, color:"var(--tx)", overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{task.title}</span>
+                                {attachCount>0&&<span style={{ fontSize:10, color:"var(--tx4)", fontFamily:"'DM Mono',monospace", flexShrink:0 }}>📎{attachCount}</span>}
+                              </div>
+                              <CompanyBadge companyId={task.company} small />
+                              <div style={{ display:"flex", alignItems:"center", gap:5 }}><Avatar member={member} size={20}/><span style={{ fontSize:11, color:"var(--tx3)" }}>{member.name}</span></div>
+                              <PriorityDot priorityId={task.priority}/>
+                              <span style={{ fontSize:11, fontFamily:"'DM Mono',monospace", color:task.status==="done"?"#10B981":task.status==="inprogress"?"#F59E0B":"var(--tx3)" }}>{STATUSES.find(s=>s.id===task.status)?.label}</span>
+                              <span style={{ fontSize:11, fontFamily:"'DM Mono',monospace", color:isOverdue?"#EF4444":"var(--tx4)" }}>
+                                {task.due?new Date(task.due+"T12:00:00").toLocaleDateString("en-US",{month:"short",day:"numeric"}):"—"}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
             </div>
           )}
 
-          {/* PAGE */}
-          {appSection === "precon" ? (
-            <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
-              <FCGEstimating onExit={()=>setAppSection("ops")} deepLinkProjectId={deepLinkProjectId}/>
-            </div>
-          ) : appSection === "apm" ? (
-            <div style={{ flex:1, overflow:"hidden", display:"flex", flexDirection:"column" }}>
+          {/* PM VIEW */}
+          {appSection === "apm" && (
+            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
               <APMSection />
             </div>
-          ) : page === "settings" ? (
-            <SettingsPage team={team} onTeamChange={setTeam} />
-          ) : (
-            <div style={{ flex: 1, overflow: "auto", padding: 20, height: 0, background: "var(--bg)" }}>
-              {loading ? (
-                <div style={{ display: "flex", alignItems: "center", justifyContent: "center", height: "100%", color: "#333", fontFamily: "'DM Mono', monospace", fontSize: 12, gap: 10 }}>
-                  <span style={{ animation: "spin 0.8s linear infinite", display: "inline-block" }}>◌</span> Loading...
-                </div>
-              ) : view === "kanban" ? (
-                <div style={{ display: "flex", gap: 16, minWidth: "max-content", alignItems: "stretch", minHeight: "100%" }}>
-                  {STATUSES.map(status => {
-                    const colTasks = filtered.filter(t => t.status === status.id);
-                    const isOver = overColumn === status.id && draggingId !== null;
-                    return (
-                      <div key={status.id} ref={el => { columnRefs.current[status.id] = el; }} style={{ width: 260, flexShrink: 0, display: "flex", flexDirection: "column", minHeight: "100%" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12, paddingBottom: 10, borderBottom: `1.5px solid ${isOver ? "#F97316" : "var(--bd)"}`, transition: "border-color 0.12s" }}>
-                          <span style={{ fontSize: 14, color: isOver ? "#F97316" : "#666" }}>{status.icon}</span>
-                          <span style={{ fontSize: 11, fontWeight: 700, color: isOver ? "#F97316" : "var(--tx2)", letterSpacing: 1, fontFamily: "'DM Mono', monospace", textTransform: "uppercase" }}>{status.label}</span>
-                          <span style={{ marginLeft: "auto", background: "var(--bg5)", color: "var(--tx3)", borderRadius: 10, padding: "2px 7px", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>{colTasks.length}</span>
-                        </div>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8, flex: 1, minHeight: 200, borderRadius: 8, padding: isOver ? "6px" : "0", background: isOver ? "#F9731610" : "transparent", border: isOver ? "1.5px dashed #F9731650" : "1.5px solid transparent", transition: "all 0.12s" }}>
-                          {colTasks.map(t => <TaskCard key={t.id} task={t} onEdit={openEdit} onMouseDownDrag={handleMouseDownDrag} isDragging={draggingId === t.id} team={team} attachmentCounts={attachmentCounts} />)}
-                          {colTasks.length === 0 && !isOver && <div style={{ border: "1px dashed var(--bd2)", borderRadius: 8, padding: "18px 0", textAlign: "center", color: "var(--tx4)", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>empty</div>}
-                          {isOver && <div style={{ border: "1.5px dashed #F9731680", borderRadius: 8, padding: "14px 0", textAlign: "center", color: "#F97316", fontSize: 11, fontFamily: "'DM Mono', monospace" }}>↓ drop here</div>}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div style={{ maxWidth: 900 }}>
-                  <div style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 80px 100px 90px", gap: 10, padding: "8px 14px", marginBottom: 6, fontSize: 9.5, fontFamily: "'DM Mono', monospace", color: "var(--tx4)", letterSpacing: 0.8, textTransform: "uppercase" }}>
-                    <span>Task</span><span>Company</span><span>Assignee</span><span>Priority</span><span>Status</span><span>Due</span>
-                  </div>
-                  {filtered.length === 0 && <div style={{ textAlign: "center", padding: 40, color: "#333", fontFamily: "'DM Mono', monospace", fontSize: 12 }}>No tasks found</div>}
-                  {filtered.map(task => {
-                    const member = getMember(task.assignee, team);
-                    const isOverdue = task.status !== "done" && task.due && new Date(task.due) < new Date();
-                    const attachCount = attachmentCounts?.[task.id] || 0;
-                    return (
-                      <div key={task.id} onClick={() => openEdit(task)} style={{ display: "grid", gridTemplateColumns: "1fr 80px 110px 80px 100px 90px", gap: 10, padding: "11px 14px", borderRadius: 7, cursor: "pointer", background: "var(--bg3)", border: "1px solid var(--bd)", marginBottom: 4, alignItems: "center", animation: "slideIn 0.15s ease-out" }}
-                        onMouseEnter={e => e.currentTarget.style.borderColor = "var(--bd2)"}
-                        onMouseLeave={e => e.currentTarget.style.borderColor = "var(--bg5)"}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                          <span style={{ fontSize: 13, color: "var(--tx)", fontFamily: "'Syne', sans-serif", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{task.title}</span>
-                          {attachCount > 0 && <span style={{ fontSize: 10, color: "var(--tx4)", fontFamily: "'DM Mono', monospace", flexShrink: 0 }}>📎{attachCount}</span>}
-                        </div>
-                        <CompanyBadge companyId={task.company} small />
-                        <div style={{ display: "flex", alignItems: "center", gap: 5 }}><Avatar member={member} size={20} /><span style={{ fontSize: 11, color: "var(--tx3)" }}>{member.name}</span></div>
-                        <PriorityDot priorityId={task.priority} />
-                        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: task.status === "done" ? "#10B981" : task.status === "inprogress" ? "#F59E0B" : "var(--tx3)" }}>{STATUSES.find(s => s.id === task.status)?.label}</span>
-                        <span style={{ fontSize: 11, fontFamily: "'DM Mono', monospace", color: isOverdue ? "#EF4444" : "var(--tx4)" }}>
-                          {task.due ? new Date(task.due + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—"}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
+          )}
+
+          {/* ESTIMATING */}
+          {appSection === "precon" && (
+            <div style={{ flex: 1, overflow: "hidden", display: "flex", flexDirection: "column" }}>
+              <FCGEstimating onExit={() => setAppSection("ops")} deepLinkProjectId={deepLinkProjectId}/>
             </div>
           )}
+
         </div>
       </div>
 
@@ -6963,3 +6997,4 @@ function AppInner() {
     </>
   );
 }
+
