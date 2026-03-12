@@ -4216,6 +4216,8 @@ const TO_COLORS = ['#10B981','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#F97316','
 function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const { t } = useTheme();
   const [plans, setPlans] = useState([]);
+  const [planSets, setPlanSets] = useState({}); // {batchId:{name,planIds:[]}} persisted to localStorage
+  const [namingAll, setNamingAll] = useState(false);
   const [selPlan, setSelPlan] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4283,18 +4285,28 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
   useEffect(()=>{
     const pid = project.id;
+    // Load plan sets from localStorage
+    try {
+      const stored = JSON.parse(localStorage.getItem(`planSets_${pid}`)||'{}');
+      setPlanSets(stored);
+    } catch(e){}
     Promise.all([
       supabase.from('precon_plans').select('*').eq('project_id',pid).order('created_at'),
       supabase.from('takeoff_items').select('*').eq('project_id',pid).order('sort_order'),
     ]).then(([{data:p},{data:i}])=>{
       const pl=p||[];
-      // Discard legacy items with no plan_id — they have no valid page association
       const validItems=(i||[]).filter(it=>it.plan_id!=null);
       setPlans(pl); setItems(validItems);
       if(pl.length>0){setSelPlan(pl[0]); if(pl[0].scale_px_per_ft) setScale(pl[0].scale_px_per_ft);}
       setLoading(false);
     });
   },[project.id]);
+
+  // Helper: save planSets to localStorage
+  const savePlanSets = (sets) => {
+    setPlanSets(sets);
+    try { localStorage.setItem(`planSets_${project.id}`, JSON.stringify(sets)); } catch(e){}
+  };
 
   // Points stored as raw SVG pixel coords — no normalization needed
   // toPx is identity: SVG coord space = image pixel space
@@ -4833,17 +4845,45 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return name;
   };
 
-  // AI sheet name extraction: crops title block area (bottom-right 30%) → Claude vision
-  const aiNameSheet = async (canvas, fallbackName) => {
+  // Fetch an image URL as base64 (bypasses canvas CORS issues)
+  const fetchImgBase64 = async (url) => {
+    const resp = await fetch(url);
+    const blob = await resp.blob();
+    return await new Promise((res,rej) => {
+      const r = new FileReader();
+      r.onload = () => res(r.result.split(',')[1]);
+      r.onerror = rej;
+      r.readAsDataURL(blob);
+    });
+  };
+
+  // AI sheet name extraction: crops title block (bottom-right) → Claude vision
+  // Accepts either a canvas element or a public URL string
+  const aiNameSheet = async (canvasOrUrl, fallbackName) => {
     try {
-      const cw = canvas.width, ch = canvas.height;
-      // Title block is almost always bottom-right ~35% width × ~20% height
-      const cropX = Math.floor(cw * 0.55), cropY = Math.floor(ch * 0.72);
-      const cropW = cw - cropX, cropH = ch - cropY;
-      const crop = document.createElement('canvas');
-      crop.width = cropW; crop.height = cropH;
-      crop.getContext('2d').drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
-      const b64 = crop.toDataURL('image/jpeg', 0.85).split(',')[1];
+      let b64;
+      if (typeof canvasOrUrl === 'string') {
+        // URL path — fetch as blob then crop title block via canvas
+        const fullB64 = await fetchImgBase64(canvasOrUrl);
+        const img = new Image();
+        img.src = 'data:image/jpeg;base64,' + fullB64;
+        await new Promise((res,rej) => { img.onload=res; img.onerror=rej; });
+        const cw=img.naturalWidth, ch=img.naturalHeight;
+        const cropX=Math.floor(cw*0.55), cropY=Math.floor(ch*0.72);
+        const crop=document.createElement('canvas');
+        crop.width=cw-cropX; crop.height=ch-cropY;
+        crop.getContext('2d').drawImage(img, cropX, cropY, crop.width, crop.height, 0, 0, crop.width, crop.height);
+        b64 = crop.toDataURL('image/jpeg',0.85).split(',')[1];
+      } else {
+        // Canvas element — crop title block directly
+        const canvas = canvasOrUrl;
+        const cw=canvas.width, ch=canvas.height;
+        const cropX=Math.floor(cw*0.55), cropY=Math.floor(ch*0.72);
+        const crop=document.createElement('canvas');
+        crop.width=cw-cropX; crop.height=ch-cropY;
+        crop.getContext('2d').drawImage(canvas, cropX, cropY, crop.width, crop.height, 0, 0, crop.width, crop.height);
+        b64 = crop.toDataURL('image/jpeg',0.85).split(',')[1];
+      }
 
       const resp = await fetch('https://api.anthropic.com/v1/messages', {
         method:'POST',
@@ -4851,19 +4891,15 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         body: JSON.stringify({
           model:'claude-sonnet-4-20250514',
           max_tokens:80,
-          messages:[{
-            role:'user',
-            content:[
-              {type:'image', source:{type:'base64', media_type:'image/jpeg', data:b64}},
-              {type:'text', text:`This is the title block of a construction drawing. Extract the sheet number and sheet title. Reply with ONLY: SHEET_NUMBER - SHEET_TITLE (e.g. "C3.60 - PIPE CHART" or "A-101 - FLOOR PLAN"). If you cannot read it clearly, reply with just "UNKNOWN".`}
-            ]
-          }]
+          messages:[{role:'user', content:[
+            {type:'image', source:{type:'base64', media_type:'image/jpeg', data:b64}},
+            {type:'text', text:`This is the title block of a construction drawing. Extract the sheet number and sheet title. Reply with ONLY: SHEET_NUMBER - SHEET_TITLE (e.g. "C3.60 - PIPE CHART" or "A-101 - FLOOR PLAN"). If you cannot read it clearly, reply with just "UNKNOWN".`}
+          ]}]
         })
       });
       const json = await resp.json();
       const raw = (json?.content?.[0]?.text||'').trim();
       if(!raw || raw==='UNKNOWN' || raw.length<3) return fallbackName;
-      // Clean up and deduplicate
       return raw.replace(/^["']|["']$/g,'').trim();
     } catch(e) {
       console.warn('AI sheet naming failed:', e);
@@ -4876,6 +4912,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const pid = project.id;
     setUploading(true);
     const isPdf = file.type?.includes('pdf');
+    // Generate a batch ID for this upload — all pages become one folder
+    const batchId = `batch_${Date.now()}`;
+    const batchName = file.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' ').trim() || 'Plan Set';
 
     if(isPdf){
       // Read file as ArrayBuffer for PDF.js processing
@@ -4918,6 +4957,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         setPlans(prev=>[...prev, ...newPlans]);
         setSelPlan(newPlans[0]);
         setPlanB64(null); setPlanMime('image/png');
+        // Save batch folder
+        const updated = {...planSets, [batchId]:{name:batchName, planIds:newPlans.map(p=>p.id), collapsed:false}};
+        savePlanSets(updated);
       }
       setUploading(false);
       return;
@@ -4952,6 +4994,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       if(plan){
         setPlans(prev=>[...prev.filter(p=>p.id!=='preview'),plan]);
         setSelPlan(plan);
+        const updated = {...planSets, [batchId]:{name:sheetName, planIds:[plan.id], collapsed:false}};
+        savePlanSets(updated);
       }
       setUploading(false);
     };
@@ -5258,92 +5302,172 @@ Return ONLY a valid JSON array, no markdown:
                 boxSizing:'border-box'}}>⚙</button>
           </div>
 
-          {/* ── PLANS tab ── thumbnail browser, click to open as tab */}
+          {/* ── PLANS tab ── folder-grouped, AI auto-name */}
           {leftTab==='plans'&&(
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+              {/* Upload + AI Name All toolbar */}
               <div style={{padding:'8px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',gap:6}}>
                 <button onClick={()=>fileRef.current?.click()} disabled={uploading}
                   style={{flex:1,background:'#10B981',border:'none',color:'#fff',padding:'7px 0',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
-                  {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing…</>:<>＋ Upload Plan</>}
+                  {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing…</>:<>＋ Upload</>}
+                </button>
+                <button disabled={namingAll||plans.length===0} onClick={async()=>{
+                  setNamingAll(true);
+                  for(const p of plans){
+                    if(p.id==='preview') continue;
+                    try {
+                      const aiName = await aiNameSheet(p.file_url, p.name||'Sheet');
+                      if(aiName && aiName!==p.name){
+                        await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+                        setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
+                        if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
+                      }
+                    } catch(e){ console.warn('naming failed for', p.id, e); }
+                  }
+                  setNamingAll(false);
+                }}
+                  style={{padding:'7px 10px',borderRadius:6,border:'1px solid rgba(168,85,247,0.4)',
+                    background:namingAll?'rgba(168,85,247,0.15)':'rgba(168,85,247,0.08)',
+                    color:'#a855f7',cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',flexShrink:0}}>
+                  {namingAll?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Naming…</>:<>✦ Name All</>}
                 </button>
                 <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
               </div>
+
               <div style={{flex:1,overflowY:'auto',padding:'6px'}}>
                 {plans.length===0&&(
                   <div style={{textAlign:'center',padding:'40px 12px',color:t.text4,fontSize:11,lineHeight:1.8}}>
-                    Upload plans to get started
+                    Upload a PDF or image to get started
                   </div>
                 )}
-                {plans.map((p,idx)=>{
-                  const isOpen = openTabs.includes(p.id);
-                  const isActive = selPlan?.id===p.id;
-                  const cnt = items.filter(it=>it.plan_id===p.id).length;
-                  return(
-                    <div key={p.id}
-                      onClick={()=>{
-                        if(!openTabs.includes(p.id)) setOpenTabs(prev=>[...prev,p.id]);
-                        setSelPlan(p);
-                        if(p.scale_px_per_ft) setScale(p.scale_px_per_ft);
-                        else { setScale(null); setPresetScale(''); }
-                        setLeftTab('takeoffs');
-                      }}
-                      onDoubleClick={e=>e.preventDefault()}
-                      style={{display:'flex',gap:10,padding:'8px',borderRadius:6,marginBottom:4,cursor:'pointer',
-                        background:isActive?'rgba(16,185,129,0.08)':'transparent',
-                        border:`1px solid ${isActive?'rgba(16,185,129,0.3)':t.border}`,
-                        transition:'all 0.1s'}}>
-                      {/* Thumbnail */}
-                      <div style={{width:52,height:40,borderRadius:4,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`,display:'flex',alignItems:'center',justifyContent:'center'}}>
-                        <img src={p.file_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
-                      </div>
-                      <div style={{flex:1,minWidth:0}}>
-                        <div style={{fontSize:11,fontWeight:isActive?600:400,color:isActive?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||`Sheet ${idx+1}`}</div>
-                        <div style={{fontSize:9,color:t.text4,marginTop:2}}>
-                          {p.scale_px_per_ft?'Scaled':'No scale'} · {cnt} item{cnt!==1?'s':''}
+                {(()=>{
+                  // Build folder-grouped display
+                  // Plans that belong to a set → grouped under set folder
+                  // Plans with no set → "Ungrouped" or single-plan set
+                  const assignedPlanIds = new Set(Object.values(planSets).flatMap(s=>s.planIds||[]));
+                  const ungrouped = plans.filter(p=>!assignedPlanIds.has(p.id));
+                  const setEntries = Object.entries(planSets).filter(([,s])=>(s.planIds||[]).some(id=>plans.find(p=>p.id===id)));
+
+                  const PlanRow = ({p,indent=false})=>{
+                    const isOpen = openTabs.includes(p.id);
+                    const isActive = selPlan?.id===p.id;
+                    const cnt = items.filter(it=>it.plan_id===p.id).length;
+                    return(
+                      <div key={p.id}
+                        onClick={()=>{
+                          if(!openTabs.includes(p.id)) setOpenTabs(prev=>[...prev,p.id]);
+                          setSelPlan(p);
+                          if(p.scale_px_per_ft) setScale(p.scale_px_per_ft);
+                          else { setScale(null); setPresetScale(''); }
+                          setLeftTab('takeoffs');
+                        }}
+                        style={{display:'flex',gap:8,padding:'6px 8px',borderRadius:6,marginBottom:3,cursor:'pointer',
+                          marginLeft:indent?12:0,
+                          background:isActive?'rgba(16,185,129,0.1)':'transparent',
+                          border:`1px solid ${isActive?'rgba(16,185,129,0.35)':t.border}`,
+                          transition:'all 0.1s'}}>
+                        <div style={{width:46,height:36,borderRadius:4,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`}}>
+                          <img src={p.file_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
                         </div>
-                        {isOpen&&<div style={{fontSize:8,color:'#10B981',marginTop:1,fontWeight:600}}>● Open</div>}
-                        <div style={{display:'flex',gap:4,marginTop:4}}>
-                          <button onClick={async e=>{ e.stopPropagation();
-                            const n=window.prompt('Rename:',p.name||'');
-                            if(n?.trim()&&p.id!=='preview'){
-                              await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
-                              setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
-                              if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:n.trim()}));
-                            }
-                          }} style={{fontSize:8,padding:'2px 5px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer'}}>
-                            ✎ Rename
-                          </button>
-                          <button onClick={async e=>{ e.stopPropagation();
-                            // Load image, render to canvas, run AI naming
-                            const btn=e.currentTarget;
-                            btn.textContent='✦ …'; btn.disabled=true;
-                            try {
-                              const img=new Image(); img.crossOrigin='anonymous';
-                              img.src=p.file_url+'?t='+Date.now();
-                              await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;});
-                              const cv=document.createElement('canvas');
-                              cv.width=img.naturalWidth;cv.height=img.naturalHeight;
-                              cv.getContext('2d').drawImage(img,0,0);
-                              const aiName=await aiNameSheet(cv,p.name||'Sheet');
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:10,fontWeight:isActive?700:500,color:isActive?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',lineHeight:1.3}}>{p.name||'Unnamed'}</div>
+                          <div style={{fontSize:8,color:t.text4,marginTop:1}}>{p.scale_px_per_ft?'⊕ Scaled':'No scale'} · {cnt} item{cnt!==1?'s':''}{isOpen?' · ●':''}</div>
+                          <div style={{display:'flex',gap:3,marginTop:3}}>
+                            <button onClick={async e=>{ e.stopPropagation();
+                              const n=window.prompt('Rename:',p.name||'');
+                              if(n?.trim()&&p.id!=='preview'){
+                                await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
+                                setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
+                                if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:n.trim()}));
+                              }
+                            }} style={{fontSize:8,padding:'1px 5px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer'}}>
+                              ✎
+                            </button>
+                            <button onClick={async e=>{ e.stopPropagation();
+                              const btn=e.currentTarget; btn.textContent='…'; btn.disabled=true;
+                              const aiName = await aiNameSheet(p.file_url, p.name||'Sheet');
                               if(aiName&&aiName!==p.name&&p.id!=='preview'){
                                 await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
                                 setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
                                 if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
                               }
-                            } catch(err){ console.error(err); }
-                            btn.textContent='✦ AI Name'; btn.disabled=false;
-                          }} style={{fontSize:8,padding:'2px 5px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'rgba(168,85,247,0.08)',color:'#a855f7',cursor:'pointer'}}>
-                            ✦ AI Name
-                          </button>
+                              btn.textContent='✦'; btn.disabled=false;
+                            }} style={{fontSize:8,padding:'1px 5px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'rgba(168,85,247,0.08)',color:'#a855f7',cursor:'pointer'}} title="AI Name from title block">
+                              ✦
+                            </button>
+                            <button onClick={async e=>{ e.stopPropagation();
+                              if(!window.confirm('Delete this sheet and all its takeoffs?')) return;
+                              if(p.id!=='preview') await supabase.from('precon_plans').delete().eq('id',p.id);
+                              setPlans(prev=>prev.filter(x=>x.id!==p.id));
+                              setOpenTabs(prev=>prev.filter(id=>id!==p.id));
+                              if(selPlan?.id===p.id) setSelPlan(null);
+                              // Remove from any set
+                              const updated={};
+                              Object.entries(planSets).forEach(([bid,s])=>{ updated[bid]={...s,planIds:(s.planIds||[]).filter(id=>id!==p.id)}; });
+                              savePlanSets(updated);
+                            }} style={{fontSize:8,padding:'1px 5px',borderRadius:3,border:'1px solid rgba(239,68,68,0.3)',background:'rgba(239,68,68,0.06)',color:'#ef4444',cursor:'pointer'}}>
+                              ✕
+                            </button>
+                          </div>
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  };
+
+                  return(<>
+                    {/* Grouped sets */}
+                    {setEntries.map(([batchId, set])=>{
+                      const setPlans = (set.planIds||[]).map(id=>plans.find(p=>p.id===id)).filter(Boolean);
+                      if(setPlans.length===0) return null;
+                      const collapsed = set.collapsed;
+                      const totalItems = setPlans.reduce((s,p)=>s+items.filter(it=>it.plan_id===p.id).length,0);
+                      return(
+                        <div key={batchId} style={{marginBottom:8}}>
+                          {/* Folder header */}
+                          <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 6px',borderRadius:5,cursor:'pointer',
+                            background:t.bg3,border:`1px solid ${t.border}`,marginBottom:collapsed?0:4}}
+                            onClick={()=>savePlanSets({...planSets,[batchId]:{...set,collapsed:!collapsed}})}>
+                            <span style={{fontSize:10,color:t.text4,flexShrink:0}}>{collapsed?'▶':'▼'}</span>
+                            <span style={{fontSize:10,color:'#10B981',flexShrink:0}}>📁</span>
+                            <span style={{fontSize:11,fontWeight:600,color:t.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{set.name||'Plan Set'}</span>
+                            <span style={{fontSize:9,color:t.text4,flexShrink:0}}>{setPlans.length} sheets</span>
+                            <button onClick={async e=>{ e.stopPropagation();
+                              // AI Name All in this set
+                              for(const p of setPlans){
+                                if(p.id==='preview') continue;
+                                const aiName = await aiNameSheet(p.file_url, p.name||'Sheet');
+                                if(aiName && aiName!==p.name){
+                                  await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+                                  setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
+                                  if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
+                                }
+                              }
+                            }} style={{fontSize:8,padding:'2px 5px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'rgba(168,85,247,0.08)',color:'#a855f7',cursor:'pointer',flexShrink:0}}>
+                              ✦ Name
+                            </button>
+                            <button onClick={e=>{ e.stopPropagation();
+                              const n=window.prompt('Rename folder:',set.name||'Plan Set');
+                              if(n?.trim()) savePlanSets({...planSets,[batchId]:{...set,name:n.trim()}});
+                            }} style={{fontSize:8,padding:'2px 4px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer',flexShrink:0}}>✎</button>
+                          </div>
+                          {!collapsed&&<div style={{paddingLeft:4}}>
+                            {setPlans.map(p=><PlanRow key={p.id} p={p} indent/>)}
+                          </div>}
+                        </div>
+                      );
+                    })}
+                    {/* Ungrouped plans */}
+                    {ungrouped.length>0&&(
+                      <div>
+                        {ungrouped.length>1&&<div style={{fontSize:9,color:t.text4,padding:'2px 6px 4px',letterSpacing:0.5,fontFamily:"'DM Mono',monospace"}}>UNGROUPED</div>}
+                        {ungrouped.map(p=><PlanRow key={p.id} p={p}/>)}
+                      </div>
+                    )}
+                  </>);
+                })()}
               </div>
             </div>
           )}
-
           {/* ── TAKEOFFS tab ── Stack-style */}
           {leftTab==='takeoffs'&&(()=>{
             const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
