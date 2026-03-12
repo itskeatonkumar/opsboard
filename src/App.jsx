@@ -4856,6 +4856,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         if (!res.ok) { console.error('[aiNameSheet] fetch failed', res.status); return fallbackName; }
         const blob = await res.blob();
         mediaType = blob.type && blob.type !== 'application/octet-stream' ? blob.type : 'image/png';
+        // Normalize to types Anthropic accepts: jpeg, png, gif, webp
+        if (mediaType === 'image/jpg') mediaType = 'image/jpeg';
+        if (!['image/jpeg','image/png','image/gif','image/webp'].includes(mediaType)) mediaType = 'image/png';
         b64 = await new Promise((resolve, reject) => {
           const r = new FileReader();
           r.onload = () => resolve(r.result.split(',')[1]);
@@ -5324,7 +5327,8 @@ Return ONLY a valid JSON array, no markdown:
                     const r2=await fetch(p.file_url);
                     const blob2=await r2.blob();
                     const b64=await new Promise((rs,rj)=>{const rd=new FileReader();rd.onload=()=>rs(rd.result.split(',')[1]);rd.onerror=rj;rd.readAsDataURL(blob2);});
-                    const mt=blob2.type||'image/png';
+                    const mt2=blob2.type||'image/png';
+                    const mt=(['image/jpeg','image/png','image/gif','image/webp'].includes(mt2)?mt2:(mt2==='image/jpg'?'image/jpeg':'image/png'));
                     const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:mt,data:b64}},{type:'text',text:'Reply with just the word: WORKING'}]}]})});
                     const j3=await r3.json();
                     alert(`Step 4b raw image API: status=${r3.status}\n${JSON.stringify(j3).slice(0,400)}`);
