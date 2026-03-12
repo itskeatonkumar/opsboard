@@ -6315,6 +6315,13 @@ function FCGEstimating({ onExit, deepLinkProjectId }) {
     else if(!loadingProjects) window.location.hash='/estimate';
   },[selProject]);
 
+  // Global nav "+ New Bid" button fires this event
+  useEffect(()=>{
+    const handler=()=>setNewModal(true);
+    window.addEventListener('fcg-new-bid', handler);
+    return ()=>window.removeEventListener('fcg-new-bid', handler);
+  },[]);
+
   const handleSave = async (data, type) => {
     if (type==='delete') {
       await supabase.from('precon_projects').delete().eq('id', data?.id);
@@ -6445,7 +6452,7 @@ function FCGEstimating({ onExit, deepLinkProjectId }) {
   );
 
   return (
-    <div style={{display:'flex',height:'100vh',width:'100vw',position:'fixed',inset:0,background:'var(--bg)',fontFamily:"'Syne', sans-serif",zIndex:10,overflow:'hidden'}}>
+    <div style={{display:'flex',height:'100%',width:'100%',background:'var(--bg)',fontFamily:"'Syne', sans-serif",overflow:'hidden'}}>
 
       {/* ── FCG Estimating Sidebar ── */}
       <div style={{width:200,flexShrink:0,background:'#0a0f0a',borderRight:'1px solid #1a2e1a',display:'flex',flexDirection:'column',overflow:'hidden'}}>
@@ -7359,6 +7366,17 @@ function AppInner() {
                   + New Task
                 </button>
               </>
+            )}
+            {appSection === "precon" && (
+              <button onClick={()=>{
+                // bubble up to FCGEstimating's newModal — dispatch a custom event
+                window.dispatchEvent(new CustomEvent('fcg-new-bid'));
+              }}
+                style={{ background: "#10B981", border: "none", color: "#fff",
+                  padding: "5px 14px", borderRadius: 5, cursor: "pointer", fontSize: 12, fontWeight: 700,
+                  display: "flex", alignItems: "center", gap: 4 }}>
+                + New Bid
+              </button>
             )}
             <ThemeToggle />
             <button onClick={handleSignOut} title="Sign out"
