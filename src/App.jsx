@@ -4255,6 +4255,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const fileRef = useRef();
   const containerRef = useRef();
   const panRef = useRef({active:false, startX:0, startY:0, scrollX:0, scrollY:0});
+  const clickTimerRef = useRef(null);   // debounce single vs double click
+  const pendingClickRef = useRef(null); // pending single-click event pos
   const itemsRef = useRef(items); // always-current items ref — fixes stale closure in appendMeasurement
   useEffect(()=>{ itemsRef.current = items; },[items]);
   const [spaceHeld, setSpaceHeld] = useState(false);
@@ -4594,11 +4596,13 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       qty = shapes.reduce((s,sh)=>{
         const hasArcs = sh.some(p=>p._ctrl);
         if(hasArcs) {
-          // arc shape: [p1, {ctrl, _ctrl:true}, p2]
           const pxLen = calcShapeLength(sh);
           return s + (scale ? pxLen/scale : 0);
         }
-        return s + (sh.length>=2?calcLinear(sh[0],sh[1]):0);
+        // polyline: sum all segments
+        let seg=0;
+        for(let i=1;i<sh.length;i++) seg+=calcLinear(sh[i-1],sh[i]);
+        return s+seg;
       },0);
       qty = Math.round(qty*10)/10;
     } else if(item.measurement_type==='count'){
@@ -4612,89 +4616,100 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     // Keep tool armed — stay ready for more shapes
   };
 
+  // processClick: single-click adds a point
+  const processClick=(pt)=>{
+    if(!activeCondId) return;
+    const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+    if(!activeCond) return;
+    const mt = activeCond.measurement_type;
+    if(mt==='linear'){
+      if(!archMode){
+        setActivePts(prev=>[...prev, pt]);
+      } else {
+        const npts=[...(activePts), pt];
+        if(npts.length<3){ setActivePts(npts); }
+        else {
+          const [p1,p2,ctrl]=npts;
+          appendMeasurement(activeCondId, [p1, {...ctrl,_ctrl:true}, p2]);
+          setActivePts([]);
+        }
+      }
+    } else if(mt==='area'){
+      if(!archMode){
+        setActivePts(prev=>[...prev, pt]);
+      } else {
+        if(archCtrlPending){
+          setActivePts(prev=>[...prev, {...pt,_ctrl:true}]);
+          setArchCtrlPending(false);
+        } else {
+          setActivePts(prev=>[...prev, pt]);
+          setArchCtrlPending(true);
+        }
+      }
+    }
+  };
+
+  // finishShape: double-click saves whatever is drawn
+  const finishShape=()=>{
+    if(!activeCondId) return;
+    const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+    if(!activeCond) return;
+    const mt = activeCond.measurement_type;
+    if(mt==='linear' && activePts.length>=2){
+      appendMeasurement(activeCondId, activePts);
+      setActivePts([]);
+    } else if(mt==='area' && activePts.filter(p=>!p._ctrl).length>=3){
+      appendMeasurement(activeCondId, activePts);
+      setActivePts([]); setArchCtrlPending(false);
+    }
+  };
+
   const handleSvgClick=(e)=>{
     if(!selPlan) return;
+    if(e.button===2) return;
     if(spaceHeld || tool==='select') return;
     const pt=getSvgPos(e);
-
-    // Scale calibration
+    // Scale calibration — no debounce
     if(tool==='scale'&&scaleStep==='picking'){
       const npts=[...scalePts,pt];
       setScalePts(npts);
       if(npts.length===2) setScaleStep('entering');
       return;
     }
-
     if(!activeCondId) return;
     const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
     if(!activeCond) return;
-    const mt = activeCond.measurement_type;
-
-    if(mt==='count'){
-      appendMeasurement(activeCondId, [pt]);
-      return;
+    // Count is instant, no debounce needed
+    if(activeCond.measurement_type==='count'){
+      appendMeasurement(activeCondId, [pt]); return;
     }
+    // Debounce: 220ms — if dblclick fires, cancel pending single
+    if(clickTimerRef.current) clearTimeout(clickTimerRef.current);
+    pendingClickRef.current = pt;
+    clickTimerRef.current = setTimeout(()=>{
+      if(pendingClickRef.current){ processClick(pendingClickRef.current); pendingClickRef.current=null; }
+      clickTimerRef.current=null;
+    }, 220);
+  };
 
-    if(mt==='linear'){
-      if(!archMode){
-        // Normal straight linear: 2 clicks
-        const npts=[...activePts,pt];
-        if(npts.length===2){
-          appendMeasurement(activeCondId, npts);
-          setActivePts([]);
-        } else setActivePts(npts);
-      } else {
-        // Arch linear: 3 clicks — p1, p2, then ctrl
-        // activePts[0]=p1, activePts[1]=p2, click 3 = ctrl
-        const npts=[...activePts,pt];
-        if(npts.length===1){ setActivePts(npts); } // have p1
-        else if(npts.length===2){ setActivePts(npts); } // have p1+p2, next = ctrl
-        else if(npts.length===3){
-          // p1=npts[0], p2=npts[2], ctrl=npts[1] ... actually store: [p1, {ctrl, _ctrl:true}, p2]
-          const [p1,p2,ctrl]=npts;
-          const arcShape=[p1, {...ctrl, _ctrl:true}, p2];
-          appendMeasurement(activeCondId, arcShape);
-          setActivePts([]);
-        }
-      }
-      return;
-    }
+  const handleSvgDoubleClick=(e)=>{
+    if(!selPlan||spaceHeld||tool==='select') return;
+    if(clickTimerRef.current){ clearTimeout(clickTimerRef.current); clickTimerRef.current=null; }
+    pendingClickRef.current=null;
+    finishShape();
+  };
 
-    if(mt==='area'){
-      if(!archMode){
-        // Normal: close on first pt if >=3 pts placed
-        if(activePts.length>=3){
-          const fp=activePts[0];
-          if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
-            appendMeasurement(activeCondId, activePts);
-            setActivePts([]); return;
-          }
-        }
-        setActivePts(prev=>[...prev,pt]);
-      } else {
-        // Arch area: pressing A sets "next click = ctrl point for arc"
-        if(archCtrlPending){
-          // This click is the control point — insert as _ctrl, wait for endpoint
-          setActivePts(prev=>[...prev, {...pt, _ctrl:true}]);
-          setArchCtrlPending(false);
-          // arch mode stays on — user can press A again for next arc segment
-        } else {
-          // Normal area click in arch mode — place real vertex, then set ctrl pending
-          if(activePts.length>=3){
-            const fp=activePts[0];
-            if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
-              appendMeasurement(activeCondId, activePts);
-              setActivePts([]); setArchMode(false); return;
-            }
-          }
-          setActivePts(prev=>[...prev,pt]);
-          // pressing A primes the next click as ctrl; the A key already set archMode
-          // so after placing a vertex in arch mode, immediately queue ctrl pending
-          setArchCtrlPending(true);
-        }
-      }
-      return;
-    }
+  const handleSvgContextMenu=(e)=>{ e.preventDefault(); };
+
+  const handleSvgRightPan=(e)=>{
+    if(e.button!==2) return;
+    e.preventDefault();
+    const c=containerRef.current; if(!c) return;
+    const sx=e.clientX, sy=e.clientY, scrollX=c.scrollLeft, scrollY=c.scrollTop;
+    const onMove=(ev)=>{ c.scrollLeft=scrollX-(ev.clientX-sx); c.scrollTop=scrollY-(ev.clientY-sy); };
+    const onUp=()=>{ window.removeEventListener('mousemove',onMove); window.removeEventListener('mouseup',onUp); };
+    window.addEventListener('mousemove',onMove);
+    window.addEventListener('mouseup',onUp);
   };
 
   const handleSvgMove=(e)=>{
@@ -5012,22 +5027,18 @@ Return ONLY a valid JSON array, no markdown:
           }
           if(mt==='linear'&&pts.length>=2){
             const hasArcs = pts.some(p=>p._ctrl);
-            const d = hasArcs ? buildShapePath(pts) : null;
-            // midpoint for label
+            const d = hasArcs ? buildShapePath(pts) : ('M'+pts.map(p=>`${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' L'));
             const realPts = pts.filter(p=>!p._ctrl);
-            const mx=(realPts[0].x+realPts[realPts.length-1].x)/2;
-            const my=(realPts[0].y+realPts[realPts.length-1].y)/2;
+            const mx=realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
+            const my=realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
             const dist = hasArcs
               ? Math.round((calcShapeLength(pts)/scale)*10)/10
-              : Math.round(calcLinear(pts[0],pts[1])*10)/10;
+              : (()=>{ let t=0; for(let i=1;i<pts.length;i++) t+=calcLinear(pts[i-1],pts[i]); return Math.round(t*10)/10; })();
             const lw=36/zoom, lh=padH*1.5;
             return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
-              {hasArcs
-                ? <path d={d} fill="none" stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${6/zoom},${3/zoom}`}/>
-                : <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${6/zoom},${3/zoom}`}/>
-              }
+              <path d={d} fill="none" stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${6/zoom},${3/zoom}`}/>
               {realPts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r*0.8} fill={c} stroke="#fff" strokeWidth={sw*0.4}/>)}
-              {hasArcs&&<circle cx={pts.find(p=>p._ctrl)?.x} cy={pts.find(p=>p._ctrl)?.y} r={r*0.5} fill={c} opacity={0.4}/>}
+              {hasArcs&&pts.filter(p=>p._ctrl).map((p,i)=><circle key={'ctrl'+i} cx={p.x} cy={p.y} r={r*0.5} fill={c} opacity={0.4}/>)}
               <rect x={mx-lw/2} y={my-lh*1.6} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
               <text x={mx} y={my-lh*0.7} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{dist} {scale?'LF':'px'}</text>
             </g>);
@@ -5093,11 +5104,14 @@ Return ONLY a valid JSON array, no markdown:
       ))}
       {hoverPt&&!isArchLinear&&<circle cx={hoverPt.x} cy={hoverPt.y} r={r2} fill={c} opacity={0.5}/>}
       {/* Close hint for area */}
-      {(tool==='area')&&pts.length>=3&&!isArchArea&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>● close</text>}
-      {/* Live LF readout for normal linear */}
-      {tool==='linear'&&!archMode&&pts.length===1&&scale&&hoverPt&&(()=>{
-        const dist=Math.round(calcLinear(pts[0],hoverPt)*10)/10;
-        return <text x={(pts[0].x+hoverPt.x)/2} y={(pts[0].y+hoverPt.y)/2-6/zoom} fontSize={fs} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{dist} LF</text>;
+      {(tool==='area')&&activePts.filter(p=>!p._ctrl).length>=3&&!isArchArea&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✦ dbl-click to close</text>}
+      {/* dbl-click to finish hint for linear */}
+      {tool==='linear'&&!archMode&&activePts.length>=2&&hoverPt&&<text x={hoverPt.x+8/zoom} y={hoverPt.y-8/zoom} fontSize={fs*0.9} fill={c} fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>dbl-click to finish</text>}
+      {/* Live LF readout — segment from last point to cursor */}
+      {tool==='linear'&&!archMode&&activePts.length>=1&&scale&&hoverPt&&(()=>{
+        const lastPt=activePts[activePts.length-1];
+        const dist=Math.round(calcLinear(lastPt,hoverPt)*10)/10;
+        return <text x={(lastPt.x+hoverPt.x)/2} y={(lastPt.y+hoverPt.y)/2-6/zoom} fontSize={fs} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{dist} LF</text>;
       })()}
       {/* Arch mode step indicator */}
       {isArchLinear&&(
@@ -5796,15 +5810,10 @@ Return ONLY a valid JSON array, no markdown:
                     <svg ref={svgRef}
                       viewBox={`0 0 ${planW} ${planH}`}
                       style={{position:'absolute',top:0,left:0,width:planW+'px',height:planH+'px',cursor:toolCursor,pointerEvents:'all',userSelect:'none',overflow:'hidden'}}
-                      onMouseDown={handleSvgMouseDown}
+                      onMouseDown={(e)=>{ handleSvgMouseDown(e); handleSvgRightPan(e); }}
                       onClick={handleSvgClick}
-                      onDoubleClick={(e)=>{
-                        if(tool==='area'&&activePts.length>=3){
-                          e.stopPropagation();
-                          appendMeasurement(activeCondId, activePts);
-                          setActivePts([]);
-                        }
-                      }}
+                      onDoubleClick={handleSvgDoubleClick}
+                      onContextMenu={handleSvgContextMenu}
                       onMouseMove={handleSvgMove} onMouseLeave={()=>setHoverPt(null)}>
                       <defs><clipPath id="planClip"><rect x={0} y={0} width={planW} height={planH}/></clipPath></defs>
                       <g clipPath="url(#planClip)">
@@ -5990,10 +5999,10 @@ Return ONLY a valid JSON array, no markdown:
               <span style={{fontSize:8,color:t.text4}}>SF</span>
             </div>
           )}
-          {!archMode&&tool==='linear'&&activePts.length===1&&hoverPt&&scale&&(
+          {!archMode&&tool==='linear'&&activePts.length>=1&&hoverPt&&scale&&(
             <div style={{padding:'6px 2px',textAlign:'center',borderTop:`1px solid ${t.border}`,width:'100%'}}>
               <span style={{fontSize:9,color:'#06B6D4',fontWeight:700,display:'block',lineHeight:1.4}}>
-                {Math.round(calcLinear(activePts[0],hoverPt)*10)/10}
+                {Math.round(calcLinear(activePts[activePts.length-1],hoverPt)*10)/10}
               </span>
               <span style={{fontSize:8,color:t.text4}}>LF</span>
             </div>
