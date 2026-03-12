@@ -4866,13 +4866,15 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       };
 
       if (typeof canvasOrUrl === 'string') {
-        // Fetch blob → createImageBitmap (no <img> element, no CSP issues) → canvas resize
-        const res = await fetch(canvasOrUrl);
-        if (!res.ok) { console.error('[aiNameSheet] fetch failed', res.status); return fallbackName; }
-        const blob = await res.blob();
-        const bitmap = await createImageBitmap(blob);
-        b64 = resizeToB64(bitmap);
-        bitmap.close();
+        // Load via <img> with direct URL + crossOrigin (same as thumbnails in UI — known to work)
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = () => reject(new Error('img load failed for: ' + canvasOrUrl.slice(-40)));
+          img.src = canvasOrUrl + (canvasOrUrl.includes('?') ? '&' : '?') + '_cb=' + Date.now();
+        });
+        b64 = resizeToB64(img);
       } else {
         // Already a canvas — resize directly
         b64 = resizeToB64(canvasOrUrl);
@@ -5331,14 +5333,12 @@ Return ONLY a valid JSON array, no markdown:
 
                   // STEP 4b: test base64 via createObjectURL + canvas resize
                   try {
-                    const r2=await fetch(p.file_url);
-                    const blob2=await r2.blob();
-                    const bmp=await createImageBitmap(blob2);
-                    const MAX=1200,ratio=Math.min(1,MAX/Math.max(bmp.width,bmp.height));
+                    const img2=new Image(); img2.crossOrigin='anonymous';
+                    await new Promise((rs,rj)=>{img2.onload=rs;img2.onerror=()=>rj(new Error('img load failed'));img2.src=p.file_url+(p.file_url.includes('?')?'&':'?')+'_cb='+Date.now();});
+                    const MAX=1200,ratio=Math.min(1,MAX/Math.max(img2.naturalWidth,img2.naturalHeight));
                     const cv=document.createElement('canvas');
-                    cv.width=Math.floor(bmp.width*ratio);cv.height=Math.floor(bmp.height*ratio);
-                    cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
-                    bmp.close();
+                    cv.width=Math.floor(img2.naturalWidth*ratio);cv.height=Math.floor(img2.naturalHeight*ratio);
+                    cv.getContext('2d').drawImage(img2,0,0,cv.width,cv.height);
                     const b64=cv.toDataURL('image/jpeg',0.75).split(',')[1];
                     const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},{type:'text',text:'Reply with just: WORKING'}]}]})});
                     const j3=await r3.json();
