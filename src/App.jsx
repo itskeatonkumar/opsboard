@@ -5404,20 +5404,51 @@ Return ONLY a valid JSON array, no markdown:
                     + Add items and assemblies
                   </button>
 
+                  <div style={{height:1,background:t.border,margin:'4px 0 12px'}}/>
+                  <div style={{fontSize:12,fontWeight:700,color:t.text,marginBottom:6}}>Sheet</div>
+                  {plans.length===0
+                    ? <div style={{fontSize:10,color:'#F59E0B',padding:'6px 10px',background:'#FEF3C7',borderRadius:5,border:'1px solid #FDE68A',marginBottom:12}}>⚠ Upload plans in the Plans tab first</div>
+                    : <select value={selPlan?.id||''} onChange={e=>{
+                        const p=plans.find(x=>x.id===Number(e.target.value));
+                        if(p){
+                          if(!openTabs.includes(p.id)) setOpenTabs(prev=>[...prev,p.id]);
+                          setSelPlan(p);
+                          if(p.scale_px_per_ft) setScale(p.scale_px_per_ft);
+                          else{setScale(null);setPresetScale('');}
+                        }
+                      }}
+                      style={{width:'100%',padding:'7px 10px',border:`1px solid ${selPlan?'#10B981':t.border2}`,borderRadius:5,
+                        fontSize:12,color:t.text,background:t.bg,marginBottom:12,cursor:'pointer',outline:'none'}}>
+                        <option value="">— Select a sheet —</option>
+                        {plans.map(p=><option key={p.id} value={p.id}>{p.name||'Unnamed'}</option>)}
+                      </select>
+                  }
+
                   <div style={{display:'flex',gap:8}}>
                     <button onClick={()=>setTakeoffStep('create')}
                       style={{flex:1,padding:'8px 0',border:`1px solid ${t.border2}`,background:t.bg,color:t.text3,
                         borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
                       ← Takeoffs
                     </button>
-                    <button disabled={!selPlan||creatingTO} onClick={async()=>{
-                      if(!selPlan||!newTOName.trim()) return;
+                    <button disabled={creatingTO||!newTOName.trim()} onClick={async()=>{
+                      if(!newTOName.trim()) return;
                       setCreatingTO(true);
+                      // Auto-select a plan if none is open — use first available or first tab
+                      let activePlan = selPlan;
+                      if(!activePlan && plans.length>0){
+                        const firstPlan = openTabs.length>0 ? plans.find(p=>p.id===openTabs[0]) : plans[0];
+                        activePlan = firstPlan || plans[0];
+                        if(!openTabs.includes(activePlan.id)) setOpenTabs(prev=>[...prev, activePlan.id]);
+                        setSelPlan(activePlan);
+                        if(activePlan.scale_px_per_ft) setScale(activePlan.scale_px_per_ft);
+                        else { setScale(null); setPresetScale(''); }
+                      }
+                      if(!activePlan){ setCreatingTO(false); return; }
                       const catId = newTOType?.id==='vol2d'||newTOType?.id==='vol3d'?'foundations':
                                     newTOType?.mt==='area'?'flatwork':
                                     newTOType?.mt==='linear'?'curb_gutter':'other';
                       const payload = {
-                        project_id:project.id, plan_id:selPlan.id,
+                        project_id:project.id, plan_id:activePlan.id,
                         category:catId,
                         description:newTOName.trim(),
                         quantity:0, unit:newTOType?.unit||'SF',
@@ -5427,22 +5458,25 @@ Return ONLY a valid JSON array, no markdown:
                         ai_generated:false, sort_order:items.length,
                         notes:newTODesc||null,
                       };
-                      const {data} = await supabase.from('takeoff_items').insert([payload]).select().single();
+                      const {data,error} = await supabase.from('takeoff_items').insert([payload]).select().single();
                       if(data){
                         setItems(prev=>[...prev,data]);
                         armItem(data);
                         resetFlow();
+                      } else {
+                        console.error('takeoff insert error', error);
                       }
                       setCreatingTO(false);
                     }}
                       style={{flex:2,padding:'8px 0',border:'none',
-                        background:selPlan&&newTOName.trim()?'#10B981':'#ccc',color:'#fff',
-                        borderRadius:6,cursor:selPlan&&newTOName.trim()?'pointer':'not-allowed',fontSize:12,fontWeight:700,
+                        background:newTOName.trim()&&!creatingTO?'#10B981':'#ccc',color:'#fff',
+                        borderRadius:6,cursor:newTOName.trim()&&!creatingTO?'pointer':'not-allowed',fontSize:12,fontWeight:700,
                         display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
                       {creatingTO?'Creating…':'Start Measuring →'}
                     </button>
                   </div>
-                  {!selPlan&&<div style={{fontSize:10,color:'#F59E0B',textAlign:'center',marginTop:6}}>⚠ Open a plan first</div>}
+                  {plans.length===0&&<div style={{fontSize:10,color:'#F59E0B',textAlign:'center',marginTop:6}}>⚠ Upload a plan in the Plans tab first</div>}
+                  {!selPlan&&plans.length>0&&<div style={{fontSize:10,color:'#10B981',textAlign:'center',marginTop:6}}>✓ Will open {(openTabs.length>0?plans.find(p=>p.id===openTabs[0]):plans[0])?.name||'first plan'}</div>}
                 </div>
               </div>
             );
