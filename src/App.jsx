@@ -4626,13 +4626,15 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       if(!archMode){
         setActivePts(prev=>[...prev, pt]);
       } else {
-        const npts=[...(activePts), pt];
-        if(npts.length<3){ setActivePts(npts); }
-        else {
-          const [p1,p2,ctrl]=npts;
-          appendMeasurement(activeCondId, [p1, {...ctrl,_ctrl:true}, p2]);
-          setActivePts([]);
-        }
+        setActivePts(prev=>{
+          const npts=[...prev, pt];
+          if(npts.length>=3){
+            const [p1,p2,ctrl]=npts;
+            appendMeasurement(activeCondId, [p1, {...ctrl,_ctrl:true}, p2]);
+            return [];
+          }
+          return npts;
+        });
       }
     } else if(mt==='area'){
       if(!archMode){
@@ -5489,7 +5491,6 @@ Return ONLY a valid JSON array, no markdown:
                         setActiveCondId(data.id);
                         setTool(mt==='area'?'area':mt==='linear'?'linear':mt==='count'?'count':'area');
                         setActivePts([]);
-                        setEditItem(null);
                         // Reset flow state
                         setNewTOType(null); setNewTOName(''); setNewTODesc(''); setNewTOColor('#10B981'); setNewTOSize('medium');
                       }
