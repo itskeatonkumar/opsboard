@@ -4866,19 +4866,13 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       };
 
       if (typeof canvasOrUrl === 'string') {
-        // Fetch from Supabase → object URL → Image → canvas resize
+        // Fetch blob → createImageBitmap (no <img> element, no CSP issues) → canvas resize
         const res = await fetch(canvasOrUrl);
         if (!res.ok) { console.error('[aiNameSheet] fetch failed', res.status); return fallbackName; }
         const blob = await res.blob();
-        const objUrl = URL.createObjectURL(blob);
-        const img = new Image();
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = (e) => reject(new Error('Image load failed: ' + JSON.stringify(e?.type)));
-          img.src = objUrl;
-        });
-        b64 = resizeToB64(img);
-        URL.revokeObjectURL(objUrl);
+        const bitmap = await createImageBitmap(blob);
+        b64 = resizeToB64(bitmap);
+        bitmap.close();
       } else {
         // Already a canvas — resize directly
         b64 = resizeToB64(canvasOrUrl);
@@ -5339,14 +5333,12 @@ Return ONLY a valid JSON array, no markdown:
                   try {
                     const r2=await fetch(p.file_url);
                     const blob2=await r2.blob();
-                    const objUrl=URL.createObjectURL(blob2);
-                    const img2=new Image();
-                    await new Promise((rs,rj)=>{img2.onload=rs;img2.onerror=e=>rj(new Error('img error:'+e?.type));img2.src=objUrl;});
-                    const MAX=1200,ratio=Math.min(1,MAX/Math.max(img2.naturalWidth,img2.naturalHeight));
+                    const bmp=await createImageBitmap(blob2);
+                    const MAX=1200,ratio=Math.min(1,MAX/Math.max(bmp.width,bmp.height));
                     const cv=document.createElement('canvas');
-                    cv.width=Math.floor(img2.naturalWidth*ratio);cv.height=Math.floor(img2.naturalHeight*ratio);
-                    cv.getContext('2d').drawImage(img2,0,0,cv.width,cv.height);
-                    URL.revokeObjectURL(objUrl);
+                    cv.width=Math.floor(bmp.width*ratio);cv.height=Math.floor(bmp.height*ratio);
+                    cv.getContext('2d').drawImage(bmp,0,0,cv.width,cv.height);
+                    bmp.close();
                     const b64=cv.toDataURL('image/jpeg',0.75).split(',')[1];
                     const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},{type:'text',text:'Reply with just: WORKING'}]}]})});
                     const j3=await r3.json();
