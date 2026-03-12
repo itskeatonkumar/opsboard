@@ -4915,42 +4915,56 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
       const numPages = doc.numPages;
       const fallbackBase = autoNameSheet(file.name, plans);
-      const newPlans = [];
 
+      // PHASE 1: Render pages sequentially (PDF.js limitation) but fire
+      // each upload immediately without awaiting — all network calls run in parallel
+      const uploadPromises = [];
       for(let pageN=1; pageN<=numPages; pageN++){
-        // Render page to canvas → blob → upload as PNG
-        setUploading(`Uploading page ${pageN} of ${numPages}…`);
+        setUploading(`Rendering ${pageN} / ${numPages}…`);
         const page = await doc.getPage(pageN);
-        const viewport = page.getViewport({scale:2.0});
+        const viewport = page.getViewport({scale:1.5}); // 1.5 vs 2.0 = 44% fewer pixels
         const offscreen = document.createElement('canvas');
         offscreen.width = viewport.width; offscreen.height = viewport.height;
         await page.render({canvasContext: offscreen.getContext('2d'), viewport}).promise;
-        const blob = await new Promise(r=>offscreen.toBlob(r,'image/png',0.95));
-
+        const blob = await new Promise(r=>offscreen.toBlob(r,'image/jpeg',0.82)); // JPEG = ~10x smaller than PNG
         const sheetName = numPages>1 ? `${fallbackBase} — Pg ${pageN}` : fallbackBase;
-        const path = `precon/${pid}/${Date.now()}_p${pageN}.png`;
-        const {error} = await supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/png'});
-        if(error){ console.error('page upload fail', error); continue; }
-        const {data:ud} = supabase.storage.from('attachments').getPublicUrl(path);
-        const publicUrl = ud?.publicUrl || '';
-        const {data:plan} = await supabase.from('precon_plans')
-          .insert([{project_id:pid, name:sheetName, file_url:publicUrl, file_type:'image/png'}])
-          .select().single();
-        if(plan) newPlans.push(plan);
+        const path = `precon/${pid}/${Date.now()}_p${pageN}.jpg`;
+        const idx = pageN - 1;
+        // Fire and don't await — collect promise
+        uploadPromises.push(
+          supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/jpeg'})
+            .then(({error}) => {
+              if(error){ console.error('page upload fail', error); return null; }
+              const {data:ud} = supabase.storage.from('attachments').getPublicUrl(path);
+              const publicUrl = ud?.publicUrl || '';
+              return supabase.from('precon_plans')
+                .insert([{project_id:pid, name:sheetName, file_url:publicUrl, file_type:'image/jpeg'}])
+                .select().single()
+                .then(({data:plan}) => plan ? {...plan, _idx:idx} : null);
+            })
+        );
       }
 
-      // AI name all pages after upload — show progress
+      // PHASE 2: Await all uploads in parallel
+      setUploading(`Uploading ${numPages} page${numPages!==1?'s':''}…`);
+      const settled = await Promise.all(uploadPromises);
+      const newPlans = settled.filter(Boolean).sort((a,b)=>a._idx-b._idx).map(({_idx,...p})=>p);
+
+      // PHASE 3: AI naming in parallel batches of 4
       if(newPlans.length>0){
-        for(let i=0;i<newPlans.length;i++){
-          const p=newPlans[i];
-          setUploading(`Naming sheet ${i+1} of ${newPlans.length}…`);
-          try{
-            const aiName=await aiNameSheet(p.file_url, p.name);
-            if(aiName&&aiName!==p.name){
-              await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
-              newPlans[i]={...p,name:aiName};
-            }
-          }catch(e){ console.warn('ai name failed page',i+1,e); }
+        const BATCH = 4;
+        for(let i=0;i<newPlans.length;i+=BATCH){
+          const slice = newPlans.slice(i, i+BATCH);
+          setUploading(`Naming ${i+1}–${Math.min(i+BATCH,newPlans.length)} of ${newPlans.length}…`);
+          await Promise.all(slice.map(async(p, bi)=>{
+            try{
+              const aiName = await aiNameSheet(p.file_url, p.name);
+              if(aiName && aiName!==p.name){
+                await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+                newPlans[i+bi] = {...p, name:aiName};
+              }
+            }catch(e){ console.warn('ai name failed page', i+bi+1, e); }
+          }));
         }
       }
 
