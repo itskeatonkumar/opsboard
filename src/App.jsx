@@ -5307,19 +5307,51 @@ Return ONLY a valid JSON array, no markdown:
                   style={{flex:1,background:'#10B981',border:'none',color:'#fff',padding:'7px 0',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
                   {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing…</>:<>＋ Upload</>}
                 </button>
+                <button onClick={async()=>{
+                  // STEP 1: confirm button fires
+                  const realPlans = plans.filter(p=>p.id!=='preview');
+                  alert(`Step 1 OK — ${realPlans.length} plans found`);
+                  if(!realPlans[0]) return;
+                  const p = realPlans[0];
+
+                  // STEP 2: fetch image
+                  let blob;
+                  try { const r=await fetch(p.file_url); blob=await r.blob(); alert(`Step 2 OK — fetched image, type=${blob.type} size=${blob.size}`); }
+                  catch(e){ alert('Step 2 FAIL fetch: '+e.message); return; }
+
+                  // STEP 3: call /api/claude text-only (no image)
+                  try {
+                    const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:20,messages:[{role:'user',content:'Reply with just: HELLO'}]})});
+                    const j=await r.json();
+                    alert(`Step 3 /api/claude text: status=${r.status} reply=${JSON.stringify(j?.content?.[0]?.text||j)}`);
+                  } catch(e){ alert('Step 3 FAIL /api/claude: '+e.message); return; }
+
+                  // STEP 4: full aiNameSheet
+                  try {
+                    const name = await aiNameSheet(p.file_url, '___FALLBACK___');
+                    alert(`Step 4 aiNameSheet returned: "${name}"`);
+                  } catch(e){ alert('Step 4 FAIL aiNameSheet: '+e.message); }
+                }} style={{padding:'6px 8px',borderRadius:6,border:'1px solid #3B82F6',background:'rgba(59,130,246,0.1)',color:'#3B82F6',cursor:'pointer',fontSize:10,fontWeight:700,flexShrink:0}}>
+                  🔬 Test
+                </button>
                 <button disabled={namingAll||plans.length===0} onClick={async()=>{
                   setNamingAll(true);
-                  for(const p of plans){
-                    if(p.id==='preview') continue;
+                  const realPlans = plans.filter(p=>p.id!=='preview');
+                  if(realPlans.length===0){ alert('No plans to name'); setNamingAll(false); return; }
+                  let renamed=0;
+                  for(const p of realPlans){
                     try {
                       const aiName = await aiNameSheet(p.file_url, p.name||'Sheet');
                       if(aiName && aiName!==p.name){
-                        await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+                        const {error} = await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+                        if(error) console.error('supabase update error', error);
                         setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
                         if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
+                        renamed++;
                       }
-                    } catch(e){ console.warn('naming failed for', p.id, e); }
+                    } catch(e){ console.error('naming failed for', p.id, e); }
                   }
+                  alert(`Done — renamed ${renamed} of ${realPlans.length} sheets`);
                   setNamingAll(false);
                 }}
                   style={{padding:'7px 10px',borderRadius:6,border:'1px solid rgba(168,85,247,0.4)',
