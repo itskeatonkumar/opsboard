@@ -4218,6 +4218,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [plans, setPlans] = useState([]);
   const [planSets, setPlanSets] = useState({}); // {batchId:{name,planIds:[]}} persisted to localStorage
   const [namingAll, setNamingAll] = useState(false);
+  const [uploadTargetFolder, setUploadTargetFolder] = useState(null); // folderId to upload into, or null=new folder
   const [selPlan, setSelPlan] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -4943,9 +4944,15 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         setPlans(prev=>[...prev, ...newPlans]);
         setSelPlan(newPlans[0]);
         setPlanB64(null); setPlanMime('image/png');
-        // Save batch folder
-        const updated = {...planSets, [batchId]:{name:batchName, planIds:newPlans.map(p=>p.id), collapsed:false}};
-        savePlanSets(updated);
+        // Add to existing folder or create new one
+        if(uploadTargetFolder && planSets[uploadTargetFolder]){
+          const updated = {...planSets, [uploadTargetFolder]:{...planSets[uploadTargetFolder], planIds:[...(planSets[uploadTargetFolder].planIds||[]), ...newPlans.map(p=>p.id)]}};
+          savePlanSets(updated);
+        } else {
+          const updated = {...planSets, [batchId]:{name:batchName, planIds:newPlans.map(p=>p.id), collapsed:false}};
+          savePlanSets(updated);
+        }
+        setUploadTargetFolder(null);
       }
       setUploading(false);
       return;
@@ -4980,8 +4987,14 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       if(plan){
         setPlans(prev=>[...prev.filter(p=>p.id!=='preview'),plan]);
         setSelPlan(plan);
-        const updated = {...planSets, [batchId]:{name:sheetName, planIds:[plan.id], collapsed:false}};
-        savePlanSets(updated);
+        if(uploadTargetFolder && planSets[uploadTargetFolder]){
+          const updated = {...planSets, [uploadTargetFolder]:{...planSets[uploadTargetFolder], planIds:[...(planSets[uploadTargetFolder].planIds||[]), plan.id]}};
+          savePlanSets(updated);
+        } else {
+          const updated = {...planSets, [batchId]:{name:sheetName, planIds:[plan.id], collapsed:false}};
+          savePlanSets(updated);
+        }
+        setUploadTargetFolder(null);
       }
       setUploading(false);
     };
@@ -5288,203 +5301,176 @@ Return ONLY a valid JSON array, no markdown:
                 boxSizing:'border-box'}}>⚙</button>
           </div>
 
-          {/* ── PLANS tab ── folder-grouped, AI auto-name */}
+          {/* ── PLANS tab ── STACK-style folder tree */}
           {leftTab==='plans'&&(
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
-              {/* Upload + AI Name All toolbar */}
-              <div style={{padding:'8px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',gap:6}}>
-                <button onClick={()=>fileRef.current?.click()} disabled={uploading}
-                  style={{flex:1,background:'#10B981',border:'none',color:'#fff',padding:'7px 0',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
-                  {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing…</>:<>＋ Upload</>}
+
+              {/* Toolbar: New Folder | Upload | Name All */}
+              <div style={{padding:'8px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',gap:5}}>
+                <button onClick={()=>{
+                  const n=window.prompt('Folder name:','');
+                  if(!n?.trim()) return;
+                  const fid='folder_'+Date.now();
+                  savePlanSets({...planSets,[fid]:{name:n.trim(),planIds:[],collapsed:false}});
+                }} style={{padding:'6px 8px',borderRadius:6,border:`1px solid ${t.border}`,background:'none',color:t.text3,cursor:'pointer',fontSize:11,fontWeight:600,display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
+                  📁 New
                 </button>
-                <button onClick={async()=>{
-                  // STEP 1: confirm button fires
-                  const realPlans = plans.filter(p=>p.id!=='preview');
-                  alert(`Step 1 OK — ${realPlans.length} plans found`);
-                  if(!realPlans[0]) return;
-                  const p = realPlans[0];
-
-                  // STEP 2: fetch image
-                  let blob;
-                  try { const r=await fetch(p.file_url); blob=await r.blob(); alert(`Step 2 OK — fetched image, type=${blob.type} size=${blob.size}`); }
-                  catch(e){ alert('Step 2 FAIL fetch: '+e.message); return; }
-
-                  // STEP 3: call /api/claude text-only (no image)
-                  try {
-                    const r=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:20,messages:[{role:'user',content:'Reply with just: HELLO'}]})});
-                    const j=await r.json();
-                    alert(`Step 3 /api/claude text: status=${r.status} reply=${JSON.stringify(j?.content?.[0]?.text||j)}`);
-                  } catch(e){ alert('Step 3 FAIL /api/claude: '+e.message); return; }
-
-                  // STEP 4b: test /api/name-sheet with first plan URL
-                  try {
-                    const r3=await fetch('/api/name-sheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:p.file_url})});
-                    const j3=await r3.json();
-                    alert(`Step 4b /api/name-sheet: status=${r3.status}\n${JSON.stringify(j3)}`);
-                  } catch(e){ alert('Step 4b FAIL: '+(e?.message||String(e))); }
-
-                  // STEP 4: full aiNameSheet
-                  try {
-                    const name = await aiNameSheet(p.file_url, '___FALLBACK___');
-                    alert(`Step 4 aiNameSheet returned: "${name}"`);
-                  } catch(e){ alert('Step 4 FAIL aiNameSheet: '+e.message); }
-                }} style={{padding:'6px 8px',borderRadius:6,border:'1px solid #3B82F6',background:'rgba(59,130,246,0.1)',color:'#3B82F6',cursor:'pointer',fontSize:10,fontWeight:700,flexShrink:0}}>
-                  🔬 Test
+                <button onClick={()=>{ setUploadTargetFolder(null); fileRef.current?.click(); }} disabled={uploading}
+                  style={{flex:1,background:'#10B981',border:'none',color:'#fff',padding:'6px 0',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
+                  {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing…</>:<>＋ Upload</>}
                 </button>
                 <button disabled={namingAll||plans.length===0} onClick={async()=>{
                   setNamingAll(true);
-                  const realPlans = plans.filter(p=>p.id!=='preview');
-                  if(realPlans.length===0){ alert('No plans to name'); setNamingAll(false); return; }
+                  const realPlans=plans.filter(p=>p.id!=='preview');
                   let renamed=0;
                   for(const p of realPlans){
-                    try {
-                      const aiName = await aiNameSheet(p.file_url, p.name||'Sheet');
-                      if(aiName && aiName!==p.name){
-                        const {error} = await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
-                        if(error) console.error('supabase update error', error);
+                    try{
+                      const aiName=await aiNameSheet(p.file_url,p.name||'Sheet');
+                      if(aiName&&aiName!==p.name){
+                        await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
                         setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
                         if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
                         renamed++;
                       }
-                    } catch(e){ console.error('naming failed for', p.id, e); }
+                    }catch(e){ console.error('naming failed',p.id,e); }
                   }
-                  alert(`Done — renamed ${renamed} of ${realPlans.length} sheets`);
                   setNamingAll(false);
-                }}
-                  style={{padding:'7px 10px',borderRadius:6,border:'1px solid rgba(168,85,247,0.4)',
-                    background:namingAll?'rgba(168,85,247,0.15)':'rgba(168,85,247,0.08)',
-                    color:'#a855f7',cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:4,whiteSpace:'nowrap',flexShrink:0}}>
-                  {namingAll?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Naming…</>:<>✦ Name All</>}
+                }} style={{padding:'6px 8px',borderRadius:6,border:'1px solid rgba(168,85,247,0.4)',background:'rgba(168,85,247,0.08)',color:'#a855f7',cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:3,flexShrink:0}}>
+                  {namingAll?<span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span>:'✦'}
                 </button>
                 <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
               </div>
 
-              <div style={{flex:1,overflowY:'auto',padding:'6px'}}>
-                {plans.length===0&&(
-                  <div style={{textAlign:'center',padding:'40px 12px',color:t.text4,fontSize:11,lineHeight:1.8}}>
-                    Upload a PDF or image to get started
+              {/* Folder tree */}
+              <div style={{flex:1,overflowY:'auto',padding:'6px 4px'}}>
+                {plans.length===0&&Object.keys(planSets).length===0&&(
+                  <div style={{textAlign:'center',padding:'40px 12px',color:t.text4,fontSize:11,lineHeight:2}}>
+                    Create a folder and upload plans<br/>or upload directly
                   </div>
                 )}
                 {(()=>{
-                  // Build folder-grouped display
-                  // Plans that belong to a set → grouped under set folder
-                  // Plans with no set → "Ungrouped" or single-plan set
-                  const assignedPlanIds = new Set(Object.values(planSets).flatMap(s=>s.planIds||[]));
-                  const ungrouped = plans.filter(p=>!assignedPlanIds.has(p.id));
-                  const setEntries = Object.entries(planSets).filter(([,s])=>(s.planIds||[]).some(id=>plans.find(p=>p.id===id)));
+                  const assignedIds=new Set(Object.values(planSets).flatMap(s=>s.planIds||[]));
+                  const ungrouped=plans.filter(p=>!assignedIds.has(p.id));
+                  const folderEntries=Object.entries(planSets);
 
-                  const PlanRow = ({p,indent=false})=>{
-                    const isOpen = openTabs.includes(p.id);
-                    const isActive = selPlan?.id===p.id;
-                    const cnt = items.filter(it=>it.plan_id===p.id).length;
+                  const PlanRow=({p,folderId})=>{
+                    const isActive=selPlan?.id===p.id;
+                    const isOpen=openTabs.includes(p.id);
+                    const cnt=items.filter(it=>it.plan_id===p.id).length;
                     return(
-                      <div key={p.id}
-                        onClick={()=>{
+                      <div onClick={()=>{
                           if(!openTabs.includes(p.id)) setOpenTabs(prev=>[...prev,p.id]);
                           setSelPlan(p);
                           if(p.scale_px_per_ft) setScale(p.scale_px_per_ft);
-                          else { setScale(null); setPresetScale(''); }
+                          else{setScale(null);setPresetScale('');}
                           setLeftTab('takeoffs');
                         }}
-                        style={{display:'flex',gap:8,padding:'6px 8px',borderRadius:6,marginBottom:3,cursor:'pointer',
-                          marginLeft:indent?12:0,
+                        style={{display:'flex',alignItems:'center',gap:7,padding:'5px 6px 5px 20px',borderRadius:5,
+                          cursor:'pointer',marginBottom:1,
                           background:isActive?'rgba(16,185,129,0.1)':'transparent',
-                          border:`1px solid ${isActive?'rgba(16,185,129,0.35)':t.border}`,
+                          borderLeft:isActive?'2px solid #10B981':'2px solid transparent',
                           transition:'all 0.1s'}}>
-                        <div style={{width:46,height:36,borderRadius:4,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`}}>
+                        <div style={{width:36,height:28,borderRadius:3,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`}}>
                           <img src={p.file_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
                         </div>
                         <div style={{flex:1,minWidth:0}}>
-                          <div style={{fontSize:10,fontWeight:isActive?700:500,color:isActive?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',lineHeight:1.3}}>{p.name||'Unnamed'}</div>
-                          <div style={{fontSize:8,color:t.text4,marginTop:1}}>{p.scale_px_per_ft?'⊕ Scaled':'No scale'} · {cnt} item{cnt!==1?'s':''}{isOpen?' · ●':''}</div>
-                          <div style={{display:'flex',gap:3,marginTop:3}}>
-                            <button onClick={async e=>{ e.stopPropagation();
-                              const n=window.prompt('Rename:',p.name||'');
-                              if(n?.trim()&&p.id!=='preview'){
-                                await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
-                                setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
-                                if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:n.trim()}));
-                              }
-                            }} style={{fontSize:8,padding:'1px 5px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer'}}>
-                              ✎
-                            </button>
-                            <button onClick={async e=>{ e.stopPropagation();
-                              const btn=e.currentTarget; btn.textContent='…'; btn.disabled=true;
-                              const aiName = await aiNameSheet(p.file_url, p.name||'Sheet');
-                              if(aiName&&aiName!==p.name&&p.id!=='preview'){
-                                await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
-                                setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
-                                if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
-                              }
-                              btn.textContent='✦'; btn.disabled=false;
-                            }} style={{fontSize:8,padding:'1px 5px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'rgba(168,85,247,0.08)',color:'#a855f7',cursor:'pointer'}} title="AI Name from title block">
-                              ✦
-                            </button>
-                            <button onClick={async e=>{ e.stopPropagation();
-                              if(!window.confirm('Delete this sheet and all its takeoffs?')) return;
-                              if(p.id!=='preview') await supabase.from('precon_plans').delete().eq('id',p.id);
-                              setPlans(prev=>prev.filter(x=>x.id!==p.id));
-                              setOpenTabs(prev=>prev.filter(id=>id!==p.id));
-                              if(selPlan?.id===p.id) setSelPlan(null);
-                              // Remove from any set
-                              const updated={};
-                              Object.entries(planSets).forEach(([bid,s])=>{ updated[bid]={...s,planIds:(s.planIds||[]).filter(id=>id!==p.id)}; });
-                              savePlanSets(updated);
-                            }} style={{fontSize:8,padding:'1px 5px',borderRadius:3,border:'1px solid rgba(239,68,68,0.3)',background:'rgba(239,68,68,0.06)',color:'#ef4444',cursor:'pointer'}}>
-                              ✕
-                            </button>
-                          </div>
+                          <div style={{fontSize:10,fontWeight:isActive?700:400,color:isActive?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||'Unnamed'}</div>
+                          <div style={{fontSize:8,color:t.text4}}>{cnt?`${cnt} item${cnt!==1?'s':''}`:'No items'}{isOpen?' · open':''}</div>
+                        </div>
+                        <div style={{display:'flex',gap:2,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                          <button onClick={async()=>{
+                            const n=window.prompt('Rename:',p.name||'');
+                            if(n?.trim()&&p.id!=='preview'){
+                              await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
+                              setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
+                              if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:n.trim()}));
+                            }
+                          }} style={{fontSize:8,padding:'2px 4px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer'}}>✎</button>
+                          <button onClick={async(e)=>{
+                            const btn=e.currentTarget; btn.textContent='…'; btn.disabled=true;
+                            const aiName=await aiNameSheet(p.file_url,p.name||'Sheet');
+                            if(aiName&&aiName!==p.name&&p.id!=='preview'){
+                              await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+                              setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
+                              if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
+                            }
+                            btn.textContent='✦'; btn.disabled=false;
+                          }} style={{fontSize:8,padding:'2px 4px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'rgba(168,85,247,0.06)',color:'#a855f7',cursor:'pointer'}} title="AI name">✦</button>
+                          <button onClick={async()=>{
+                            if(!window.confirm('Delete this sheet?')) return;
+                            if(p.id!=='preview') await supabase.from('precon_plans').delete().eq('id',p.id);
+                            setPlans(prev=>prev.filter(x=>x.id!==p.id));
+                            setOpenTabs(prev=>prev.filter(id=>id!==p.id));
+                            if(selPlan?.id===p.id) setSelPlan(null);
+                            const updated={};
+                            Object.entries(planSets).forEach(([bid,s])=>{updated[bid]={...s,planIds:(s.planIds||[]).filter(id=>id!==p.id)};});
+                            savePlanSets(updated);
+                          }} style={{fontSize:8,padding:'2px 4px',borderRadius:3,border:'1px solid rgba(239,68,68,0.25)',background:'none',color:'#ef4444',cursor:'pointer'}}>✕</button>
                         </div>
                       </div>
                     );
                   };
 
-                  return(<>
-                    {/* Grouped sets */}
-                    {setEntries.map(([batchId, set])=>{
-                      const setPlans = (set.planIds||[]).map(id=>plans.find(p=>p.id===id)).filter(Boolean);
-                      if(setPlans.length===0) return null;
-                      const collapsed = set.collapsed;
-                      const totalItems = setPlans.reduce((s,p)=>s+items.filter(it=>it.plan_id===p.id).length,0);
-                      return(
-                        <div key={batchId} style={{marginBottom:8}}>
-                          {/* Folder header */}
-                          <div style={{display:'flex',alignItems:'center',gap:6,padding:'5px 6px',borderRadius:5,cursor:'pointer',
-                            background:t.bg3,border:`1px solid ${t.border}`,marginBottom:collapsed?0:4}}
-                            onClick={()=>savePlanSets({...planSets,[batchId]:{...set,collapsed:!collapsed}})}>
-                            <span style={{fontSize:10,color:t.text4,flexShrink:0}}>{collapsed?'▶':'▼'}</span>
-                            <span style={{fontSize:10,color:'#10B981',flexShrink:0}}>📁</span>
-                            <span style={{fontSize:11,fontWeight:600,color:t.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{set.name||'Plan Set'}</span>
-                            <span style={{fontSize:9,color:t.text4,flexShrink:0}}>{setPlans.length} sheets</span>
-                            <button onClick={async e=>{ e.stopPropagation();
-                              // AI Name All in this set
-                              for(const p of setPlans){
+                  const FolderRow=([folderId,folder])=>{
+                    const folderPlans=(folder.planIds||[]).map(id=>plans.find(p=>p.id===id)).filter(Boolean);
+                    const collapsed=folder.collapsed;
+                    return(
+                      <div key={folderId} style={{marginBottom:4}}>
+                        {/* Folder header row */}
+                        <div style={{display:'flex',alignItems:'center',gap:5,padding:'5px 6px',borderRadius:5,
+                          background:t.bg3,border:`1px solid ${t.border}`,cursor:'pointer',userSelect:'none'}}
+                          onClick={()=>savePlanSets({...planSets,[folderId]:{...folder,collapsed:!collapsed}})}>
+                          <span style={{fontSize:9,color:t.text4,width:10,flexShrink:0}}>{collapsed?'▶':'▼'}</span>
+                          <span style={{fontSize:13,flexShrink:0}}>📁</span>
+                          <span style={{fontSize:11,fontWeight:600,color:t.text,flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{folder.name||'Folder'}</span>
+                          <span style={{fontSize:9,color:t.text4,flexShrink:0}}>{folderPlans.length}</span>
+                          {/* Per-folder actions */}
+                          <div style={{display:'flex',gap:3,flexShrink:0}} onClick={e=>e.stopPropagation()}>
+                            <button onClick={()=>{
+                              setUploadTargetFolder(folderId);
+                              setTimeout(()=>fileRef.current?.click(),50);
+                            }} style={{fontSize:9,padding:'2px 5px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:'#10B981',cursor:'pointer',fontWeight:700}} title="Upload into this folder">＋</button>
+                            <button onClick={async()=>{
+                              for(const p of folderPlans){
                                 if(p.id==='preview') continue;
-                                const aiName = await aiNameSheet(p.file_url, p.name||'Sheet');
-                                if(aiName && aiName!==p.name){
+                                const aiName=await aiNameSheet(p.file_url,p.name||'Sheet');
+                                if(aiName&&aiName!==p.name){
                                   await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
                                   setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
                                   if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
                                 }
                               }
-                            }} style={{fontSize:8,padding:'2px 5px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'rgba(168,85,247,0.08)',color:'#a855f7',cursor:'pointer',flexShrink:0}}>
-                              ✦ Name
-                            </button>
-                            <button onClick={e=>{ e.stopPropagation();
-                              const n=window.prompt('Rename folder:',set.name||'Plan Set');
-                              if(n?.trim()) savePlanSets({...planSets,[batchId]:{...set,name:n.trim()}});
-                            }} style={{fontSize:8,padding:'2px 4px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer',flexShrink:0}}>✎</button>
+                            }} style={{fontSize:9,padding:'2px 4px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'none',color:'#a855f7',cursor:'pointer'}} title="AI name all in folder">✦</button>
+                            <button onClick={()=>{
+                              const n=window.prompt('Rename folder:',folder.name||'');
+                              if(n?.trim()) savePlanSets({...planSets,[folderId]:{...folder,name:n.trim()}});
+                            }} style={{fontSize:9,padding:'2px 4px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer'}}>✎</button>
+                            <button onClick={()=>{
+                              if(folderPlans.length&&!window.confirm('Delete folder and all its sheets?')) return;
+                              const updated={...planSets};
+                              delete updated[folderId];
+                              savePlanSets(updated);
+                            }} style={{fontSize:9,padding:'2px 4px',borderRadius:3,border:'1px solid rgba(239,68,68,0.25)',background:'none',color:'#ef4444',cursor:'pointer'}}>✕</button>
                           </div>
-                          {!collapsed&&<div style={{paddingLeft:4}}>
-                            {setPlans.map(p=><PlanRow key={p.id} p={p} indent/>)}
-                          </div>}
                         </div>
-                      );
-                    })}
-                    {/* Ungrouped plans */}
+                        {/* Sheets inside folder */}
+                        {!collapsed&&(
+                          <div style={{marginTop:1}}>
+                            {folderPlans.map(p=><PlanRow key={p.id} p={p} folderId={folderId}/>)}
+                            {folderPlans.length===0&&(
+                              <div style={{padding:'8px 20px',fontSize:10,color:t.text4,fontStyle:'italic'}}>Empty — click ＋ to upload here</div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  };
+
+                  return(<>
+                    {folderEntries.map(FolderRow)}
                     {ungrouped.length>0&&(
-                      <div>
-                        {ungrouped.length>1&&<div style={{fontSize:9,color:t.text4,padding:'2px 6px 4px',letterSpacing:0.5,fontFamily:"'DM Mono',monospace"}}>UNGROUPED</div>}
+                      <div style={{marginTop:folderEntries.length?8:0}}>
+                        {folderEntries.length>0&&<div style={{fontSize:9,color:t.text4,padding:'2px 4px 4px',letterSpacing:0.5}}>UNSORTED</div>}
                         {ungrouped.map(p=><PlanRow key={p.id} p={p}/>)}
                       </div>
                     )}
