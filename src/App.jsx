@@ -4845,40 +4845,37 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return name;
   };
 
-  // AI sheet name extraction: crops title block (bottom-right) → Claude vision via /api/claude
+  // AI sheet name extraction: crops title block (bottom-right) → /api/claude
   const aiNameSheet = async (canvasOrUrl, fallbackName) => {
     try {
-      let b64, mediaType = 'image/jpeg';
+      let b64;
+
+      const cropCanvas = (img) => {
+        const cw=img.naturalWidth||img.width, ch=img.naturalHeight||img.height;
+        const cropX=Math.floor(cw*0.55), cropY=Math.floor(ch*0.72);
+        const cropW=cw-cropX, cropH=ch-cropY;
+        const crop=document.createElement('canvas');
+        // Max 600px wide, quality 0.72 — keeps base64 under ~150KB
+        const s=Math.min(1, 600/cropW);
+        crop.width=Math.floor(cropW*s); crop.height=Math.floor(cropH*s);
+        crop.getContext('2d').drawImage(img, cropX, cropY, cropW, cropH, 0, 0, crop.width, crop.height);
+        const b64 = crop.toDataURL('image/jpeg',0.72).split(',')[1];
+        console.log('[aiNameSheet] crop size:', crop.width, 'x', crop.height, 'b64 len:', b64.length);
+        return b64;
+      };
 
       if (typeof canvasOrUrl === 'string') {
-        // URL — fetch as blob
         const res = await fetch(canvasOrUrl);
+        if(!res.ok) { console.error('fetch plan failed', res.status); return fallbackName; }
         const blob = await res.blob();
-        mediaType = blob.type || 'image/jpeg';
-        const fullB64 = await new Promise((res2, rej) => {
-          const r = new FileReader(); r.onload=()=>res2(r.result.split(',')[1]); r.onerror=rej; r.readAsDataURL(blob);
-        });
-        // Crop title block (bottom-right 45% × 28%) via canvas
+        const dataUrl = await new Promise((res2,rej)=>{ const r=new FileReader(); r.onload=()=>res2(r.result); r.onerror=rej; r.readAsDataURL(blob); });
         const img = new Image();
-        img.src = `data:${mediaType};base64,${fullB64}`;
+        img.src = dataUrl;
         await new Promise((res2,rej)=>{ img.onload=res2; img.onerror=rej; });
-        const cw=img.naturalWidth, ch=img.naturalHeight;
-        const cropX=Math.floor(cw*0.55), cropY=Math.floor(ch*0.72);
-        const crop=document.createElement('canvas');
-        crop.width=cw-cropX; crop.height=ch-cropY;
-        crop.getContext('2d').drawImage(img, cropX, cropY, crop.width, crop.height, 0, 0, crop.width, crop.height);
-        b64 = crop.toDataURL('image/jpeg',0.9).split(',')[1];
-        mediaType = 'image/jpeg';
+        b64 = cropCanvas(img);
       } else {
-        // Canvas element — crop directly
-        const canvas = canvasOrUrl;
-        const cw=canvas.width, ch=canvas.height;
-        const cropX=Math.floor(cw*0.55), cropY=Math.floor(ch*0.72);
-        const crop=document.createElement('canvas');
-        crop.width=cw-cropX; crop.height=ch-cropY;
-        crop.getContext('2d').drawImage(canvas, cropX, cropY, crop.width, crop.height, 0, 0, crop.width, crop.height);
-        b64 = crop.toDataURL('image/jpeg',0.9).split(',')[1];
-        mediaType = 'image/jpeg';
+        // Already a canvas
+        b64 = cropCanvas(canvasOrUrl);
       }
 
       const resp = await fetch('/api/claude', {
@@ -4888,17 +4885,20 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           model:'claude-sonnet-4-20250514',
           max_tokens:60,
           messages:[{role:'user', content:[
-            {type:'image', source:{type:'base64', media_type:mediaType, data:b64}},
-            {type:'text', text:'This is the title block corner of a construction drawing. Find the sheet number and sheet title. Reply with ONLY this exact format: SHEET_NUMBER - SHEET_TITLE (example: "C3.60 - PIPE CHART"). If unreadable reply: UNKNOWN'}
+            {type:'image', source:{type:'base64', media_type:'image/jpeg', data:b64}},
+            {type:'text', text:'This is the bottom-right title block of a construction drawing. Extract the sheet number and sheet title. Reply with ONLY: SHEET_NUMBER - SHEET_TITLE  Example reply: C3.60 - PIPE CHART  If you cannot read it, reply: UNKNOWN'}
           ]}]
         })
       });
+
+      if(!resp.ok){ console.error('aiNameSheet http error', resp.status, await resp.text()); return fallbackName; }
       const json = await resp.json();
-      const raw = (json?.content?.find(b=>b.type==='text')?.text || json?.content?.[0]?.text || '').trim();
-      if(!raw || raw==='UNKNOWN' || raw.length<3) return fallbackName;
-      return raw.replace(/^["']|["']$/g,'').trim();
+      console.log('[aiNameSheet]', json);
+      const raw = (json?.content?.find?.(b=>b.type==='text')?.text || '').trim();
+      if(!raw || raw.toUpperCase().includes('UNKNOWN') || raw.length<3) return fallbackName;
+      return raw.replace(/^["'`*]+|["'`*]+$/g,'').trim();
     } catch(e) {
-      console.warn('AI sheet naming failed:', e);
+      console.error('[aiNameSheet] exception:', e);
       return fallbackName;
     }
   };
