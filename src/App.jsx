@@ -3404,7 +3404,7 @@ Include: foundations, slabs, walls, columns, masonry, flatwork, reinforcement, f
                 {plans.map(p=><option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             )}
-            <button onClick={()=>fileRef.current?.click()} disabled={uploading}
+            <button onClick={()=>fileRef.current?.click()} disabled={!!uploading}
               style={{background:'none',border:`1px solid ${t.border2}`,color:t.text2,padding:'4px 10px',borderRadius:5,cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
               {uploading?'Uploading…':'📎 Upload Plan'}
             </button>
@@ -4897,7 +4897,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const handleUpload=async(file)=>{
     if(!file) return;
     const pid = project.id;
-    setUploading(true);
+    setUploading('Reading file…');
     const isPdf = file.type?.includes('pdf');
     // Generate a batch ID for this upload — all pages become one folder
     const batchId = `batch_${Date.now()}`;
