@@ -4845,25 +4845,43 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return name;
   };
 
-  // AI sheet name extraction — passes URL directly to Anthropic (no base64, no Vercel 4.5MB limit)
-  // For canvas elements (upload-time), falls back to small JPEG base64 with aggressive resize
+  // AI sheet name extraction
+  // Fetches image → createObjectURL (works regardless of MIME) → canvas resize to max 1200px
+  // → JPEG 0.75 quality → well under Vercel 4.5MB limit as base64
   const aiNameSheet = async (canvasOrUrl, fallbackName) => {
     try {
-      let imageSource;
+      let b64;
+
+      const resizeToB64 = (img) => {
+        const MAX = 1200;
+        const ratio = Math.min(1, MAX / Math.max(img.width || img.naturalWidth, img.height || img.naturalHeight));
+        const w = Math.floor((img.width || img.naturalWidth) * ratio);
+        const h = Math.floor((img.height || img.naturalHeight) * ratio);
+        const out = document.createElement('canvas');
+        out.width = w; out.height = h;
+        out.getContext('2d').drawImage(img, 0, 0, w, h);
+        const result = out.toDataURL('image/jpeg', 0.75).split(',')[1];
+        console.log('[aiNameSheet] resized to', w, 'x', h, 'b64 bytes:', result.length);
+        return result;
+      };
 
       if (typeof canvasOrUrl === 'string') {
-        // URL path: pass directly — Anthropic fetches it server-side, bypasses Vercel body limit entirely
-        imageSource = { type: 'url', url: canvasOrUrl };
+        // Fetch from Supabase → object URL → Image → canvas resize
+        const res = await fetch(canvasOrUrl);
+        if (!res.ok) { console.error('[aiNameSheet] fetch failed', res.status); return fallbackName; }
+        const blob = await res.blob();
+        const objUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        await new Promise((resolve, reject) => {
+          img.onload = resolve;
+          img.onerror = (e) => reject(new Error('Image load failed: ' + JSON.stringify(e?.type)));
+          img.src = objUrl;
+        });
+        b64 = resizeToB64(img);
+        URL.revokeObjectURL(objUrl);
       } else {
-        // Canvas element (upload-time only): resize aggressively before base64
-        const canvas = canvasOrUrl;
-        const MAX = 1000;
-        const ratio = Math.min(1, MAX / Math.max(canvas.width, canvas.height));
-        const out = document.createElement('canvas');
-        out.width = Math.floor(canvas.width * ratio);
-        out.height = Math.floor(canvas.height * ratio);
-        out.getContext('2d').drawImage(canvas, 0, 0, out.width, out.height);
-        imageSource = { type: 'base64', media_type: 'image/jpeg', data: out.toDataURL('image/jpeg', 0.75).split(',')[1] };
+        // Already a canvas — resize directly
+        b64 = resizeToB64(canvasOrUrl);
       }
 
       const resp = await fetch('/api/claude', {
@@ -4875,8 +4893,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           messages: [{
             role: 'user',
             content: [
-              { type: 'image', source: imageSource },
-              { type: 'text', text: 'This is a construction drawing. Find the title block (usually bottom-right corner) and extract the sheet number and title. Reply with ONLY this format: SHEET_NUMBER - SHEET_TITLE\nExample: C3.60 - PIPE CHART\nIf no title block is visible, reply: UNKNOWN' }
+              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
+              { type: 'text', text: 'This is a construction drawing sheet. Find the title block (usually bottom-right corner) and extract the sheet number and sheet title. Reply with ONLY: SHEET_NUMBER - SHEET_TITLE\nExample: C3.60 - PIPE CHART\nIf no title block is visible, reply: UNKNOWN' }
             ]
           }]
         })
@@ -4887,7 +4905,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       const raw = (json?.content?.find?.(b => b.type === 'text')?.text || '').trim();
       console.log('[aiNameSheet] result:', raw);
       if (!raw || raw.toUpperCase().includes('UNKNOWN') || raw.length < 3) return fallbackName;
-      return raw.replace(/^["'\`*\s]+|["'\`*\s]+$/g, '').trim();
+      return raw.replace(/^["'`*\s]+|["'`*\s]+$/g, '').trim();
     } catch (e) {
       console.error('[aiNameSheet] exception:', e);
       return fallbackName;
@@ -5317,11 +5335,22 @@ Return ONLY a valid JSON array, no markdown:
                     alert(`Step 3 /api/claude text: status=${r.status} reply=${JSON.stringify(j?.content?.[0]?.text||j)}`);
                   } catch(e){ alert('Step 3 FAIL /api/claude: '+e.message); return; }
 
-                  // STEP 4b: call /api/claude WITH image URL (no base64)
+                  // STEP 4b: test base64 via createObjectURL + canvas resize
                   try {
-                    const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'url',url:p.file_url}},{type:'text',text:'Reply with just the word: WORKING'}]}]})});
+                    const r2=await fetch(p.file_url);
+                    const blob2=await r2.blob();
+                    const objUrl=URL.createObjectURL(blob2);
+                    const img2=new Image();
+                    await new Promise((rs,rj)=>{img2.onload=rs;img2.onerror=e=>rj(new Error('img error:'+e?.type));img2.src=objUrl;});
+                    const MAX=1200,ratio=Math.min(1,MAX/Math.max(img2.naturalWidth,img2.naturalHeight));
+                    const cv=document.createElement('canvas');
+                    cv.width=Math.floor(img2.naturalWidth*ratio);cv.height=Math.floor(img2.naturalHeight*ratio);
+                    cv.getContext('2d').drawImage(img2,0,0,cv.width,cv.height);
+                    URL.revokeObjectURL(objUrl);
+                    const b64=cv.toDataURL('image/jpeg',0.75).split(',')[1];
+                    const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},{type:'text',text:'Reply with just: WORKING'}]}]})});
                     const j3=await r3.json();
-                    alert(`Step 4b image URL API: status=${r3.status}\n${JSON.stringify(j3).slice(0,400)}`);
+                    alert(`Step 4b canvas+b64: status=${r3.status} size=${b64.length}\n${JSON.stringify(j3).slice(0,300)}`);
                   } catch(e){ alert('Step 4b FAIL: '+(e?.message||String(e))); }
 
                   // STEP 4: full aiNameSheet
