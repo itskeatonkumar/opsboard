@@ -5326,6 +5326,23 @@ Return ONLY a valid JSON array, no markdown:
                     alert(`Step 3 /api/claude text: status=${r.status} reply=${JSON.stringify(j?.content?.[0]?.text||j)}`);
                   } catch(e){ alert('Step 3 FAIL /api/claude: '+e.message); return; }
 
+                  // STEP 4b: call /api/claude WITH image — show raw response
+                  try {
+                    const r2=await fetch(p.file_url);
+                    const blob2=await r2.blob();
+                    const dataUrl2=await new Promise((rs,rj)=>{const rd=new FileReader();rd.onload=()=>rs(rd.result);rd.onerror=rj;rd.readAsDataURL(blob2);});
+                    const img2=new Image(); img2.src=dataUrl2;
+                    await new Promise((rs,rj)=>{img2.onload=rs;img2.onerror=rj;});
+                    const cv=document.createElement('canvas');
+                    const s=Math.min(1,600/img2.naturalWidth);
+                    cv.width=Math.floor(img2.naturalWidth*s); cv.height=Math.floor(img2.naturalHeight*s);
+                    cv.getContext('2d').drawImage(img2,0,0,cv.width,cv.height);
+                    const b64=cv.toDataURL('image/jpeg',0.7).split(',')[1];
+                    const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},{type:'text',text:'Reply with just the word: WORKING'}]}]})});
+                    const j3=await r3.json();
+                    alert(`Step 4b raw image API: status=${r3.status}\n${JSON.stringify(j3).slice(0,400)}`);
+                  } catch(e){ alert('Step 4b FAIL: '+e.message); }
+
                   // STEP 4: full aiNameSheet
                   try {
                     const name = await aiNameSheet(p.file_url, '___FALLBACK___');
