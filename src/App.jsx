@@ -4919,6 +4919,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
       for(let pageN=1; pageN<=numPages; pageN++){
         // Render page to canvas → blob → upload as PNG
+        setUploading(`Uploading page ${pageN} of ${numPages}…`);
         const page = await doc.getPage(pageN);
         const viewport = page.getViewport({scale:2.0});
         const offscreen = document.createElement('canvas');
@@ -4926,9 +4927,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         await page.render({canvasContext: offscreen.getContext('2d'), viewport}).promise;
         const blob = await new Promise(r=>offscreen.toBlob(r,'image/png',0.95));
 
-        // AI name from title block
-        const fallback = numPages>1 ? `${fallbackBase} — Pg ${pageN}` : fallbackBase;
-        const sheetName = await aiNameSheet(offscreen, fallback);
+        const sheetName = numPages>1 ? `${fallbackBase} — Pg ${pageN}` : fallbackBase;
         const path = `precon/${pid}/${Date.now()}_p${pageN}.png`;
         const {error} = await supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/png'});
         if(error){ console.error('page upload fail', error); continue; }
@@ -4940,11 +4939,25 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         if(plan) newPlans.push(plan);
       }
 
+      // AI name all pages after upload — show progress
+      if(newPlans.length>0){
+        for(let i=0;i<newPlans.length;i++){
+          const p=newPlans[i];
+          setUploading(`Naming sheet ${i+1} of ${newPlans.length}…`);
+          try{
+            const aiName=await aiNameSheet(p.file_url, p.name);
+            if(aiName&&aiName!==p.name){
+              await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+              newPlans[i]={...p,name:aiName};
+            }
+          }catch(e){ console.warn('ai name failed page',i+1,e); }
+        }
+      }
+
       if(newPlans.length>0){
         setPlans(prev=>[...prev, ...newPlans]);
         setSelPlan(newPlans[0]);
         setPlanB64(null); setPlanMime('image/png');
-        // Add to existing folder or create new one
         if(uploadTargetFolder && planSets[uploadTargetFolder]){
           const updated = {...planSets, [uploadTargetFolder]:{...planSets[uploadTargetFolder], planIds:[...(planSets[uploadTargetFolder].planIds||[]), ...newPlans.map(p=>p.id)]}};
           savePlanSets(updated);
@@ -4953,10 +4966,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           savePlanSets(updated);
         }
         setUploadTargetFolder(null);
+        setUploading(`✓ Done — ${newPlans.length} sheet${newPlans.length!==1?'s':''} uploaded`);
+        setTimeout(()=>setUploading(false), 3000);
+      } else {
+        setUploading(false);
       }
-      setUploading(false);
       return;
-    }
 
     // Image upload (non-PDF)
     const fallbackName = autoNameSheet(file.name, plans);
@@ -4965,17 +4980,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       const dataUrl = ev.target.result;
       setPlanB64(dataUrl.split(',')[1]);
       setPlanMime(file.type);
-      // Try AI naming using the image
-      let sheetName = fallbackName;
-      try {
-        const img = new Image();
-        img.src = dataUrl;
-        await new Promise(r=>{ img.onload=r; img.onerror=r; });
-        const cv = document.createElement('canvas');
-        cv.width=img.naturalWidth; cv.height=img.naturalHeight;
-        cv.getContext('2d').drawImage(img,0,0);
-        sheetName = await aiNameSheet(cv, fallbackName);
-      } catch(e){ sheetName = fallbackName; }
+      const sheetName = fallbackName;
       setSelPlan({id:'preview',name:sheetName,file_url:dataUrl,file_type:file.type});
       const ext=file.name.split('.').pop();
       const path=`precon/${pid}/${Date.now()}.${ext}`;
@@ -4995,8 +5000,11 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           savePlanSets(updated);
         }
         setUploadTargetFolder(null);
+        setUploading('✓ Done');
+        setTimeout(()=>setUploading(false), 2500);
+      } else {
+        setUploading(false);
       }
-      setUploading(false);
     };
     reader.readAsDataURL(file);
   };
@@ -5315,9 +5323,13 @@ Return ONLY a valid JSON array, no markdown:
                 }} style={{padding:'6px 8px',borderRadius:6,border:`1px solid ${t.border}`,background:'none',color:t.text3,cursor:'pointer',fontSize:11,fontWeight:600,display:'flex',alignItems:'center',gap:4,flexShrink:0}}>
                   📁 New
                 </button>
-                <button onClick={()=>{ setUploadTargetFolder(null); fileRef.current?.click(); }} disabled={uploading}
-                  style={{flex:1,background:'#10B981',border:'none',color:'#fff',padding:'6px 0',borderRadius:6,cursor:'pointer',fontSize:12,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:5}}>
-                  {uploading?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Processing…</>:<>＋ Upload</>}
+                <button onClick={()=>{ setUploadTargetFolder(null); fileRef.current?.click(); }} disabled={!!uploading}
+                  style={{flex:1,background:uploading&&uploading.startsWith('✓')?'#10B981':uploading?'#6B7280':'#10B981',border:'none',color:'#fff',padding:'6px 0',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',justifyContent:'center',gap:5,transition:'background 0.2s'}}>
+                  {uploading
+                    ? uploading.startsWith('✓')
+                      ? <>{uploading}</>
+                      : <><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> {uploading}</>
+                    : <>＋ Upload</>}
                 </button>
                 <button disabled={namingAll||plans.length===0} onClick={async()=>{
                   setNamingAll(true);
