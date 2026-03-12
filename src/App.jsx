@@ -5433,7 +5433,7 @@ Return ONLY a valid JSON array, no markdown:
                     <button disabled={creatingTO||!newTOName.trim()} onClick={async()=>{
                       if(!newTOName.trim()) return;
                       setCreatingTO(true);
-                      // Auto-select a plan if none is open — use first available or first tab
+                      // Auto-select a plan if none is open
                       let activePlan = selPlan;
                       if(!activePlan && plans.length>0){
                         const firstPlan = openTabs.length>0 ? plans.find(p=>p.id===openTabs[0]) : plans[0];
@@ -5443,28 +5443,41 @@ Return ONLY a valid JSON array, no markdown:
                         if(activePlan.scale_px_per_ft) setScale(activePlan.scale_px_per_ft);
                         else { setScale(null); setPresetScale(''); }
                       }
-                      if(!activePlan){ setCreatingTO(false); return; }
+                      if(!activePlan){ alert('Please upload a plan first'); setCreatingTO(false); return; }
                       const catId = newTOType?.id==='vol2d'||newTOType?.id==='vol3d'?'foundations':
                                     newTOType?.mt==='area'?'flatwork':
                                     newTOType?.mt==='linear'?'curb_gutter':'other';
+                      const mt = newTOType?.mt||'area';
                       const payload = {
-                        project_id:project.id, plan_id:activePlan.id,
-                        category:catId,
-                        description:newTOName.trim(),
-                        quantity:0, unit:newTOType?.unit||'SF',
-                        unit_cost:0, total_cost:0,
-                        measurement_type:newTOType?.mt||'area',
-                        points:[], color:newTOColor,
-                        ai_generated:false, sort_order:items.length,
-                        notes:newTODesc||null,
+                        project_id: project.id,
+                        plan_id: activePlan.id,
+                        category: catId,
+                        description: newTOName.trim(),
+                        quantity: 0,
+                        unit: newTOType?.unit||'SF',
+                        unit_cost: 0,
+                        total_cost: 0,
+                        measurement_type: mt,
+                        points: [],
+                        color: newTOColor,
+                        ai_generated: false,
+                        sort_order: items.length,
                       };
-                      const {data,error} = await supabase.from('takeoff_items').insert([payload]).select().single();
+                      console.log('inserting takeoff:', payload);
+                      const {data, error} = await supabase.from('takeoff_items').insert([payload]).select().single();
+                      console.log('result:', data, error);
+                      if(error){ alert('Error creating takeoff: '+error.message); setCreatingTO(false); return; }
                       if(data){
                         setItems(prev=>[...prev,data]);
-                        armItem(data);
-                        resetFlow();
-                      } else {
-                        console.error('takeoff insert error', error);
+                        // Switch left tab to takeoffs list and arm the new item
+                        setLeftTab('takeoffs');
+                        setTakeoffStep(null);
+                        setActiveCondId(data.id);
+                        setTool(mt==='area'?'area':mt==='linear'?'linear':mt==='count'?'count':'area');
+                        setActivePts([]);
+                        setEditItem(null);
+                        // Reset flow state
+                        setNewTOType(null); setNewTOName(''); setNewTODesc(''); setNewTOColor('#10B981'); setNewTOSize('medium');
                       }
                       setCreatingTO(false);
                     }}
