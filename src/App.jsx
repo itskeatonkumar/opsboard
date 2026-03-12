@@ -4845,63 +4845,48 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return name;
   };
 
-  // AI sheet name extraction
-  // Fetches image → createObjectURL (works regardless of MIME) → canvas resize to max 1200px
-  // → JPEG 0.75 quality → well under Vercel 4.5MB limit as base64
+  // AI sheet name extraction — delegates entirely to /api/name-sheet serverless function
+  // That function fetches the image server-side (no CORS), sends to Anthropic directly
+  // Client never touches the image data — no canvas, no base64 overhead, no Vercel body limit
   const aiNameSheet = async (canvasOrUrl, fallbackName) => {
     try {
-      let b64;
-
-      const resizeToB64 = (img) => {
-        const MAX = 1200;
-        const ratio = Math.min(1, MAX / Math.max(img.width || img.naturalWidth, img.height || img.naturalHeight));
-        const w = Math.floor((img.width || img.naturalWidth) * ratio);
-        const h = Math.floor((img.height || img.naturalHeight) * ratio);
-        const out = document.createElement('canvas');
-        out.width = w; out.height = h;
-        out.getContext('2d').drawImage(img, 0, 0, w, h);
-        const result = out.toDataURL('image/jpeg', 0.75).split(',')[1];
-        console.log('[aiNameSheet] resized to', w, 'x', h, 'b64 bytes:', result.length);
-        return result;
-      };
-
+      let url;
       if (typeof canvasOrUrl === 'string') {
-        // Load via <img> with direct URL + crossOrigin (same as thumbnails in UI — known to work)
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        await new Promise((resolve, reject) => {
-          img.onload = resolve;
-          img.onerror = () => reject(new Error('img load failed for: ' + canvasOrUrl.slice(-40)));
-          img.src = canvasOrUrl + (canvasOrUrl.includes('?') ? '&' : '?') + '_cb=' + Date.now();
-        });
-        b64 = resizeToB64(img);
+        url = canvasOrUrl;
       } else {
-        // Already a canvas — resize directly
-        b64 = resizeToB64(canvasOrUrl);
+        // Canvas passed at upload time — convert to small JPEG and use a data URL trick:
+        // store on supabase first then we have a real URL... actually just inline base64 via /api/claude
+        const MAX = 1200;
+        const ratio = Math.min(1, MAX / Math.max(canvasOrUrl.width, canvasOrUrl.height));
+        const out = document.createElement('canvas');
+        out.width = Math.floor(canvasOrUrl.width * ratio);
+        out.height = Math.floor(canvasOrUrl.height * ratio);
+        out.getContext('2d').drawImage(canvasOrUrl, 0, 0, out.width, out.height);
+        const b64 = out.toDataURL('image/jpeg', 0.75).split(',')[1];
+        const resp = await fetch('/api/claude', {
+          method: 'POST', headers: {'Content-Type':'application/json'},
+          body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:80,
+            messages:[{role:'user',content:[
+              {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
+              {type:'text',text:'This is a construction drawing sheet. Find the title block (bottom-right corner) and extract sheet number and title. Reply ONLY: SHEET_NUMBER - SHEET_TITLE\nExample: C3.60 - PIPE CHART\nIf not visible: UNKNOWN'}
+            ]}]})
+        });
+        const json = await resp.json();
+        const raw = (json?.content?.find?.(b=>b.type==='text')?.text||'').trim();
+        if(!raw||raw.toUpperCase().includes('UNKNOWN')||raw.length<3) return fallbackName;
+        return raw.replace(/^["'`*\s]+|["'`*\s]+$/g,'').trim();
       }
 
-      const resp = await fetch('/api/claude', {
+      // URL path: let the server fetch it
+      const resp = await fetch('/api/name-sheet', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          model: 'claude-sonnet-4-20250514',
-          max_tokens: 80,
-          messages: [{
-            role: 'user',
-            content: [
-              { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: b64 } },
-              { type: 'text', text: 'This is a construction drawing sheet. Find the title block (usually bottom-right corner) and extract the sheet number and sheet title. Reply with ONLY: SHEET_NUMBER - SHEET_TITLE\nExample: C3.60 - PIPE CHART\nIf no title block is visible, reply: UNKNOWN' }
-            ]
-          }]
-        })
+        body: JSON.stringify({ url })
       });
-
-      if (!resp.ok) { console.error('[aiNameSheet] api error', resp.status, await resp.text()); return fallbackName; }
+      if (!resp.ok) { console.error('[aiNameSheet] name-sheet error', resp.status, await resp.text()); return fallbackName; }
       const json = await resp.json();
-      const raw = (json?.content?.find?.(b => b.type === 'text')?.text || '').trim();
-      console.log('[aiNameSheet] result:', raw);
-      if (!raw || raw.toUpperCase().includes('UNKNOWN') || raw.length < 3) return fallbackName;
-      return raw.replace(/^["'`*\s]+|["'`*\s]+$/g, '').trim();
+      console.log('[aiNameSheet] result:', json);
+      return json.name || fallbackName;
     } catch (e) {
       console.error('[aiNameSheet] exception:', e);
       return fallbackName;
@@ -5331,18 +5316,11 @@ Return ONLY a valid JSON array, no markdown:
                     alert(`Step 3 /api/claude text: status=${r.status} reply=${JSON.stringify(j?.content?.[0]?.text||j)}`);
                   } catch(e){ alert('Step 3 FAIL /api/claude: '+e.message); return; }
 
-                  // STEP 4b: test base64 via createObjectURL + canvas resize
+                  // STEP 4b: test /api/name-sheet with first plan URL
                   try {
-                    const img2=new Image(); img2.crossOrigin='anonymous';
-                    await new Promise((rs,rj)=>{img2.onload=rs;img2.onerror=()=>rj(new Error('img load failed'));img2.src=p.file_url+(p.file_url.includes('?')?'&':'?')+'_cb='+Date.now();});
-                    const MAX=1200,ratio=Math.min(1,MAX/Math.max(img2.naturalWidth,img2.naturalHeight));
-                    const cv=document.createElement('canvas');
-                    cv.width=Math.floor(img2.naturalWidth*ratio);cv.height=Math.floor(img2.naturalHeight*ratio);
-                    cv.getContext('2d').drawImage(img2,0,0,cv.width,cv.height);
-                    const b64=cv.toDataURL('image/jpeg',0.75).split(',')[1];
-                    const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},{type:'text',text:'Reply with just: WORKING'}]}]})});
+                    const r3=await fetch('/api/name-sheet',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({url:p.file_url})});
                     const j3=await r3.json();
-                    alert(`Step 4b canvas+b64: status=${r3.status} size=${b64.length}\n${JSON.stringify(j3).slice(0,300)}`);
+                    alert(`Step 4b /api/name-sheet: status=${r3.status}\n${JSON.stringify(j3)}`);
                   } catch(e){ alert('Step 4b FAIL: '+(e?.message||String(e))); }
 
                   // STEP 4: full aiNameSheet
