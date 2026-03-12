@@ -4927,46 +4927,69 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         offscreen.width = viewport.width; offscreen.height = viewport.height;
         await page.render({canvasContext: offscreen.getContext('2d'), viewport}).promise;
         const blob = await new Promise(r=>offscreen.toBlob(r,'image/jpeg',0.82)); // JPEG = ~10x smaller than PNG
+
+        // Crop bottom-right 38% x 28% — that's where title blocks live
+        // Scale crop down to max 900px wide for fast AI reading
+        const cropW = Math.floor(offscreen.width * 0.38);
+        const cropH = Math.floor(offscreen.height * 0.28);
+        const cropX = offscreen.width - cropW;
+        const cropY = offscreen.height - cropH;
+        const cropCanvas = document.createElement('canvas');
+        const MAX_CROP = 900;
+        const cropScale = Math.min(1, MAX_CROP / cropW);
+        cropCanvas.width = Math.floor(cropW * cropScale);
+        cropCanvas.height = Math.floor(cropH * cropScale);
+        cropCanvas.getContext('2d').drawImage(offscreen, cropX, cropY, cropW, cropH, 0, 0, cropCanvas.width, cropCanvas.height);
+        const titleBlockB64 = cropCanvas.toDataURL('image/jpeg', 0.88).split(',')[1];
+
         const sheetName = numPages>1 ? `${fallbackBase} — Pg ${pageN}` : fallbackBase;
         const path = `precon/${pid}/${Date.now()}_p${pageN}.jpg`;
         const idx = pageN - 1;
-        // Fire and don't await — collect promise
+        // Fire upload + AI name in parallel — both start immediately
         uploadPromises.push(
-          supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/jpeg'})
-            .then(({error}) => {
-              if(error){ console.error('page upload fail', error); return null; }
-              const {data:ud} = supabase.storage.from('attachments').getPublicUrl(path);
-              const publicUrl = ud?.publicUrl || '';
-              return supabase.from('precon_plans')
-                .insert([{project_id:pid, name:sheetName, file_url:publicUrl, file_type:'image/jpeg'}])
-                .select().single()
-                .then(({data:plan}) => plan ? {...plan, _idx:idx} : null);
-            })
+          Promise.all([
+            // Upload full page
+            supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/jpeg'})
+              .then(({error}) => {
+                if(error){ console.error('page upload fail', error); return null; }
+                const {data:ud} = supabase.storage.from('attachments').getPublicUrl(path);
+                const publicUrl = ud?.publicUrl || '';
+                return supabase.from('precon_plans')
+                  .insert([{project_id:pid, name:sheetName, file_url:publicUrl, file_type:'image/jpeg'}])
+                  .select().single()
+                  .then(({data:plan}) => plan || null);
+              }),
+            // AI name from title block crop — runs concurrently with upload
+            fetch('/api/claude', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({
+                model:'claude-sonnet-4-20250514', max_tokens:60,
+                messages:[{role:'user',content:[
+                  {type:'image',source:{type:'base64',media_type:'image/jpeg',data:titleBlockB64}},
+                  {type:'text',text:'This is the bottom-right title block of a construction drawing. Extract the sheet number and title. Reply ONLY: SHEET_NUMBER - SHEET_TITLE\nExamples: C3.01 - SITE PLAN  /  A-101 - FLOOR PLAN  /  S2.0 - FOUNDATION PLAN\nIf unreadable reply: UNKNOWN'}
+                ]}]
+              })
+            }).then(r=>r.json()).then(j=>{
+              const raw=(j?.content?.find(b=>b.type==='text')?.text||'').trim();
+              if(!raw||raw.toUpperCase().includes('UNKNOWN')||raw.length<3) return sheetName;
+              return raw.replace(/^["'`*\s]+|["'`*\s]+$/g,'').trim();
+            }).catch(()=>sheetName)
+          ]).then(async([plan, aiName])=>{
+            if(!plan) return null;
+            // Apply AI name if we got one
+            const finalName = (aiName && aiName!==sheetName) ? aiName : sheetName;
+            if(finalName!==sheetName){
+              await supabase.from('precon_plans').update({name:finalName}).eq('id',plan.id);
+            }
+            return {...plan, name:finalName, _idx:idx};
+          })
         );
       }
 
-      // PHASE 2: Await all uploads in parallel
-      setUploading(`Uploading ${numPages} page${numPages!==1?'s':''}…`);
+      // Await all pages (upload + AI naming running concurrently per page)
+      setUploading(`Processing ${numPages} page${numPages!==1?'s':''}…`);
       const settled = await Promise.all(uploadPromises);
       const newPlans = settled.filter(Boolean).sort((a,b)=>a._idx-b._idx).map(({_idx,...p})=>p);
-
-      // PHASE 3: AI naming in parallel batches of 4
-      if(newPlans.length>0){
-        const BATCH = 4;
-        for(let i=0;i<newPlans.length;i+=BATCH){
-          const slice = newPlans.slice(i, i+BATCH);
-          setUploading(`Naming ${i+1}–${Math.min(i+BATCH,newPlans.length)} of ${newPlans.length}…`);
-          await Promise.all(slice.map(async(p, bi)=>{
-            try{
-              const aiName = await aiNameSheet(p.file_url, p.name);
-              if(aiName && aiName!==p.name){
-                await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
-                newPlans[i+bi] = {...p, name:aiName};
-              }
-            }catch(e){ console.warn('ai name failed page', i+bi+1, e); }
-          }));
-        }
-      }
 
       if(newPlans.length>0){
         setPlans(prev=>[...prev, ...newPlans]);
