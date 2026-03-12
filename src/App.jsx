@@ -4817,24 +4817,58 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     }
   };
 
+  // Fallback: prettify filename when AI naming fails
   const autoNameSheet = (filename, existingPlans) => {
-    // Strip extension
     let name = filename.replace(/\.[^.]+$/, '');
-    // Common sheet naming patterns: S1.0, A-101, C3.1, etc
-    // If it looks like a raw filename, make it prettier
     name = name.replace(/[-_]/g, ' ').replace(/\s+/g,' ').trim();
-    // Check if it matches a sheet code pattern
     const sheetMatch = name.match(/^([A-Z]{1,2})[-\s]?(\d+\.?\d*)$/i);
     if(sheetMatch) {
       const prefixes = {A:'Architectural',S:'Structural',C:'Civil',M:'Mechanical',E:'Electrical',P:'Plumbing',L:'Landscape',G:'General',FP:'Fire Protection'};
       const prefix = prefixes[sheetMatch[1].toUpperCase()];
       if(prefix) name = `${sheetMatch[1].toUpperCase()}-${sheetMatch[2]} ${prefix}`;
     }
-    // Deduplicate: if name exists, append number
     const base = name;
     let count = 2;
     while(existingPlans.some(p=>p.name===name)) { name = `${base} (${count++})`; }
     return name;
+  };
+
+  // AI sheet name extraction: crops title block area (bottom-right 30%) → Claude vision
+  const aiNameSheet = async (canvas, fallbackName) => {
+    try {
+      const cw = canvas.width, ch = canvas.height;
+      // Title block is almost always bottom-right ~35% width × ~20% height
+      const cropX = Math.floor(cw * 0.55), cropY = Math.floor(ch * 0.72);
+      const cropW = cw - cropX, cropH = ch - cropY;
+      const crop = document.createElement('canvas');
+      crop.width = cropW; crop.height = cropH;
+      crop.getContext('2d').drawImage(canvas, cropX, cropY, cropW, cropH, 0, 0, cropW, cropH);
+      const b64 = crop.toDataURL('image/jpeg', 0.85).split(',')[1];
+
+      const resp = await fetch('https://api.anthropic.com/v1/messages', {
+        method:'POST',
+        headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({
+          model:'claude-sonnet-4-20250514',
+          max_tokens:80,
+          messages:[{
+            role:'user',
+            content:[
+              {type:'image', source:{type:'base64', media_type:'image/jpeg', data:b64}},
+              {type:'text', text:`This is the title block of a construction drawing. Extract the sheet number and sheet title. Reply with ONLY: SHEET_NUMBER - SHEET_TITLE (e.g. "C3.60 - PIPE CHART" or "A-101 - FLOOR PLAN"). If you cannot read it clearly, reply with just "UNKNOWN".`}
+            ]
+          }]
+        })
+      });
+      const json = await resp.json();
+      const raw = (json?.content?.[0]?.text||'').trim();
+      if(!raw || raw==='UNKNOWN' || raw.length<3) return fallbackName;
+      // Clean up and deduplicate
+      return raw.replace(/^["']|["']$/g,'').trim();
+    } catch(e) {
+      console.warn('AI sheet naming failed:', e);
+      return fallbackName;
+    }
   };
 
   const handleUpload=async(file)=>{
@@ -4854,7 +4888,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       catch(e){ setUploading(false); alert('Could not read PDF: '+e.message); return; }
 
       const numPages = doc.numPages;
-      const baseName = autoNameSheet(file.name, plans);
+      const fallbackBase = autoNameSheet(file.name, plans);
       const newPlans = [];
 
       for(let pageN=1; pageN<=numPages; pageN++){
@@ -4865,7 +4899,10 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         offscreen.width = viewport.width; offscreen.height = viewport.height;
         await page.render({canvasContext: offscreen.getContext('2d'), viewport}).promise;
         const blob = await new Promise(r=>offscreen.toBlob(r,'image/png',0.95));
-        const sheetName = numPages>1 ? `${baseName} — Pg ${pageN}` : baseName;
+
+        // AI name from title block
+        const fallback = numPages>1 ? `${fallbackBase} — Pg ${pageN}` : fallbackBase;
+        const sheetName = await aiNameSheet(offscreen, fallback);
         const path = `precon/${pid}/${Date.now()}_p${pageN}.png`;
         const {error} = await supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/png'});
         if(error){ console.error('page upload fail', error); continue; }
@@ -4887,27 +4924,38 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     }
 
     // Image upload (non-PDF)
-    const sheetName = autoNameSheet(file.name, plans);
+    const fallbackName = autoNameSheet(file.name, plans);
     const reader=new FileReader();
-    reader.onload=ev=>{
+    reader.onload=async ev=>{
       const dataUrl = ev.target.result;
       setPlanB64(dataUrl.split(',')[1]);
       setPlanMime(file.type);
+      // Try AI naming using the image
+      let sheetName = fallbackName;
+      try {
+        const img = new Image();
+        img.src = dataUrl;
+        await new Promise(r=>{ img.onload=r; img.onerror=r; });
+        const cv = document.createElement('canvas');
+        cv.width=img.naturalWidth; cv.height=img.naturalHeight;
+        cv.getContext('2d').drawImage(img,0,0);
+        sheetName = await aiNameSheet(cv, fallbackName);
+      } catch(e){ sheetName = fallbackName; }
       setSelPlan({id:'preview',name:sheetName,file_url:dataUrl,file_type:file.type});
+      const ext=file.name.split('.').pop();
+      const path=`precon/${pid}/${Date.now()}.${ext}`;
+      const {error}=await supabase.storage.from('attachments').upload(path,file,{upsert:true});
+      if(error){setUploading(false);alert('Upload failed: '+error.message);return;}
+      const {data:ud}=supabase.storage.from('attachments').getPublicUrl(path);
+      const publicUrl = ud?.publicUrl || ud?.data?.publicUrl || '';
+      const {data:plan}=await supabase.from('precon_plans').insert([{project_id:pid,name:sheetName,file_url:publicUrl,file_type:file.type}]).select().single();
+      if(plan){
+        setPlans(prev=>[...prev.filter(p=>p.id!=='preview'),plan]);
+        setSelPlan(plan);
+      }
+      setUploading(false);
     };
     reader.readAsDataURL(file);
-    const ext=file.name.split('.').pop();
-    const path=`precon/${pid}/${Date.now()}.${ext}`;
-    const {error}=await supabase.storage.from('attachments').upload(path,file,{upsert:true});
-    if(error){setUploading(false);alert('Upload failed: '+error.message);return;}
-    const {data:ud}=supabase.storage.from('attachments').getPublicUrl(path);
-    const publicUrl = ud?.publicUrl || ud?.data?.publicUrl || '';
-    const {data:plan}=await supabase.from('precon_plans').insert([{project_id:pid,name:sheetName,file_url:publicUrl,file_type:file.type}]).select().single();
-    if(plan){
-      setPlans(prev=>[...prev.filter(p=>p.id!=='preview'),plan]);
-      setSelPlan(plan);
-    }
-    setUploading(false);
   };
 
   const runAITakeoff=async()=>{
@@ -5239,14 +5287,7 @@ Return ONLY a valid JSON array, no markdown:
                         else { setScale(null); setPresetScale(''); }
                         setLeftTab('takeoffs');
                       }}
-                      onDoubleClick={async e=>{
-                        const n=window.prompt('Rename:',p.name||'');
-                        if(n?.trim()&&p.id!=='preview'){
-                          await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
-                          setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
-                          if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:n.trim()}));
-                        }
-                      }}
+                      onDoubleClick={e=>e.preventDefault()}
                       style={{display:'flex',gap:10,padding:'8px',borderRadius:6,marginBottom:4,cursor:'pointer',
                         background:isActive?'rgba(16,185,129,0.08)':'transparent',
                         border:`1px solid ${isActive?'rgba(16,185,129,0.3)':t.border}`,
@@ -5261,6 +5302,40 @@ Return ONLY a valid JSON array, no markdown:
                           {p.scale_px_per_ft?'Scaled':'No scale'} · {cnt} item{cnt!==1?'s':''}
                         </div>
                         {isOpen&&<div style={{fontSize:8,color:'#10B981',marginTop:1,fontWeight:600}}>● Open</div>}
+                        <div style={{display:'flex',gap:4,marginTop:4}}>
+                          <button onClick={async e=>{ e.stopPropagation();
+                            const n=window.prompt('Rename:',p.name||'');
+                            if(n?.trim()&&p.id!=='preview'){
+                              await supabase.from('precon_plans').update({name:n.trim()}).eq('id',p.id);
+                              setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:n.trim()}:x));
+                              if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:n.trim()}));
+                            }
+                          }} style={{fontSize:8,padding:'2px 5px',borderRadius:3,border:`1px solid ${t.border}`,background:'none',color:t.text4,cursor:'pointer'}}>
+                            ✎ Rename
+                          </button>
+                          <button onClick={async e=>{ e.stopPropagation();
+                            // Load image, render to canvas, run AI naming
+                            const btn=e.currentTarget;
+                            btn.textContent='✦ …'; btn.disabled=true;
+                            try {
+                              const img=new Image(); img.crossOrigin='anonymous';
+                              img.src=p.file_url+'?t='+Date.now();
+                              await new Promise((res,rej)=>{img.onload=res;img.onerror=rej;});
+                              const cv=document.createElement('canvas');
+                              cv.width=img.naturalWidth;cv.height=img.naturalHeight;
+                              cv.getContext('2d').drawImage(img,0,0);
+                              const aiName=await aiNameSheet(cv,p.name||'Sheet');
+                              if(aiName&&aiName!==p.name&&p.id!=='preview'){
+                                await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+                                setPlans(prev=>prev.map(x=>x.id===p.id?{...x,name:aiName}:x));
+                                if(selPlan?.id===p.id) setSelPlan(prev=>({...prev,name:aiName}));
+                              }
+                            } catch(err){ console.error(err); }
+                            btn.textContent='✦ AI Name'; btn.disabled=false;
+                          }} style={{fontSize:8,padding:'2px 5px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'rgba(168,85,247,0.08)',color:'#a855f7',cursor:'pointer'}}>
+                            ✦ AI Name
+                          </button>
+                        </div>
                       </div>
                     </div>
                   );
