@@ -4972,6 +4972,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         setUploading(false);
       }
       return;
+    }
 
     // Image upload (non-PDF)
     const fallbackName = autoNameSheet(file.name, plans);
