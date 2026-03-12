@@ -4863,17 +4863,18 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         out.width = Math.floor(canvasOrUrl.width * ratio);
         out.height = Math.floor(canvasOrUrl.height * ratio);
         out.getContext('2d').drawImage(canvasOrUrl, 0, 0, out.width, out.height);
-        const b64 = out.toDataURL('image/jpeg', 0.75).split(',')[1];
+        const b64 = out.toDataURL('image/jpeg', 0.88).split(',')[1];
         const resp = await fetch('/api/claude', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:80,
+          body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:60,
             messages:[{role:'user',content:[
               {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
-              {type:'text',text:'This is a construction drawing sheet. Find the title block (bottom-right corner) and extract sheet number and title. Reply ONLY: SHEET_NUMBER - SHEET_TITLE\nExample: C3.60 - PIPE CHART\nIf not visible: UNKNOWN'}
+              {type:'text',text:'Find the title block on this construction drawing (usually bottom-right corner) and extract the sheet number and title.\nReply with ONLY this format: SHEET_NUMBER - SHEET_TITLE\nExamples: C3.01 - SITE PLAN  /  A-101 - FLOOR PLAN  /  M-201 - MECHANICAL PLAN\nIf unreadable reply: UNKNOWN'}
             ]}]})
         });
         const json = await resp.json();
         const raw = (json?.content?.find?.(b=>b.type==='text')?.text||'').trim();
+        console.log('[aiNameSheet canvas] raw:', raw);
         if(!raw||raw.toUpperCase().includes('UNKNOWN')||raw.length<3) return fallbackName;
         return raw.replace(/^["'`*\s]+|["'`*\s]+$/g,'').trim();
       }
@@ -4904,7 +4905,6 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const batchName = file.name.replace(/\.[^.]+$/,'').replace(/[-_]/g,' ').trim() || 'Plan Set';
 
     if(isPdf){
-      // Read file as ArrayBuffer for PDF.js processing
       const arrayBuf = await file.arrayBuffer();
       const lib = await ensurePdfLib();
       if(!lib){ setUploading(false); alert('PDF library not loaded'); return; }
@@ -4916,98 +4916,107 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       const numPages = doc.numPages;
       const fallbackBase = autoNameSheet(file.name, plans);
 
-      // PHASE 1: Render pages sequentially (PDF.js limitation) but fire
-      // each upload immediately without awaiting — all network calls run in parallel
+      // ── PHASE 1: Render all pages + fire all uploads simultaneously ──
+      // Also capture title block crops for AI naming later
       const uploadPromises = [];
+      const titleCrops = []; // store b64 crops for naming phase
+
       for(let pageN=1; pageN<=numPages; pageN++){
         setUploading(`Rendering ${pageN} / ${numPages}…`);
         const page = await doc.getPage(pageN);
-        const viewport = page.getViewport({scale:1.5}); // 1.5 vs 2.0 = 44% fewer pixels
+        const viewport = page.getViewport({scale:1.8});
         const offscreen = document.createElement('canvas');
         offscreen.width = viewport.width; offscreen.height = viewport.height;
         await page.render({canvasContext: offscreen.getContext('2d'), viewport}).promise;
-        const blob = await new Promise(r=>offscreen.toBlob(r,'image/jpeg',0.82)); // JPEG = ~10x smaller than PNG
+        const blob = await new Promise(r=>offscreen.toBlob(r,'image/jpeg',0.82));
 
-        // Crop bottom-right 38% x 28% — that's where title blocks live
-        // Scale crop down to max 900px wide for fast AI reading
-        const cropW = Math.floor(offscreen.width * 0.38);
-        const cropH = Math.floor(offscreen.height * 0.28);
-        const cropX = offscreen.width - cropW;
-        const cropY = offscreen.height - cropH;
+        // Crop bottom-right 50% × 38% for title block
+        const cropW = Math.floor(offscreen.width * 0.50);
+        const cropH = Math.floor(offscreen.height * 0.38);
         const cropCanvas = document.createElement('canvas');
-        const MAX_CROP = 900;
+        const MAX_CROP = 1200;
         const cropScale = Math.min(1, MAX_CROP / cropW);
-        cropCanvas.width = Math.floor(cropW * cropScale);
+        cropCanvas.width  = Math.floor(cropW * cropScale);
         cropCanvas.height = Math.floor(cropH * cropScale);
-        cropCanvas.getContext('2d').drawImage(offscreen, cropX, cropY, cropW, cropH, 0, 0, cropCanvas.width, cropCanvas.height);
-        const titleBlockB64 = cropCanvas.toDataURL('image/jpeg', 0.88).split(',')[1];
+        cropCanvas.getContext('2d').drawImage(
+          offscreen,
+          offscreen.width - cropW, offscreen.height - cropH, cropW, cropH,
+          0, 0, cropCanvas.width, cropCanvas.height
+        );
+        titleCrops.push(cropCanvas.toDataURL('image/jpeg', 0.90).split(',')[1]);
 
         const sheetName = numPages>1 ? `${fallbackBase} — Pg ${pageN}` : fallbackBase;
         const path = `precon/${pid}/${Date.now()}_p${pageN}.jpg`;
         const idx = pageN - 1;
-        // Fire upload + AI name in parallel — both start immediately
         uploadPromises.push(
-          Promise.all([
-            // Upload full page
-            supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/jpeg'})
-              .then(({error}) => {
-                if(error){ console.error('page upload fail', error); return null; }
-                const {data:ud} = supabase.storage.from('attachments').getPublicUrl(path);
-                const publicUrl = ud?.publicUrl || '';
-                return supabase.from('precon_plans')
-                  .insert([{project_id:pid, name:sheetName, file_url:publicUrl, file_type:'image/jpeg'}])
-                  .select().single()
-                  .then(({data:plan}) => plan || null);
-              }),
-            // AI name from title block crop — runs concurrently with upload
-            fetch('/api/claude', {
-              method:'POST', headers:{'Content-Type':'application/json'},
-              body: JSON.stringify({
-                model:'claude-sonnet-4-20250514', max_tokens:60,
-                messages:[{role:'user',content:[
-                  {type:'image',source:{type:'base64',media_type:'image/jpeg',data:titleBlockB64}},
-                  {type:'text',text:'This is the bottom-right title block of a construction drawing. Extract the sheet number and title. Reply ONLY: SHEET_NUMBER - SHEET_TITLE\nExamples: C3.01 - SITE PLAN  /  A-101 - FLOOR PLAN  /  S2.0 - FOUNDATION PLAN\nIf unreadable reply: UNKNOWN'}
-                ]}]
-              })
-            }).then(r=>r.json()).then(j=>{
-              const raw=(j?.content?.find(b=>b.type==='text')?.text||'').trim();
-              if(!raw||raw.toUpperCase().includes('UNKNOWN')||raw.length<3) return sheetName;
-              return raw.replace(/^["'`*\s]+|["'`*\s]+$/g,'').trim();
-            }).catch(()=>sheetName)
-          ]).then(async([plan, aiName])=>{
-            if(!plan) return null;
-            // Apply AI name if we got one
-            const finalName = (aiName && aiName!==sheetName) ? aiName : sheetName;
-            if(finalName!==sheetName){
-              await supabase.from('precon_plans').update({name:finalName}).eq('id',plan.id);
-            }
-            return {...plan, name:finalName, _idx:idx};
-          })
+          supabase.storage.from('attachments').upload(path, blob, {upsert:true, contentType:'image/jpeg'})
+            .then(({error}) => {
+              if(error){ console.error('upload fail p'+pageN, error); return null; }
+              const {data:ud} = supabase.storage.from('attachments').getPublicUrl(path);
+              const publicUrl = ud?.publicUrl || '';
+              return supabase.from('precon_plans')
+                .insert([{project_id:pid, name:sheetName, file_url:publicUrl, file_type:'image/jpeg'}])
+                .select().single()
+                .then(({data:plan}) => plan ? {...plan, _idx:idx} : null);
+            })
         );
       }
 
-      // Await all pages (upload + AI naming running concurrently per page)
-      setUploading(`Processing ${numPages} page${numPages!==1?'s':''}…`);
+      // Wait for all uploads
+      setUploading(`Uploading ${numPages} page${numPages!==1?'s':''}…`);
       const settled = await Promise.all(uploadPromises);
       const newPlans = settled.filter(Boolean).sort((a,b)=>a._idx-b._idx).map(({_idx,...p})=>p);
 
-      if(newPlans.length>0){
-        setPlans(prev=>[...prev, ...newPlans]);
-        setSelPlan(newPlans[0]);
-        setPlanB64(null); setPlanMime('image/png');
-        if(uploadTargetFolder && planSets[uploadTargetFolder]){
-          const updated = {...planSets, [uploadTargetFolder]:{...planSets[uploadTargetFolder], planIds:[...(planSets[uploadTargetFolder].planIds||[]), ...newPlans.map(p=>p.id)]}};
-          savePlanSets(updated);
-        } else {
-          const updated = {...planSets, [batchId]:{name:batchName, planIds:newPlans.map(p=>p.id), collapsed:false}};
-          savePlanSets(updated);
-        }
-        setUploadTargetFolder(null);
-        setUploading(`✓ Done — ${newPlans.length} sheet${newPlans.length!==1?'s':''} uploaded`);
-        setTimeout(()=>setUploading(false), 3000);
+      if(newPlans.length===0){ setUploading(false); return; }
+
+      // ── Show plans immediately with fallback names so user sees them ──
+      setPlans(prev=>[...prev, ...newPlans]);
+      setSelPlan(newPlans[0]);
+      setPlanB64(null); setPlanMime('image/png');
+      if(uploadTargetFolder && planSets[uploadTargetFolder]){
+        savePlanSets({...planSets, [uploadTargetFolder]:{...planSets[uploadTargetFolder], planIds:[...(planSets[uploadTargetFolder].planIds||[]), ...newPlans.map(p=>p.id)]}});
       } else {
-        setUploading(false);
+        savePlanSets({...planSets, [batchId]:{name:batchName, planIds:newPlans.map(p=>p.id), collapsed:false}});
       }
+      setUploadTargetFolder(null);
+
+      // ── PHASE 2: AI name in batches of 5 — update each plan live as it's named ──
+      const BATCH = 5;
+      let named = 0;
+      for(let i=0; i<newPlans.length; i+=BATCH){
+        const slice = newPlans.slice(i, i+BATCH);
+        setUploading(`Naming ${i+1}–${Math.min(i+BATCH, newPlans.length)} of ${newPlans.length}…`);
+        await Promise.all(slice.map(async(p, bi)=>{
+          const b64 = titleCrops[i+bi];
+          if(!b64) return;
+          try {
+            const resp = await fetch('/api/claude', {
+              method:'POST', headers:{'Content-Type':'application/json'},
+              body: JSON.stringify({
+                model:'claude-sonnet-4-20250514', max_tokens:60,
+                messages:[{role:'user', content:[
+                  {type:'image', source:{type:'base64', media_type:'image/jpeg', data:b64}},
+                  {type:'text', text:'This is the bottom-right corner of a construction drawing showing the title block. Extract the sheet number and sheet title.\nReply with ONLY this format: SHEET_NUMBER - SHEET_TITLE\nExamples:\n  C3.01 - SITE PLAN\n  A-101 - FLOOR PLAN\n  S2.0 - FOUNDATION PLAN\n  E-201 - ELECTRICAL PLAN\nIf you cannot clearly read a sheet number and title, reply: UNKNOWN'}
+                ]}]
+              })
+            });
+            const j = await resp.json();
+            const raw = (j?.content?.find(b=>b.type==='text')?.text||'').trim();
+            console.log(`[name pg${i+bi+1}]`, raw);
+            if(!raw || raw.toUpperCase().includes('UNKNOWN') || raw.length < 3) return;
+            const aiName = raw.replace(/^["'`*\s]+|["'`*\s]+$/g,'').trim();
+            if(aiName === p.name) return;
+            // Update DB
+            await supabase.from('precon_plans').update({name:aiName}).eq('id',p.id);
+            // Update UI live — this plan gets its real name immediately
+            setPlans(prev=>prev.map(x=>x.id===p.id ? {...x,name:aiName} : x));
+            named++;
+          } catch(e){ console.warn(`[name pg${i+bi+1}] error:`, e); }
+        }));
+      }
+
+      setUploading(`✓ Done — ${newPlans.length} sheet${newPlans.length!==1?'s':''} uploaded, ${named} named`);
+      setTimeout(()=>setUploading(false), 3000);
       return;
     }
 
