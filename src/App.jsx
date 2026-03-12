@@ -3072,6 +3072,7 @@ function PreconTab({ project }) {
 
   useEffect(()=>{
     const handleKey=(e)=>{
+      if(e.target.tagName==='INPUT'||e.target.tagName==='TEXTAREA') return;
       if(e.key===' ') setSpaceHeld(true);
       if(e.key==='Escape'){
         setActivePts([]);
@@ -3079,13 +3080,23 @@ function PreconTab({ project }) {
         setScaleStep(null);
         setTool('select');
         setShowScalePicker(false);
+        setArchMode(false);
+        setArchCtrlPending(false);
+      }
+      // A = toggle arch mode (linear/area only)
+      if((e.key==='a'||e.key==='A')&&!e.ctrlKey&&!e.metaKey){
+        const activeCond=itemsRef.current.find(i=>i.id===activeCondId);
+        if(activeCond&&(activeCond.measurement_type==='linear'||activeCond.measurement_type==='area')){
+          e.preventDefault();
+          setArchMode(prev=>{ const n=!prev; if(!n)setArchCtrlPending(false); return n; });
+        }
       }
     };
     const handleKeyUp=(e)=>{ if(e.key===' ') setSpaceHeld(false); };
     window.addEventListener('keydown',handleKey);
     window.addEventListener('keyup',handleKeyUp);
     return ()=>{ window.removeEventListener('keydown',handleKey); window.removeEventListener('keyup',handleKeyUp); };
-  },[]);
+  },[activeCondId]);
 
   // Container callback ref — attaches wheel + pan handlers
   const containerCallbackRef = (el) => {
@@ -4251,6 +4262,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [estSaving, setEstSaving] = useState(null);
   const [estHover, setEstHover] = useState(null);
   const [collapsedCats, setCollapsedCats] = useState({});
+  const [archMode, setArchMode] = useState(false);   // A-key arch toggle
+  const [archCtrlPending, setArchCtrlPending] = useState(false); // area: next click = ctrl pt
   const [takeoffStep, setTakeoffStep] = useState(null); // null | 'type' | 'create' | 'settings'
   const [newTOType, setNewTOType] = useState(null);
   const [newTOName, setNewTOName] = useState('');
@@ -4572,10 +4585,21 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     // Recompute total quantity
     let qty = 0;
     if(item.measurement_type==='area'){
-      qty = shapes.reduce((s,sh)=>s+calcArea(sh),0);
+      qty = shapes.reduce((s,sh)=>{
+        const hasArcs = sh.some(p=>p._ctrl);
+        return s + (hasArcs ? calcShapeArea(sh) : calcArea(sh));
+      },0);
       qty = Math.round(qty*10)/10;
     } else if(item.measurement_type==='linear'){
-      qty = shapes.reduce((s,sh)=>s+(sh.length>=2?calcLinear(sh[0],sh[1]):0),0);
+      qty = shapes.reduce((s,sh)=>{
+        const hasArcs = sh.some(p=>p._ctrl);
+        if(hasArcs) {
+          // arc shape: [p1, {ctrl, _ctrl:true}, p2]
+          const pxLen = calcShapeLength(sh);
+          return s + (scale ? pxLen/scale : 0);
+        }
+        return s + (sh.length>=2?calcLinear(sh[0],sh[1]):0);
+      },0);
       qty = Math.round(qty*10)/10;
     } else if(item.measurement_type==='count'){
       qty = shapes.length;
@@ -4601,9 +4625,6 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       return;
     }
 
-    // ── Condition-first drawing ──────────────────────────────────
-    // If an active condition is selected, append shapes into it.
-    // No active condition = no drawing (prompt user to create/select one).
     if(!activeCondId) return;
     const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
     if(!activeCond) return;
@@ -4613,23 +4634,65 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       appendMeasurement(activeCondId, [pt]);
       return;
     }
+
     if(mt==='linear'){
-      const npts=[...activePts,pt];
-      if(npts.length===2){
-        appendMeasurement(activeCondId, npts);
-        setActivePts([]);
-      } else setActivePts(npts);
-      return;
-    }
-    if(mt==='area'){
-      if(activePts.length>=3){
-        const fp=activePts[0];
-        if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
-          appendMeasurement(activeCondId, activePts);
-          setActivePts([]); return;
+      if(!archMode){
+        // Normal straight linear: 2 clicks
+        const npts=[...activePts,pt];
+        if(npts.length===2){
+          appendMeasurement(activeCondId, npts);
+          setActivePts([]);
+        } else setActivePts(npts);
+      } else {
+        // Arch linear: 3 clicks — p1, p2, then ctrl
+        // activePts[0]=p1, activePts[1]=p2, click 3 = ctrl
+        const npts=[...activePts,pt];
+        if(npts.length===1){ setActivePts(npts); } // have p1
+        else if(npts.length===2){ setActivePts(npts); } // have p1+p2, next = ctrl
+        else if(npts.length===3){
+          // p1=npts[0], p2=npts[2], ctrl=npts[1] ... actually store: [p1, {ctrl, _ctrl:true}, p2]
+          const [p1,p2,ctrl]=npts;
+          const arcShape=[p1, {...ctrl, _ctrl:true}, p2];
+          appendMeasurement(activeCondId, arcShape);
+          setActivePts([]);
         }
       }
-      setActivePts(prev=>[...prev,pt]);
+      return;
+    }
+
+    if(mt==='area'){
+      if(!archMode){
+        // Normal: close on first pt if >=3 pts placed
+        if(activePts.length>=3){
+          const fp=activePts[0];
+          if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
+            appendMeasurement(activeCondId, activePts);
+            setActivePts([]); return;
+          }
+        }
+        setActivePts(prev=>[...prev,pt]);
+      } else {
+        // Arch area: pressing A sets "next click = ctrl point for arc"
+        if(archCtrlPending){
+          // This click is the control point — insert as _ctrl, wait for endpoint
+          setActivePts(prev=>[...prev, {...pt, _ctrl:true}]);
+          setArchCtrlPending(false);
+          // arch mode stays on — user can press A again for next arc segment
+        } else {
+          // Normal area click in arch mode — place real vertex, then set ctrl pending
+          if(activePts.length>=3){
+            const fp=activePts[0];
+            if(Math.sqrt((pt.x-fp.x)**2+(pt.y-fp.y)**2)<(20/zoom)){
+              appendMeasurement(activeCondId, activePts);
+              setActivePts([]); setArchMode(false); return;
+            }
+          }
+          setActivePts(prev=>[...prev,pt]);
+          // pressing A primes the next click as ctrl; the A key already set archMode
+          // so after placing a vertex in arch mode, immediately queue ctrl pending
+          setArchCtrlPending(true);
+        }
+      }
       return;
     }
   };
@@ -4661,6 +4724,66 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       window.removeEventListener('mouseup',onUp);
     };
     window.addEventListener('mouseup',onUp);
+  };
+
+  // ── Arch / bezier helpers ─────────────────────────────────────────────
+  const bezierLength = (p1, ctrl, p2, steps=40) => {
+    let len=0, prev=p1;
+    for(let i=1;i<=steps;i++){
+      const t=i/steps;
+      const x=(1-t)**2*p1.x+2*(1-t)*t*ctrl.x+t**2*p2.x;
+      const y=(1-t)**2*p1.y+2*(1-t)*t*ctrl.y+t**2*p2.y;
+      len+=Math.sqrt((x-prev.x)**2+(y-prev.y)**2);
+      prev={x,y};
+    }
+    return len;
+  };
+  const bezierPt = (p1, ctrl, p2, t) => ({
+    x:(1-t)**2*p1.x+2*(1-t)*t*ctrl.x+t**2*p2.x,
+    y:(1-t)**2*p1.y+2*(1-t)*t*ctrl.y+t**2*p2.y,
+  });
+  const buildShapePath = (pts, close=false) => {
+    if(!pts||!pts.length) return '';
+    let d=`M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+    let i=1;
+    while(i<pts.length){
+      if(pts[i]?._ctrl && i+1<pts.length){
+        d+=` Q${pts[i].x.toFixed(2)},${pts[i].y.toFixed(2)} ${pts[i+1].x.toFixed(2)},${pts[i+1].y.toFixed(2)}`;
+        i+=2;
+      } else {
+        d+=` L${pts[i].x.toFixed(2)},${pts[i].y.toFixed(2)}`;
+        i++;
+      }
+    }
+    if(close) d+=' Z';
+    return d;
+  };
+  const calcShapeLength = (pts) => {
+    if(!pts||pts.length<2) return 0;
+    let total=0, i=1;
+    while(i<pts.length){
+      if(pts[i]?._ctrl && i+1<pts.length){
+        total+=bezierLength(pts[i-1]??pts[0], pts[i], pts[i+1]);
+        i+=2;
+      } else {
+        const a=pts[i-1]??pts[0], b=pts[i];
+        total+=Math.sqrt((b.x-a.x)**2+(b.y-a.y)**2);
+        i++;
+      }
+    }
+    return total;
+  };
+  const calcShapeArea = (expandedPts) => {
+    // Expand arc segments for shoelace
+    const expanded=[];
+    let i=0;
+    while(i<expandedPts.length){
+      if(expandedPts[i+1]?._ctrl && i+2<expandedPts.length){
+        for(let s=0;s<=20;s++) expanded.push(bezierPt(expandedPts[i],expandedPts[i+1],expandedPts[i+2],s/20));
+        i+=3;
+      } else { expanded.push(expandedPts[i]); i++; }
+    }
+    return calcArea(expanded);
   };
 
   const confirmScale=async()=>{
@@ -4875,10 +4998,11 @@ Return ONLY a valid JSON array, no markdown:
           const onClick = ()=>{ setActiveCondId(it.id); setTool(mt==='area'?'area':mt==='perimeter'?'perimeter':mt==='linear'?'linear':mt==='count'?'count':'select'); };
 
           if((mt==='area')&&pts.length>=3){
-            const d=pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z';
-            const cx=pts.reduce((s,p)=>s+p.x,0)/pts.length;
-            const cy=pts.reduce((s,p)=>s+p.y,0)/pts.length;
-            const shapeArea = Math.round(calcArea(pts)*10)/10;
+            const hasArcs = pts.some(p=>p._ctrl);
+            const d = hasArcs ? buildShapePath(pts, true) : (pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+            const cx=pts.filter(p=>!p._ctrl).reduce((s,p)=>s+p.x,0)/pts.filter(p=>!p._ctrl).length;
+            const cy=pts.filter(p=>!p._ctrl).reduce((s,p)=>s+p.y,0)/pts.filter(p=>!p._ctrl).length;
+            const shapeArea = Math.round((hasArcs?calcShapeArea(pts):calcArea(pts))*10)/10;
             const lw=38/zoom, lh=padH*1.6;
             return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
               <path d={d} fill={c+'22'} stroke={c} strokeWidth={isActive?sw*1.5:sw}/>
@@ -4887,14 +5011,25 @@ Return ONLY a valid JSON array, no markdown:
             </g>);
           }
           if(mt==='linear'&&pts.length>=2){
-            const mx=(pts[0].x+pts[1].x)/2; const my=(pts[0].y+pts[1].y)/2;
-            const dist = Math.round(calcLinear(pts[0],pts[1])*10)/10;
+            const hasArcs = pts.some(p=>p._ctrl);
+            const d = hasArcs ? buildShapePath(pts) : null;
+            // midpoint for label
+            const realPts = pts.filter(p=>!p._ctrl);
+            const mx=(realPts[0].x+realPts[realPts.length-1].x)/2;
+            const my=(realPts[0].y+realPts[realPts.length-1].y)/2;
+            const dist = hasArcs
+              ? Math.round((calcShapeLength(pts)/scale)*10)/10
+              : Math.round(calcLinear(pts[0],pts[1])*10)/10;
             const lw=36/zoom, lh=padH*1.5;
             return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
-              <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${6/zoom},${3/zoom}`}/>
-              {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r*0.8} fill={c} stroke="#fff" strokeWidth={sw*0.4}/>)}
+              {hasArcs
+                ? <path d={d} fill="none" stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${6/zoom},${3/zoom}`}/>
+                : <line x1={pts[0].x} y1={pts[0].y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${6/zoom},${3/zoom}`}/>
+              }
+              {realPts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r*0.8} fill={c} stroke="#fff" strokeWidth={sw*0.4}/>)}
+              {hasArcs&&<circle cx={pts.find(p=>p._ctrl)?.x} cy={pts.find(p=>p._ctrl)?.y} r={r*0.5} fill={c} opacity={0.4}/>}
               <rect x={mx-lw/2} y={my-lh*1.6} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
-              <text x={mx} y={my-lh*0.7} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{dist} LF</text>
+              <text x={mx} y={my-lh*0.7} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{dist} {scale?'LF':'px'}</text>
             </g>);
           }
           if(mt==='count'&&pts[0]){
@@ -4912,19 +5047,67 @@ Return ONLY a valid JSON array, no markdown:
 
   const renderActive=()=>{
     const pts=(tool==='scale'&&scaleStep==='picking')?scalePts:activePts;
-    if(!pts.length) return null;
-    const c=tool==='scale'?'#10B981':tool==='area'?'#F59E0B':tool==='perimeter'?'#F97316':'#06B6D4';
+    if(!pts.length&&!archMode) return null;
+    const c=tool==='scale'?'#10B981':archMode?'#a855f7':tool==='area'?'#F59E0B':tool==='perimeter'?'#F97316':'#06B6D4';
     const sw=2.5/zoom, r0=10/zoom, r1=5/zoom, r2=4/zoom, fs=10/zoom;
     const all=hoverPt?[...pts,hoverPt]:pts;
+    const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+    const mt = activeCond?.measurement_type;
+
+    // Arch linear: show bezier preview when we have p1+p2 and hovering for ctrl
+    const isArchLinear = archMode && mt==='linear';
+    const isArchArea   = archMode && mt==='area';
+
+    // Build preview path
+    let previewPath = null;
+    if(isArchLinear && pts.length===2 && hoverPt){
+      // Preview: p1 → curve → p2 with hoverPt as ctrl
+      const d=`M${pts[0].x},${pts[0].y} Q${hoverPt.x},${hoverPt.y} ${pts[1].x},${pts[1].y}`;
+      const pxLen = bezierLength(pts[0], hoverPt, pts[1]);
+      const ft = scale ? Math.round(pxLen/scale*10)/10 : null;
+      const mx=(pts[0].x+pts[1].x)/2, my=(pts[0].y+pts[1].y)/2;
+      previewPath = (<>
+        <path d={d} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.9}/>
+        <line x1={hoverPt.x} y1={hoverPt.y} x2={pts[0].x} y2={pts[0].y} stroke={c} strokeWidth={sw*0.4} strokeDasharray={`${3/zoom},${3/zoom}`} opacity={0.3}/>
+        <line x1={hoverPt.x} y1={hoverPt.y} x2={pts[1].x} y2={pts[1].y} stroke={c} strokeWidth={sw*0.4} strokeDasharray={`${3/zoom},${3/zoom}`} opacity={0.3}/>
+        <circle cx={hoverPt.x} cy={hoverPt.y} r={r2} fill={c} opacity={0.6}/>
+        {ft&&<text x={mx} y={my-8/zoom} fontSize={fs} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{ft} LF ⌒</text>}
+      </>);
+    } else if(isArchLinear && pts.length===1 && hoverPt){
+      // First segment — show straight preview to p2
+      previewPath = <line x1={pts[0].x} y1={pts[0].y} x2={hoverPt.x} y2={hoverPt.y} stroke={c} strokeWidth={sw} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.7}/>;
+    } else if(!isArchLinear){
+      // Normal area/linear preview
+      if(all.length>=2) previewPath = <polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={tool==='area'?'none':`${6/zoom},${3/zoom}`} opacity={0.9}/>;
+    }
+
     return(<>
-      {all.length>=2&&<polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={tool==='area'?'none':`${6/zoom},${3/zoom}`} opacity={0.9}/>}
-      {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?r0:r1} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={sw*0.8} opacity={0.95}/>)}
-      {hoverPt&&<circle cx={hoverPt.x} cy={hoverPt.y} r={r2} fill={c} opacity={0.5}/>}
-      {(tool==='area')&&pts.length>=3&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>● close</text>}
-      {tool==='linear'&&pts.length===1&&scale&&hoverPt&&(()=>{
+      {previewPath}
+      {/* Draw placed points */}
+      {pts.filter(p=>!p._ctrl).map((p,i)=>(
+        <circle key={i} cx={p.x} cy={p.y} r={i===0&&pts.length>=3?r0:r1} fill={c} stroke={i===0&&pts.length>=3?'#fff':'none'} strokeWidth={sw*0.8} opacity={0.95}/>
+      ))}
+      {/* Show ctrl points as diamonds */}
+      {pts.filter(p=>p._ctrl).map((p,i)=>(
+        <circle key={'c'+i} cx={p.x} cy={p.y} r={r2*0.8} fill={c} opacity={0.5}/>
+      ))}
+      {hoverPt&&!isArchLinear&&<circle cx={hoverPt.x} cy={hoverPt.y} r={r2} fill={c} opacity={0.5}/>}
+      {/* Close hint for area */}
+      {(tool==='area')&&pts.length>=3&&!isArchArea&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>● close</text>}
+      {/* Live LF readout for normal linear */}
+      {tool==='linear'&&!archMode&&pts.length===1&&scale&&hoverPt&&(()=>{
         const dist=Math.round(calcLinear(pts[0],hoverPt)*10)/10;
         return <text x={(pts[0].x+hoverPt.x)/2} y={(pts[0].y+hoverPt.y)/2-6/zoom} fontSize={fs} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>{dist} LF</text>;
       })()}
+      {/* Arch mode step indicator */}
+      {isArchLinear&&(
+        <text x={hoverPt?.x??0} y={(hoverPt?.y??0)-16/zoom} fontSize={fs*0.9} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>
+          {pts.length===0?'⌒ Click start':pts.length===1?'⌒ Click end':pts.length===2?'⌒ Click arc bulge':''}
+        </text>
+      )}
+      {isArchArea&&archCtrlPending&&(
+        <text x={hoverPt?.x??0} y={(hoverPt?.y??0)-16/zoom} fontSize={fs*0.9} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>⌒ Click arc ctrl pt</text>
+      )}
     </>);
   };
 
@@ -5703,7 +5886,7 @@ Return ONLY a valid JSON array, no markdown:
           ].map((btn,i)=>{
             if(!btn) return <div key={i} style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>;
             const isActive = tool===btn.id;
-            const onClick = ()=>{setTool(btn.id);setActivePts([]);setScaleStep(null);setShowScalePanel(false);};
+            const onClick = ()=>{setTool(btn.id);setActivePts([]);setScaleStep(null);setShowScalePanel(false);setArchMode(false);setArchCtrlPending(false);};
             return(
               <button key={btn.id} onClick={onClick} title={btn.label}
                 style={{width:'100%',padding:'10px 0',border:'none',background:isActive?`${btn.color}18`:'none',
@@ -5716,9 +5899,43 @@ Return ONLY a valid JSON array, no markdown:
               </button>
             );
           })}
+
+          {/* Arch toggle — only shown when linear or area takeoff is active */}
+          {activeCondId&&(()=>{
+            const ac=itemsRef.current.find(i=>i.id===activeCondId);
+            if(!ac||(ac.measurement_type!=='linear'&&ac.measurement_type!=='area')) return null;
+            return(
+              <>
+                <div style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>
+                <button onClick={()=>{setArchMode(p=>{const n=!p;if(!n)setArchCtrlPending(false);return n;});setActivePts([]);}}
+                  title="Arch tool (A)"
+                  style={{width:'100%',padding:'10px 0',border:'none',
+                    background:archMode?'#a855f718':'none',
+                    color:archMode?'#a855f7':t.text3,cursor:'pointer',
+                    display:'flex',flexDirection:'column',alignItems:'center',gap:2,
+                    borderRight:archMode?'2px solid #a855f7':'2px solid transparent',
+                    boxSizing:'border-box',transition:'all 0.1s'}}>
+                  <span style={{fontSize:15,lineHeight:1}}>⌒</span>
+                  <span style={{fontSize:8,fontWeight:600,color:archMode?'#a855f7':t.text4,letterSpacing:0.2}}>Arch</span>
+                  <span style={{fontSize:7,color:archMode?'#a855f7':t.text4,opacity:0.7}}>[A]</span>
+                </button>
+              </>
+            );
+          })()}
+
           <div style={{flex:1}}/>
           {/* Live measure readout at bottom of tool bar */}
-          {tool==='area'&&activePts.length>=3&&scale&&hoverPt&&(
+          {archMode&&(
+            <div style={{padding:'6px 2px',textAlign:'center',borderTop:`1px solid #a855f730`,width:'100%',background:'#a855f710'}}>
+              <span style={{fontSize:9,color:'#a855f7',fontWeight:700,display:'block',lineHeight:1.4}}>⌒</span>
+              <span style={{fontSize:7,color:'#a855f7',fontWeight:600,display:'block',lineHeight:1.4}}>
+                {tool==='linear'
+                  ? activePts.length===0?'pt 1':activePts.length===1?'pt 2':'bulge'
+                  : archCtrlPending?'ctrl pt':'vertex'}
+              </span>
+            </div>
+          )}
+          {!archMode&&tool==='area'&&activePts.length>=3&&scale&&hoverPt&&(
             <div style={{padding:'6px 2px',textAlign:'center',borderTop:`1px solid ${t.border}`,width:'100%'}}>
               <span style={{fontSize:9,color:'#F59E0B',fontWeight:700,display:'block',lineHeight:1.4}}>
                 {Math.round(calcArea([...activePts,hoverPt])*10)/10}
@@ -5726,7 +5943,7 @@ Return ONLY a valid JSON array, no markdown:
               <span style={{fontSize:8,color:t.text4}}>SF</span>
             </div>
           )}
-          {tool==='linear'&&activePts.length===1&&hoverPt&&scale&&(
+          {!archMode&&tool==='linear'&&activePts.length===1&&hoverPt&&scale&&(
             <div style={{padding:'6px 2px',textAlign:'center',borderTop:`1px solid ${t.border}`,width:'100%'}}>
               <span style={{fontSize:9,color:'#06B6D4',fontWeight:700,display:'block',lineHeight:1.4}}>
                 {Math.round(calcLinear(activePts[0],hoverPt)*10)/10}
