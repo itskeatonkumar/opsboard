@@ -4845,59 +4845,52 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return name;
   };
 
-  // AI sheet name extraction: crops title block (bottom-right) → /api/claude
+  // AI sheet name extraction — fetch URL as blob → base64 → /api/claude (no canvas, no Image element)
   const aiNameSheet = async (canvasOrUrl, fallbackName) => {
     try {
-      let b64;
-
-      const cropCanvas = (img) => {
-        const cw=img.naturalWidth||img.width, ch=img.naturalHeight||img.height;
-        const cropX=Math.floor(cw*0.55), cropY=Math.floor(ch*0.72);
-        const cropW=cw-cropX, cropH=ch-cropY;
-        const crop=document.createElement('canvas');
-        // Max 600px wide, quality 0.72 — keeps base64 under ~150KB
-        const s=Math.min(1, 600/cropW);
-        crop.width=Math.floor(cropW*s); crop.height=Math.floor(cropH*s);
-        crop.getContext('2d').drawImage(img, cropX, cropY, cropW, cropH, 0, 0, crop.width, crop.height);
-        const b64 = crop.toDataURL('image/jpeg',0.72).split(',')[1];
-        console.log('[aiNameSheet] crop size:', crop.width, 'x', crop.height, 'b64 len:', b64.length);
-        return b64;
-      };
+      let b64, mediaType;
 
       if (typeof canvasOrUrl === 'string') {
+        // Fetch image directly as blob → base64
         const res = await fetch(canvasOrUrl);
-        if(!res.ok) { console.error('fetch plan failed', res.status); return fallbackName; }
+        if (!res.ok) { console.error('[aiNameSheet] fetch failed', res.status); return fallbackName; }
         const blob = await res.blob();
-        const dataUrl = await new Promise((res2,rej)=>{ const r=new FileReader(); r.onload=()=>res2(r.result); r.onerror=rej; r.readAsDataURL(blob); });
-        const img = new Image();
-        img.src = dataUrl;
-        await new Promise((res2,rej)=>{ img.onload=res2; img.onerror=rej; });
-        b64 = cropCanvas(img);
+        mediaType = blob.type && blob.type !== 'application/octet-stream' ? blob.type : 'image/png';
+        b64 = await new Promise((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(r.result.split(',')[1]);
+          r.onerror = reject;
+          r.readAsDataURL(blob);
+        });
       } else {
-        // Already a canvas
-        b64 = cropCanvas(canvasOrUrl);
+        // Canvas element passed directly
+        mediaType = 'image/jpeg';
+        b64 = canvasOrUrl.toDataURL('image/jpeg', 0.85).split(',')[1];
       }
 
       const resp = await fetch('/api/claude', {
-        method:'POST',
-        headers:{'Content-Type':'application/json'},
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model:'claude-sonnet-4-20250514',
-          max_tokens:60,
-          messages:[{role:'user', content:[
-            {type:'image', source:{type:'base64', media_type:'image/jpeg', data:b64}},
-            {type:'text', text:'This is the bottom-right title block of a construction drawing. Extract the sheet number and sheet title. Reply with ONLY: SHEET_NUMBER - SHEET_TITLE  Example reply: C3.60 - PIPE CHART  If you cannot read it, reply: UNKNOWN'}
-          ]}]
+          model: 'claude-sonnet-4-20250514',
+          max_tokens: 80,
+          messages: [{
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type: mediaType, data: b64 } },
+              { type: 'text', text: 'This is a construction drawing sheet. Look at the title block (usually bottom-right corner). Extract the sheet number and sheet title. Reply with ONLY this format: SHEET_NUMBER - SHEET_TITLE\nExamples: "C3.60 - PIPE CHART" or "A-101 - FLOOR PLAN"\nIf you cannot find a title block, reply: UNKNOWN' }
+            ]
+          }]
         })
       });
 
-      if(!resp.ok){ console.error('aiNameSheet http error', resp.status, await resp.text()); return fallbackName; }
+      if (!resp.ok) { console.error('[aiNameSheet] api error', resp.status, await resp.text()); return fallbackName; }
       const json = await resp.json();
-      console.log('[aiNameSheet]', json);
-      const raw = (json?.content?.find?.(b=>b.type==='text')?.text || '').trim();
-      if(!raw || raw.toUpperCase().includes('UNKNOWN') || raw.length<3) return fallbackName;
-      return raw.replace(/^["'`*]+|["'`*]+$/g,'').trim();
-    } catch(e) {
+      const raw = (json?.content?.find?.(b => b.type === 'text')?.text || '').trim();
+      console.log('[aiNameSheet] raw:', raw);
+      if (!raw || raw.toUpperCase().includes('UNKNOWN') || raw.length < 3) return fallbackName;
+      return raw.replace(/^["'`*\s]+|["'`*\s]+$/g, '').trim();
+    } catch (e) {
       console.error('[aiNameSheet] exception:', e);
       return fallbackName;
     }
@@ -5330,18 +5323,12 @@ Return ONLY a valid JSON array, no markdown:
                   try {
                     const r2=await fetch(p.file_url);
                     const blob2=await r2.blob();
-                    const dataUrl2=await new Promise((rs,rj)=>{const rd=new FileReader();rd.onload=()=>rs(rd.result);rd.onerror=rj;rd.readAsDataURL(blob2);});
-                    const img2=new Image(); img2.src=dataUrl2;
-                    await new Promise((rs,rj)=>{img2.onload=rs;img2.onerror=rj;});
-                    const cv=document.createElement('canvas');
-                    const s=Math.min(1,600/img2.naturalWidth);
-                    cv.width=Math.floor(img2.naturalWidth*s); cv.height=Math.floor(img2.naturalHeight*s);
-                    cv.getContext('2d').drawImage(img2,0,0,cv.width,cv.height);
-                    const b64=cv.toDataURL('image/jpeg',0.7).split(',')[1];
-                    const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},{type:'text',text:'Reply with just the word: WORKING'}]}]})});
+                    const b64=await new Promise((rs,rj)=>{const rd=new FileReader();rd.onload=()=>rs(rd.result.split(',')[1]);rd.onerror=rj;rd.readAsDataURL(blob2);});
+                    const mt=blob2.type||'image/png';
+                    const r3=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:60,messages:[{role:'user',content:[{type:'image',source:{type:'base64',media_type:mt,data:b64}},{type:'text',text:'Reply with just the word: WORKING'}]}]})});
                     const j3=await r3.json();
                     alert(`Step 4b raw image API: status=${r3.status}\n${JSON.stringify(j3).slice(0,400)}`);
-                  } catch(e){ alert('Step 4b FAIL: '+e.message); }
+                  } catch(e){ alert('Step 4b FAIL: '+(e?.message||String(e))); }
 
                   // STEP 4: full aiNameSheet
                   try {
