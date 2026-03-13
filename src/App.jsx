@@ -4325,6 +4325,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   // IMPORTANT: items with null plan_id are excluded — they have no valid page association.
   const planItems=items.filter(i=>i.plan_id!=null && i.plan_id===selPlan?.id);
 
+  // Sidebar shows ALL project items (across all plans) so you can arm any takeoff
+  // regardless of which plan you're currently on. Items are deduplicated by
+  // description+category — the first item found acts as the "canonical" arm target;
+  // the sibling logic in appendMeasurement handles per-plan branching automatically.
+  const sidebarItems = items.filter(i=>i.project_id===project.id);
+
   const getSvgPos=(e)=>{
     const c=containerRef.current;
     if(!c) return {x:0,y:0};
@@ -4591,8 +4597,49 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   // points stored as array-of-shapes: [ [{x,y},...], [{x,y},...] ]
   // qty = sum of all shapes (area, linear, perimeter) or count of shapes (count)
   const appendMeasurement = async (condId, newShape) => {
-    const item = itemsRef.current.find(i=>i.id===condId);
-    if(!item){ console.warn('appendMeasurement: item not found', condId, itemsRef.current.map(i=>i.id)); return; }
+    let item = itemsRef.current.find(i=>i.id===condId);
+    if(!item){ console.warn('appendMeasurement: item not found', condId); return; }
+
+    // ── Cross-plan drawing: if the active plan differs from the item's plan,
+    //    find or create a sibling item for the current plan ──────────────────
+    if(selPlan?.id && item.plan_id !== selPlan.id){
+      const sibling = itemsRef.current.find(i=>
+        i.plan_id === selPlan.id &&
+        i.description === item.description &&
+        i.category === item.category &&
+        i.project_id === item.project_id &&
+        i.measurement_type === item.measurement_type
+      );
+      if(sibling){
+        item = sibling;
+      } else {
+        // Create new sibling for current plan
+        const costs = getUnitCosts();
+        const uc = item.unit_cost ?? ((costs[item.category]?.mat||0)+(costs[item.category]?.lab||0));
+        const payload = {
+          project_id: item.project_id,
+          plan_id: selPlan.id,
+          category: item.category,
+          description: item.description,
+          quantity: 0,
+          unit: item.unit,
+          unit_cost: uc,
+          total_cost: 0,
+          measurement_type: item.measurement_type,
+          color: item.color,
+          points: [],
+          ai_generated: false,
+          sort_order: itemsRef.current.length,
+        };
+        const {data: newItem} = await supabase.from('takeoff_items').insert([payload]).select().single();
+        if(!newItem){ console.error('appendMeasurement: failed to create sibling item'); return; }
+        setItems(prev=>[...prev, newItem]);
+        // Update activeCondId to point to the new sibling so subsequent draws go here
+        setActiveCondId(newItem.id);
+        item = newItem;
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────
     // Detect legacy flat points and upgrade
     const existing = item.points;
     let shapes = [];
@@ -4632,8 +4679,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
     const total_cost = qty * (item.unit_cost||0);
     const updated = {...item, points:shapes, quantity:qty, total_cost};
-    await supabase.from('takeoff_items').update({points:shapes, quantity:qty, total_cost}).eq('id',condId);
-    setItems(prev=>prev.map(i=>i.id===condId?updated:i));
+    await supabase.from('takeoff_items').update({points:shapes, quantity:qty, total_cost}).eq('id', item.id);
+    setItems(prev=>prev.map(i=>i.id===item.id ? updated : i));
     // Keep tool armed — stay ready for more shapes
   };
 
@@ -5283,8 +5330,26 @@ Return ONLY a valid JSON array, no markdown:
 
   const totalEst=items.reduce((s,i)=>s+(i.total_cost||0),0); // all sheets
   const catGroups=TAKEOFF_CATS.map(cat=>{
-    const its=planItems.filter(i=>i.category===cat.id);
-    return its.length?{...cat,items:its,subtotal:its.reduce((s,i)=>s+(i.total_cost||0),0)}:null;
+    const allCatItems = sidebarItems.filter(i=>i.category===cat.id);
+    if(!allCatItems.length) return null;
+    const byDesc = new Map();
+    allCatItems.forEach(i=>{
+      const key = i.description;
+      if(!byDesc.has(key)){
+        byDesc.set(key, {...i, _planCount:1, _totalQty:i.quantity||0, _totalCost:i.total_cost||0, _siblings:[i]});
+      } else {
+        const g = byDesc.get(key);
+        const newCount = g._planCount+1;
+        const newQty = Math.round((g._totalQty+(i.quantity||0))*10)/10;
+        const newCost = g._totalCost+(i.total_cost||0);
+        const newSibs = [...g._siblings,i];
+        const base = i.plan_id===selPlan?.id ? i : g;
+        byDesc.set(key, {...base, _planCount:newCount, _totalQty:newQty, _totalCost:newCost, _siblings:newSibs});
+      }
+    });
+    const its = [...byDesc.values()];
+    const subtotal = its.reduce((s,i)=>s+(i._totalCost||0),0);
+    return {cat, items:its, subtotal};
   }).filter(Boolean);
   const toolCursor=(spaceHeld||tool==='select')?'grab':{area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
 
@@ -5859,8 +5924,12 @@ Return ONLY a valid JSON array, no markdown:
           {leftTab==='takeoffs'&&(()=>{
             const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
             const armItem = (item) => {
-              setActiveCondId(item.id);
-              setTool(item.measurement_type==='area'?'area':item.measurement_type==='linear'?'linear':item.measurement_type==='count'?'count':'select');
+              // If this item has siblings, prefer the one matching the current plan
+              const target = (item._siblings && selPlan)
+                ? (item._siblings.find(s=>s.id!==undefined && s.plan_id===selPlan.id) || item)
+                : item;
+              setActiveCondId(target.id);
+              setTool(target.measurement_type==='area'?'area':target.measurement_type==='linear'?'linear':target.measurement_type==='count'?'count':'select');
               setActivePts([]); setEditItem(null); setTakeoffStep(null);
             };
             const disarm = () => { setActiveCondId(null); setTool('select'); setActivePts([]); };
@@ -6187,7 +6256,9 @@ Return ONLY a valid JSON array, no markdown:
                       {!catCollapsed&&(
                         <div>
                           {catItems.map(item=>{
-                            const isActive = item.id===activeCondId;
+                            const isActive = item._siblings
+                              ? item._siblings.some(s=>s.id===activeCondId)
+                              : item.id===activeCondId;
                             const shapes=(()=>{
                               if(!item.points||!item.points.length) return [];
                               if(Array.isArray(item.points[0])) return item.points;
@@ -6214,20 +6285,25 @@ Return ONLY a valid JSON array, no markdown:
                                   display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0}}>
                                   <span style={{fontSize:8,fontWeight:800,color:'#fff'}}>{typeIcon}</span>
                                 </div>
-                                {/* Name + plan label */}
+                                {/* Name + plan badge */}
                                 <div style={{flex:1,minWidth:0}}>
                                   <div style={{fontSize:11,fontWeight:isActive?600:400,
                                     color:isActive?'#F97316':t.text,
                                     overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>
                                     {item.description||'Unnamed'}
                                   </div>
-                                  {planName&&<div style={{fontSize:9,color:t.text4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{planName}</div>}
+                                  <div style={{display:'flex',alignItems:'center',gap:4,marginTop:1}}>
+                                    {item._planCount>1
+                                      ? <span style={{fontSize:8,color:'#3B82F6',fontWeight:700,background:'rgba(59,130,246,0.1)',borderRadius:3,padding:'1px 4px'}}>{item._planCount} sheets</span>
+                                      : <span style={{fontSize:8,color:t.text4,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{plans.find(p=>p.id===item.plan_id)?.name||''}</span>
+                                    }
+                                  </div>
                                 </div>
-                                {/* Qty */}
+                                {/* Qty — total across all plan siblings */}
                                 <div style={{width:60,textAlign:'right',flexShrink:0}}>
                                   <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",
-                                    color:qty>0?t.text:t.text4,fontWeight:qty>0?600:400}}>
-                                    {qty>0?`${Math.round(qty*10)/10} ${item.unit}`:'—'}
+                                    color:(item._totalQty||0)>0?t.text:t.text4,fontWeight:(item._totalQty||0)>0?600:400}}>
+                                    {(item._totalQty||0)>0?`${Math.round((item._totalQty||0)*10)/10} ${item.unit}`:'—'}
                                   </span>
                                 </div>
                                 {/* → jump to plan */}
