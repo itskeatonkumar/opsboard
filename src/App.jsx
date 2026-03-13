@@ -5323,52 +5323,39 @@ Return ONLY a valid JSON array, no markdown:
   };
 
   const exportPlanCanvas = async (plan, withLegend) => {
-    // Load image via fetch→blob to avoid CORS canvas taint on Supabase URLs
-    const loadImg = async (url) => {
-      // For the currently-open PDF plan we can use canvasRef directly
-      if(plan.id === selPlan?.id && isPdfPlan && canvasRef.current) return null;
-      try {
-        // Extract storage path from URL and use supabase download (handles CORS)
-        const pathMatch = url.match(/precon\/(.+)$/);
-        if(pathMatch){
-          const { data, error } = await supabase.storage.from('attachments').download('precon/'+pathMatch[1]);
-          if(!error && data){
-            const bUrl = URL.createObjectURL(data);
-            const img = new Image();
-            await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=bUrl; });
-            URL.revokeObjectURL(bUrl);
-            return img;
-          }
-        }
-      } catch(e){ console.warn('supabase download failed, trying direct fetch', e); }
-      // Fallback: direct fetch as blob
-      try {
-        const resp = await fetch(url);
-        const blob = await resp.blob();
-        const bUrl = URL.createObjectURL(blob);
-        const img = new Image();
-        await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=bUrl; });
-        URL.revokeObjectURL(bUrl);
-        return img;
-      } catch(e){ console.error('image load failed', e); return null; }
+    const marker = '/object/public/attachments/';
+
+    const loadPlanImg = async (url) => {
+      const idx = url?.indexOf(marker) ?? -1;
+      const storagePath = idx !== -1 ? url.slice(idx + marker.length) : null;
+      if(!storagePath) throw new Error('Could not extract storage path from: ' + url);
+      const { data, error } = await supabase.storage.from('attachments').download(storagePath);
+      if(error || !data) throw new Error('Supabase download failed: ' + (error?.message || 'unknown') + ' | ' + storagePath);
+      const bUrl = URL.createObjectURL(data);
+      const img = new Image();
+      await new Promise((res, rej) => { img.onload = res; img.onerror = rej; img.src = bUrl; });
+      URL.revokeObjectURL(bUrl);
+      return img;
     };
 
-    const img = await loadImg(plan.file_url);
-    const W = (plan.id===selPlan?.id && isPdfPlan && canvasRef.current)
-      ? canvasRef.current.width
-      : (img?.naturalWidth || 800);
-    const H = (plan.id===selPlan?.id && isPdfPlan && canvasRef.current)
-      ? canvasRef.current.height
-      : (img?.naturalHeight || 1100);
+    // For the currently-open PDF plan reuse the already-rendered canvas
+    const usePdfCanvas = plan.id === selPlan?.id && isPdfPlan && canvasRef.current;
+
+    let img = null;
+    if(!usePdfCanvas){
+      img = await loadPlanImg(plan.file_url);
+    }
+
+    const W = usePdfCanvas ? canvasRef.current.width  : (img?.naturalWidth  || 800);
+    const H = usePdfCanvas ? canvasRef.current.height : (img?.naturalHeight || 1100);
 
     const out = document.createElement('canvas');
     out.width = W; out.height = H;
     const ctx = out.getContext('2d');
 
-    // Draw background
-    if(plan.id === selPlan?.id && isPdfPlan && canvasRef.current){
+    if(usePdfCanvas){
       ctx.drawImage(canvasRef.current, 0, 0, W, H);
-    } else if(img){
+    } else {
       ctx.drawImage(img, 0, 0, W, H);
     }
 
