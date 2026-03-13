@@ -6211,7 +6211,8 @@ Return ONLY a valid JSON array, no markdown:
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0,position:'relative'}}>
 
           {/* ── Browser-style tab bar ── */}
-          <div style={{display:'flex',alignItems:'stretch',height:36,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,overflowX:'auto',overflowY:'hidden'}}>
+          <div style={{display:'flex',alignItems:'stretch',height:36,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,position:'relative'}}>
+            <div style={{display:'flex',alignItems:'stretch',flex:1,overflowX:'auto',overflowY:'hidden'}}>
             {openTabs.map(tabId=>{
               const p = plans.find(x=>x.id===tabId);
               if(!p) return null;
@@ -6253,7 +6254,8 @@ Return ONLY a valid JSON array, no markdown:
             {openTabs.length===0&&(
               <div style={{display:'flex',alignItems:'center',padding:'0 14px',fontSize:10,color:t.text4}}>Open a plan from Plans panel</div>
             )}
-            {/* Export */}
+            </div>{/* end scrolling tabs */}
+            {/* Export — outside overflow div so dropdown is not clipped */}
             {selPlan&&(
               <div style={{position:'relative',flexShrink:0}}>
                 <button onClick={()=>setShowExportMenu(v=>!v)} disabled={exporting}
