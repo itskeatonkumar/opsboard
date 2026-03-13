@@ -4269,13 +4269,27 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const pendingClickRef = useRef(null); // pending single-click event pos
   const itemsRef = useRef(items); // always-current items ref — fixes stale closure in appendMeasurement
   useEffect(()=>{ itemsRef.current = items; },[items]);
+  const activePtsRef    = useRef([]);
+  useEffect(()=>{ activePtsRef.current = activePts; },[activePts]);
+  const activeCondIdRef = useRef(null);
+  useEffect(()=>{ activeCondIdRef.current = activeCondId; },[activeCondId]);
+  const selPlanRef      = useRef(null);
+  useEffect(()=>{ selPlanRef.current = selPlan; },[selPlan]);
+  const commitCurrentPtsRef = useRef(null); // set after appendMeasurement is defined
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [activeCondId, setActiveCondId] = useState(null); // condition currently armed for drawing
   const [estSaving, setEstSaving] = useState(null);
   const [estHover, setEstHover] = useState(null);
   const [collapsedCats, setCollapsedCats] = useState({});
-  const [archMode, setArchMode] = useState(false);   // A-key arch toggle
+  const [archMode, setArchMode] = useState(false);        // legacy arch toggle (area arcs)
   const [archCtrlPending, setArchCtrlPending] = useState(false); // area: next click = ctrl pt
+  // ── New tool features ──────────────────────────────────────────────────
+  const [snapEnabled, setSnapEnabled]   = useState(false); // S-key angle snap
+  const [arcPending, setArcPending]     = useState(false); // A-key arc mode
+  const [selectedIds, setSelectedIds]   = useState(new Set()); // multi-select item IDs
+  const [clipboard, setClipboard]       = useState([]);    // copy/paste buffer
+  const [eraserHover, setEraserHover]   = useState(null);  // {itemId,shapeIdx}
+  const lassoStartRef                   = useRef(null);    // lasso drag start
   const [takeoffStep, setTakeoffStep] = useState(null); // null | 'type' | 'create' | 'settings'
   const [newTOType, setNewTOType] = useState(null);
   const [newTOName, setNewTOName] = useState('');
@@ -4426,20 +4440,92 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
   useEffect(()=>{
     const handleKey=(e)=>{
-      if(e.key===' ') setSpaceHeld(true);
+      // Ignore if typing in an input/textarea
+      const tag=(e.target?.tagName||'').toLowerCase();
+      if(tag==='input'||tag==='textarea'||tag==='select') return;
+
+      if(e.key===' '){ e.preventDefault(); setSpaceHeld(true); }
+
       if(e.key==='Escape'){
-        setActivePts([]);
-        setScalePts([]);
-        setScaleStep(null);
-        setTool('select');
-        setShowScalePicker(false);
+        setActivePts([]); setScalePts([]); setScaleStep(null);
+        setTool('select'); setShowScalePicker(false);
+        setArcPending(false); setArchMode(false); setArchCtrlPending(false);
+        setSelectedIds(new Set());
+      }
+
+      // S — toggle angle snap (45°/60°/90°)
+      if(e.key==='s'||e.key==='S'){
+        setSnapEnabled(p=>!p);
+      }
+
+      // A — arc mode for linear takeoffs: auto-commit current segment, enter 3-click arc
+      if(e.key==='a'||e.key==='A'){
+        const condId = activeCondIdRef.current;
+        const cond = itemsRef.current.find(i=>i.id===condId);
+        if(cond?.measurement_type==='linear'){
+          // Commit current straight segment if we have ≥2 pts
+          if(commitCurrentPtsRef.current) commitCurrentPtsRef.current();
+          setArcPending(true);
+          setArchMode(false);
+        } else if(cond?.measurement_type==='area'){
+          // Legacy arch toggle for area shapes
+          setArchMode(p=>{const n=!p;if(!n)setArchCtrlPending(false);return n;});
+          setActivePts([]);
+        }
+      }
+
+      // Delete / Backspace — delete selected items
+      if((e.key==='Delete'||e.key==='Backspace')&&!e.repeat){
+        const ids=[...selectedIds];
+        if(ids.length>0){
+          ids.forEach(id=>{
+            supabase.from('takeoff_items').delete().eq('id',id);
+          });
+          setItems(prev=>prev.filter(i=>!ids.includes(i.id)));
+          setSelectedIds(new Set());
+        }
+      }
+
+      // Ctrl+C — copy selected items
+      if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')){
+        const ids=[...selectedIds];
+        if(ids.length>0){
+          const toCopy = itemsRef.current.filter(i=>ids.includes(i.id));
+          setClipboard(toCopy);
+        }
+      }
+
+      // Ctrl+V — paste copied items with offset
+      if((e.ctrlKey||e.metaKey)&&(e.key==='v'||e.key==='V')){
+        if(clipboard.length>0){
+          const OFFSET=20;
+          const inserts = clipboard.map(it=>{
+            const shiftedPts = it.points
+              ? (Array.isArray(it.points[0])
+                  ? it.points.map(sh=>sh.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET})))
+                  : [it.points.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET}))])
+              : null;
+            return {
+              project_id:it.project_id, plan_id:selPlanRef.current?.id||it.plan_id,
+              category:it.category, description:it.description+' (copy)',
+              quantity:it.quantity, unit:it.unit, unit_cost:it.unit_cost,
+              total_cost:it.total_cost, measurement_type:it.measurement_type,
+              color:it.color, points:shiftedPts, ai_generated:false,
+              sort_order:itemsRef.current.length,
+            };
+          });
+          supabase.from('takeoff_items').insert(inserts).select().then(({data})=>{
+            if(data) setItems(prev=>[...prev,...data]);
+          });
+        }
       }
     };
     const handleKeyUp=(e)=>{ if(e.key===' ') setSpaceHeld(false); };
     window.addEventListener('keydown',handleKey);
     window.addEventListener('keyup',handleKeyUp);
     return ()=>{ window.removeEventListener('keydown',handleKey); window.removeEventListener('keyup',handleKeyUp); };
-  },[]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  },[selectedIds, clipboard]);
 
   // Container callback ref — attaches wheel + pan handlers
   const containerCallbackRef = (el) => {
@@ -4684,12 +4770,74 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     // Keep tool armed — stay ready for more shapes
   };
 
+  // commitCurrentPtsRef — callable from keydown without stale closure
+  commitCurrentPtsRef.current = () => {
+    const pts = activePtsRef.current;
+    const condId = activeCondIdRef.current;
+    if(pts.length >= 2 && condId){
+      appendMeasurement(condId, pts);
+      setActivePts([]);
+      return pts[pts.length-1];
+    }
+    return pts.length ? pts[pts.length-1] : null;
+  };
+
+  // appendMeasurementHole: append a cutout hole polygon to an area item
+  const appendMeasurementHole = async (condId, holePts) => {
+    const item = itemsRef.current.find(i=>i.id===condId);
+    if(!item||item.measurement_type!=='area') return;
+    const existing = item.points;
+    let shapes = [];
+    if(!existing||existing.length===0) shapes=[];
+    else if(Array.isArray(existing[0])) shapes=existing;
+    else if(existing[0]?.x!=null) shapes=[existing];
+    else shapes=existing;
+    const newShapes=[...shapes, holePts];
+    // Recompute area: sum outer shapes, subtract holes
+    const qty = Math.round(newShapes.reduce((s,sh)=>{
+      const area=sh.some(p=>p._ctrl)?calcShapeArea(sh):calcArea(sh);
+      return sh[0]?._hole ? s-area : s+area;
+    },0)*10)/10;
+    const total_cost=Math.max(0,qty)*(item.unit_cost||0);
+    const updated={...item,points:newShapes,quantity:Math.max(0,qty),total_cost};
+    await supabase.from('takeoff_items').update({points:newShapes,quantity:Math.max(0,qty),total_cost}).eq('id',condId);
+    setItems(prev=>prev.map(i=>i.id===condId?updated:i));
+  };
+
   // processClick: single-click adds a point
-  const processClick=(pt)=>{
+  // Applies angle snap when enabled. Handles arc-pending 3-click flow, cutout, area, linear.
+  const processClick=(rawPt)=>{
     if(!activeCondId) return;
     const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
     if(!activeCond) return;
     const mt = activeCond.measurement_type;
+
+    // Snap to angle from last placed point
+    const lastPlaced = activePtsRef.current.length ? activePtsRef.current[activePtsRef.current.length-1] : null;
+    const pt = snapToAngle(lastPlaced, rawPt);
+
+    // ── Arc-pending mode (A key): 3-click arc — start → peak → end ───────
+    if(arcPending && mt==='linear'){
+      setActivePts(prev=>{
+        const npts=[...prev, pt];
+        if(npts.length===3){
+          // [start, peak, end] → commit as quadratic bezier arc shape
+          const [start, peak, end] = npts;
+          appendMeasurement(activeCondId, [start, {...peak,_ctrl:true}, end]);
+          setArcPending(false);
+          return [end]; // continue drawing from end point
+        }
+        return npts;
+      });
+      return;
+    }
+
+    // ── Cutout mode: draw hole polygon for area item ───────────────────────
+    if(tool==='cutout' && mt==='area'){
+      setActivePts(prev=>[...prev, pt]);
+      return;
+    }
+
     if(mt==='linear'){
       if(!archMode){
         setActivePts(prev=>[...prev, pt]);
@@ -4697,7 +4845,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         setActivePts(prev=>{
           const npts=[...prev, pt];
           if(npts.length>=3){
-            const [p1,p2,ctrl]=npts;
+            const [p1,ctrl,p2]=npts;
             appendMeasurement(activeCondId, [p1, {...ctrl,_ctrl:true}, p2]);
             return [];
           }
@@ -4726,7 +4874,16 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
     if(!activeCond) return;
     const mt = activeCond.measurement_type;
-    const pts = extraPt ? [...activePts, extraPt] : activePts;
+    const rawPts = extraPt ? [...activePts, extraPt] : activePts;
+    const lastPlaced = rawPts.length ? rawPts[rawPts.length-2]||null : null;
+    const pts = extraPt ? [...activePts, snapToAngle(lastPlaced, extraPt)] : activePts;
+
+    // Cutout finish — save as hole shape (first point flagged _hole:true)
+    if(tool==='cutout' && mt==='area' && pts.filter(p=>!p._ctrl).length>=3){
+      const holePts = pts.map((p,i)=>i===0?{...p,_hole:true}:p);
+      appendMeasurementHole(activeCondId, holePts);
+      setActivePts([]); return;
+    }
     if(mt==='linear' && pts.length>=2){
       appendMeasurement(activeCondId, pts);
       setActivePts([]);
@@ -4739,6 +4896,35 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const handleSvgClick=(e)=>{
     if(!selPlan) return;
     if(e.button===2) return;
+    // Eraser click — delete the hovered shape or full item
+    if(tool==='eraser'){
+      if(eraserHover){
+        const {itemId,shapeIdx} = eraserHover;
+        const item = itemsRef.current.find(i=>i.id===itemId);
+        if(!item) return;
+        const shapes = Array.isArray(item.points[0]) ? item.points : [item.points];
+        if(shapes.length<=1){
+          // Delete the whole item
+          supabase.from('takeoff_items').delete().eq('id',itemId);
+          setItems(prev=>prev.filter(i=>i.id!==itemId));
+        } else {
+          // Remove just this shape
+          const newShapes=shapes.filter((_,i)=>i!==shapeIdx);
+          // Recompute qty
+          const mt=item.measurement_type;
+          let qty=0;
+          if(mt==='area') qty=newShapes.reduce((s,sh)=>s+(sh[0]?._hole?0:(sh.some(p=>p._ctrl)?calcShapeArea(sh):calcArea(sh))),0);
+          else if(mt==='linear') qty=newShapes.reduce((s,sh)=>{let t=0;for(let i=1;i<sh.length;i++)t+=calcLinear(sh[i-1],sh[i]);return s+t;},0);
+          else if(mt==='count') qty=newShapes.length;
+          qty=Math.round(qty*10)/10;
+          const total_cost=qty*(item.unit_cost||0);
+          supabase.from('takeoff_items').update({points:newShapes,quantity:qty,total_cost}).eq('id',itemId);
+          setItems(prev=>prev.map(i=>i.id===itemId?{...i,points:newShapes,quantity:qty,total_cost}:i));
+        }
+        setEraserHover(null);
+      }
+      return;
+    }
     if(spaceHeld || tool==='select') return;
     const pt=getSvgPos(e);
     // Scale calibration — no debounce
@@ -4794,7 +4980,40 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       }
       return;
     }
-    setHoverPt(getSvgPos(e));
+    const rawPt = getSvgPos(e);
+    // Apply snap to the hover cursor position for preview
+    const lastPlaced = activePtsRef.current.length ? activePtsRef.current[activePtsRef.current.length-1] : null;
+    const snapped = snapToAngle(lastPlaced, rawPt);
+    setHoverPt(snapped);
+    // Eraser: track which shape is under cursor
+    if(tool==='eraser'){
+      // Find closest item shape to cursor (crude hit-test: bounding box)
+      let found=null;
+      const threshold = 12/zoom;
+      for(const it of itemsRef.current.filter(i=>i.plan_id===selPlanRef.current?.id&&i.points?.length)){
+        const shapes = (Array.isArray(it.points[0]) ? it.points : [it.points]);
+        shapes.forEach((sh,si)=>{
+          if(it.measurement_type==='count'&&sh[0]){
+            const d=Math.hypot(sh[0].x-rawPt.x,sh[0].y-rawPt.y);
+            if(d<threshold*3) found={itemId:it.id,shapeIdx:si};
+          } else {
+            const realPts=sh.filter(p=>!p._ctrl&&!p._hole);
+            for(let pi=1;pi<realPts.length;pi++){
+              const a=realPts[pi-1],b=realPts[pi];
+              // Point-to-segment distance
+              const dx=b.x-a.x,dy=b.y-a.y,len2=dx*dx+dy*dy;
+              const t=len2===0?0:Math.max(0,Math.min(1,((rawPt.x-a.x)*dx+(rawPt.y-a.y)*dy)/len2));
+              const px=a.x+t*dx,py=a.y+t*dy;
+              const d=Math.hypot(rawPt.x-px,rawPt.y-py);
+              if(d<threshold) found={itemId:it.id,shapeIdx:si};
+            }
+          }
+        });
+      }
+      setEraserHover(found);
+    } else {
+      setEraserHover(null);
+    }
   };
 
   const handleSvgMouseDown=(e)=>{
@@ -5200,6 +5419,18 @@ Return ONLY a valid JSON array, no markdown:
     return pts;
   };
 
+  // ── snapToAngle: snap a point to nearest allowed angle from 'from' ──────
+  const snapToAngle = (from, to) => {
+    if(!from||!snapEnabled) return to;
+    const dx=to.x-from.x, dy=to.y-from.y, len=Math.hypot(dx,dy);
+    if(len<2) return to;
+    const deg=Math.atan2(dy,dx)*180/Math.PI;
+    const snaps=[0,45,60,90,135,150,180,225,240,270,315,300,360,-45,-60,-90,-135,-150,-180,-225,-240,-270,-300,-315];
+    const best=snaps.reduce((b,a)=>{const d=Math.abs(((deg-a)+540)%360-180);return d<b.diff?{a,diff:d}:b;},{a:0,diff:Infinity}).a;
+    const rad=best*Math.PI/180;
+    return {x:Math.round(from.x+len*Math.cos(rad)), y:Math.round(from.y+len*Math.sin(rad))};
+  };
+
   // SVG — condition-first model. Each item may have multiple shapes.
   // Active condition gets a highlight ring.
   const renderMeasurements=()=>{
@@ -5210,25 +5441,47 @@ Return ONLY a valid JSON array, no markdown:
       .flatMap(it=>{
         const shapes = normalizeShapes(it.points);
         if(!shapes.length) return [];
-        const c = it.id===activeCondId ? '#F97316' : (it.color||'#10B981');
         const isActive = it.id===activeCondId;
+        const isSelected = selectedIds.has(it.id);
+        const c = isActive ? '#F97316' : isSelected ? '#3B82F6' : (it.color||'#10B981');
         const mt = it.measurement_type;
 
         return shapes.map((pts, shapeIdx)=>{
           const key = `${it.id}-${shapeIdx}`;
-          const onClick = ()=>{ setActiveCondId(it.id); setTool(mt==='area'?'area':mt==='perimeter'?'perimeter':mt==='linear'?'linear':mt==='count'?'count':'select'); };
+          const isHole = pts[0]?._hole;
+          const isEraserTarget = eraserHover?.itemId===it.id && eraserHover?.shapeIdx===shapeIdx;
+          const onClick = (e)=>{
+            if(tool==='eraser') return; // handled in handleSvgClick
+            if(tool==='select'||(e.ctrlKey||e.metaKey)){
+              // Multi-select: ctrl-click toggles, plain click sets single
+              if(e.ctrlKey||e.metaKey){
+                setSelectedIds(prev=>{ const n=new Set(prev); n.has(it.id)?n.delete(it.id):n.add(it.id); return n; });
+              } else {
+                setSelectedIds(new Set([it.id]));
+              }
+              return;
+            }
+            setActiveCondId(it.id);
+            setTool(mt==='area'?'area':mt==='perimeter'?'perimeter':mt==='linear'?'linear':mt==='count'?'count':'select');
+          };
 
           if((mt==='area')&&pts.length>=3){
             const hasArcs = pts.some(p=>p._ctrl);
+            const realPts = pts.filter(p=>!p._ctrl&&!p._hole);
             const d = hasArcs ? buildShapePath(pts, true) : (pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
-            const cx=pts.filter(p=>!p._ctrl).reduce((s,p)=>s+p.x,0)/pts.filter(p=>!p._ctrl).length;
-            const cy=pts.filter(p=>!p._ctrl).reduce((s,p)=>s+p.y,0)/pts.filter(p=>!p._ctrl).length;
-            const shapeArea = Math.round((hasArcs?calcShapeArea(pts):calcArea(pts))*10)/10;
+            const cx=realPts.reduce((s,p)=>s+p.x,0)/(realPts.length||1);
+            const cy=realPts.reduce((s,p)=>s+p.y,0)/(realPts.length||1);
+            const shapeArea = Math.round(Math.abs(hasArcs?calcShapeArea(pts):calcArea(pts))*10)/10;
             const lw=38/zoom, lh=padH*1.6;
-            return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
-              <path d={d} fill={c+'22'} stroke={c} strokeWidth={isActive?sw*1.5:sw}/>
-              <rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
-              <text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{shapeArea} SF</text>
+            const strokeColor = isEraserTarget ? '#EF4444' : isHole ? '#EF444488' : c;
+            const fillColor   = isHole ? '#EF444411' : c+'22';
+            const strokeW     = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
+            return(<g key={key} onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+              <path d={d} fill={fillColor} stroke={strokeColor} strokeWidth={strokeW} fillRule="evenodd"/>
+              {isSelected&&<path d={d} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
+              {!isHole&&<rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>}
+              {!isHole&&<text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{shapeArea} SF</text>}
+              {isHole&&<text x={cx} y={cy+fs*0.38} fontSize={fs*0.8} fill="#EF4444" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>⊘ hole</text>}
             </g>);
           }
           if(mt==='linear'&&pts.length>=2){
@@ -5241,9 +5494,12 @@ Return ONLY a valid JSON array, no markdown:
               ? Math.round((calcShapeLength(pts)/scale)*10)/10
               : (()=>{ let t=0; for(let i=1;i<pts.length;i++) t+=calcLinear(pts[i-1],pts[i]); return Math.round(t*10)/10; })();
             const lw=36/zoom, lh=padH*1.5;
-            return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
-              <path d={d} fill="none" stroke={c} strokeWidth={sw*1.2} strokeDasharray={`${6/zoom},${3/zoom}`}/>
-              {realPts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r*0.8} fill={c} stroke="#fff" strokeWidth={sw*0.4}/>)}
+            const strokeColor = isEraserTarget ? '#EF4444' : c;
+            const strokeW = isEraserTarget ? sw*2.5 : sw*1.2;
+            return(<g key={key} onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+              <path d={d} fill="none" stroke={strokeColor} strokeWidth={strokeW} strokeDasharray={`${6/zoom},${3/zoom}`}/>
+              {isSelected&&<path d={d} fill="none" stroke="#3B82F6" strokeWidth={sw*2.5} opacity={0.4} style={{pointerEvents:'none'}}/>}
+              {realPts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r*0.8} fill={strokeColor} stroke="#fff" strokeWidth={sw*0.4}/>)}
               {hasArcs&&pts.filter(p=>p._ctrl).map((p,i)=><circle key={'ctrl'+i} cx={p.x} cy={p.y} r={r*0.5} fill={c} opacity={0.4}/>)}
               <rect x={mx-lw/2} y={my-lh*1.6} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
               <text x={mx} y={my-lh*0.7} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{dist} {scale?'LF':'px'}</text>
@@ -5251,8 +5507,9 @@ Return ONLY a valid JSON array, no markdown:
           }
           if(mt==='count'&&pts[0]){
             const p=pts[0];
-            return(<g key={key} onClick={onClick} style={{cursor:'pointer'}}>
-              <circle cx={p.x} cy={p.y} r={r*1.8} fill={c} stroke="#fff" strokeWidth={sw*0.5}/>
+            const isEr=isEraserTarget;
+            return(<g key={key} onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+              <circle cx={p.x} cy={p.y} r={r*1.8} fill={isEr?'#EF4444':c} stroke={isSelected?'#3B82F6':'#fff'} strokeWidth={isSelected?sw*2:sw*0.5}/>
               <text x={p.x} y={p.y+fs*0.38} fontSize={fs*0.9} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
             </g>);
           }
@@ -5272,7 +5529,7 @@ Return ONLY a valid JSON array, no markdown:
     const mt = activeCond?.measurement_type;
 
     // Arch linear: show bezier preview when we have p1+p2 and hovering for ctrl
-    const isArchLinear = archMode && mt==='linear';
+    const isArchLinear = (archMode || arcPending) && mt==='linear';
     const isArchArea   = archMode && mt==='area';
 
     // Build preview path
@@ -5310,7 +5567,16 @@ Return ONLY a valid JSON array, no markdown:
       ))}
       {hoverPt&&!isArchLinear&&<circle cx={hoverPt.x} cy={hoverPt.y} r={r2} fill={c} opacity={0.5}/>}
       {/* Close hint for area */}
-      {(tool==='area')&&activePts.filter(p=>!p._ctrl).length>=3&&!isArchArea&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✦ dbl-click to close</text>}
+      {(tool==='area'||tool==='cutout')&&activePts.filter(p=>!p._ctrl).length>=3&&!isArchArea&&<text x={pts[0].x+14/zoom} y={pts[0].y-10/zoom} fontSize={fs} fill={c} fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✦ dbl-click to close</text>}
+      {/* Snap indicator — small crosshair on cursor when snap is active */}
+      {snapEnabled&&hoverPt&&(()=>{
+        const sz=9/zoom;
+        return(<>
+          <line x1={hoverPt.x-sz} y1={hoverPt.y} x2={hoverPt.x+sz} y2={hoverPt.y} stroke="#facc15" strokeWidth={1.2/zoom} opacity={0.9}/>
+          <line x1={hoverPt.x} y1={hoverPt.y-sz} x2={hoverPt.x} y2={hoverPt.y+sz} stroke="#facc15" strokeWidth={1.2/zoom} opacity={0.9}/>
+          <circle cx={hoverPt.x} cy={hoverPt.y} r={sz*0.55} fill="none" stroke="#facc15" strokeWidth={1/zoom} opacity={0.8}/>
+        </>);
+      })()}
       {/* dbl-click to finish hint for linear */}
       {tool==='linear'&&!archMode&&activePts.length>=2&&hoverPt&&<text x={hoverPt.x+8/zoom} y={hoverPt.y-8/zoom} fontSize={fs*0.9} fill={c} fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>dbl-click to finish</text>}
       {/* Live LF readout — segment from last point to cursor */}
@@ -5322,7 +5588,7 @@ Return ONLY a valid JSON array, no markdown:
       {/* Arch mode step indicator */}
       {isArchLinear&&(
         <text x={hoverPt?.x??0} y={(hoverPt?.y??0)-16/zoom} fontSize={fs*0.9} fill={c} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>
-          {pts.length===0?'⌒ Click start':pts.length===1?'⌒ Click end':pts.length===2?'⌒ Click arc bulge':''}
+          {arcPending ? (pts.length===0?'⌒ Arc: click start':pts.length===1?'⌒ Arc: click peak (radius bulge)':'⌒ Arc: click end') : (pts.length===0?'⌒ Click start':pts.length===1?'⌒ Click end':pts.length===2?'⌒ Click arc bulge':'')}
         </text>
       )}
       {isArchArea&&archCtrlPending&&(
@@ -5354,7 +5620,7 @@ Return ONLY a valid JSON array, no markdown:
     const subtotal = its.reduce((s,i)=>s+(i._totalCost||0),0);
     return {cat, items:its, subtotal};
   }).filter(Boolean);
-  const toolCursor=(spaceHeld||tool==='select')?'grab':{area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair'}[tool]||'default';
+  const toolCursor=(spaceHeld||tool==='select')?'grab':{area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair',cutout:'crosshair',eraser:'cell'}[tool]||'default';
 
   const co = COMPANIES.find(c=>c.id===project.company)||COMPANIES[1];
   const STATUS_COLORS_BID = {estimating:'#F59E0B',bid_submitted:'#3B82F6',awarded:'#10B981',lost:'#EF4444',hold:'#555'};
@@ -6563,6 +6829,61 @@ Return ONLY a valid JSON array, no markdown:
             })()}
           </div>
 
+          {/* ── Multi-select floating action bar ── */}
+          {selectedIds.size>0&&(
+            <div style={{position:'absolute',top:10,left:'50%',transform:'translateX(-50%)',zIndex:40,
+              background:'rgba(15,15,15,0.96)',border:'1px solid rgba(59,130,246,0.5)',
+              borderRadius:10,padding:'7px 14px',boxShadow:'0 4px 24px rgba(0,0,0,0.6)',
+              backdropFilter:'blur(10px)',display:'flex',alignItems:'center',gap:10,pointerEvents:'all'}}>
+              <span style={{fontSize:11,color:'#94A3B8',fontWeight:600}}>{selectedIds.size} selected</span>
+              <div style={{width:1,height:18,background:'rgba(255,255,255,0.12)'}}/>
+              <button onClick={()=>{
+                const ids=[...selectedIds];
+                const toCopy=itemsRef.current.filter(i=>ids.includes(i.id));
+                setClipboard(toCopy);
+              }} title="Copy (Ctrl+C)"
+                style={{background:'none',border:'none',color:'#93C5FD',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
+                onMouseEnter={e=>e.currentTarget.style.background='rgba(59,130,246,0.15)'}
+                onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                ⎘ Copy
+              </button>
+              <button onClick={()=>{
+                if(clipboard.length===0){
+                  const ids=[...selectedIds];
+                  setClipboard(itemsRef.current.filter(i=>ids.includes(i.id)));
+                }
+                const OFFSET=20;
+                const src=clipboard.length>0?clipboard:itemsRef.current.filter(i=>selectedIds.has(i.id));
+                const inserts=src.map(it=>{
+                  const shiftedPts=it.points?(Array.isArray(it.points[0])?it.points.map(sh=>sh.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET}))):[it.points.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET}))]):null;
+                  return {project_id:it.project_id,plan_id:selPlan?.id||it.plan_id,category:it.category,description:it.description+' (copy)',quantity:it.quantity,unit:it.unit,unit_cost:it.unit_cost,total_cost:it.total_cost,measurement_type:it.measurement_type,color:it.color,points:shiftedPts,ai_generated:false,sort_order:itemsRef.current.length};
+                });
+                supabase.from('takeoff_items').insert(inserts).select().then(({data})=>{
+                  if(data) setItems(prev=>[...prev,...data]);
+                });
+              }} title="Duplicate"
+                style={{background:'none',border:'none',color:'#6EE7B7',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
+                onMouseEnter={e=>e.currentTarget.style.background='rgba(16,185,129,0.15)'}
+                onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                ⧉ Duplicate
+              </button>
+              <button onClick={()=>{
+                const ids=[...selectedIds];
+                ids.forEach(id=>supabase.from('takeoff_items').delete().eq('id',id));
+                setItems(prev=>prev.filter(i=>!ids.includes(i.id)));
+                setSelectedIds(new Set());
+              }} title="Delete selected (Del)"
+                style={{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
+                onMouseEnter={e=>e.currentTarget.style.background='rgba(239,68,68,0.15)'}
+                onMouseLeave={e=>e.currentTarget.style.background='none'}>
+                ⌫ Delete
+              </button>
+              <div style={{width:1,height:18,background:'rgba(255,255,255,0.12)'}}/>
+              <button onClick={()=>setSelectedIds(new Set())} title="Clear selection (Esc)"
+                style={{background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',fontSize:14,padding:'0 2px',lineHeight:1}}>×</button>
+            </div>
+          )}
+
           {/* ── Floating Scale Bar (Stack-style, bottom of canvas) ── */}
           {selPlan&&(
             <div style={{position:'absolute',bottom:12,right:16,zIndex:30,display:'flex',alignItems:'center',gap:6,pointerEvents:'all'}}>
@@ -6717,10 +7038,17 @@ Return ONLY a valid JSON array, no markdown:
             {id:'area',   icon:'⬡', label:'Area',   color:'#F59E0B'},
             {id:'linear', icon:'━', label:'Linear', color:'#06B6D4'},
             {id:'count',  icon:'✕', label:'Count',  color:'#10B981'},
+            null,
+            {id:'cutout', icon:'⊘', label:'Cutout', color:'#EF4444'},
+            {id:'eraser', icon:'⌫', label:'Eraser', color:'#F97316'},
           ].map((btn,i)=>{
             if(!btn) return <div key={i} style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>;
             const isActive = tool===btn.id;
-            const onClick = ()=>{setTool(btn.id);setActivePts([]);setScaleStep(null);setShowScalePanel(false);setArchMode(false);setArchCtrlPending(false);};
+            const onClick = ()=>{
+              setTool(btn.id);setActivePts([]);setScaleStep(null);setShowScalePanel(false);
+              setArchMode(false);setArchCtrlPending(false);setArcPending(false);
+              setSelectedIds(new Set());setEraserHover(null);
+            };
             return(
               <button key={btn.id} onClick={onClick} title={btn.label}
                 style={{width:'100%',padding:'10px 0',border:'none',background:isActive?`${btn.color}18`:'none',
@@ -6734,23 +7062,63 @@ Return ONLY a valid JSON array, no markdown:
             );
           })}
 
-          {/* Arch toggle — only shown when linear or area takeoff is active */}
+          {/* Snap toggle [S] — angle snap 45°/60°/90° */}
+          <div style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>
+          <button onClick={()=>setSnapEnabled(p=>!p)} title="Angle snap 45°/60°/90° [S]"
+            style={{width:'100%',padding:'10px 0',border:'none',
+              background:snapEnabled?'#facc1518':'none',color:snapEnabled?'#facc15':t.text3,cursor:'pointer',
+              display:'flex',flexDirection:'column',alignItems:'center',gap:2,
+              borderRight:snapEnabled?'2px solid #facc15':'2px solid transparent',
+              boxSizing:'border-box',transition:'all 0.1s'}}>
+            <span style={{fontSize:13,lineHeight:1}}>⊕</span>
+            <span style={{fontSize:8,fontWeight:600,color:snapEnabled?'#facc15':t.text4,letterSpacing:0.2}}>Snap</span>
+            <span style={{fontSize:7,color:snapEnabled?'#facc15':t.text4,opacity:0.7}}>[S]</span>
+          </button>
+
+          {/* Arc mode [A] — shown when linear item is armed */}
           {activeCondId&&(()=>{
             const ac=itemsRef.current.find(i=>i.id===activeCondId);
-            if(!ac||(ac.measurement_type!=='linear'&&ac.measurement_type!=='area')) return null;
+            if(!ac||ac.measurement_type!=='linear') return null;
+            const arcOn = arcPending;
+            return(
+              <>
+                <div style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>
+                <button onClick={()=>{
+                  if(arcPending){ setArcPending(false); }
+                  else {
+                    if(commitCurrentPtsRef.current) commitCurrentPtsRef.current();
+                    setArcPending(true);
+                  }
+                }}
+                  title="Arc/Radius tool [A] — 3-click: start → peak → end"
+                  style={{width:'100%',padding:'10px 0',border:'none',
+                    background:arcOn?'#a855f718':'none',color:arcOn?'#a855f7':t.text3,cursor:'pointer',
+                    display:'flex',flexDirection:'column',alignItems:'center',gap:2,
+                    borderRight:arcOn?'2px solid #a855f7':'2px solid transparent',
+                    boxSizing:'border-box',transition:'all 0.1s'}}>
+                  <span style={{fontSize:15,lineHeight:1}}>⌒</span>
+                  <span style={{fontSize:8,fontWeight:600,color:arcOn?'#a855f7':t.text4,letterSpacing:0.2}}>Arc</span>
+                  <span style={{fontSize:7,color:arcOn?'#a855f7':t.text4,opacity:0.7}}>[A]</span>
+                </button>
+              </>
+            );
+          })()}
+          {/* Area arch toggle — shown when area item armed */}
+          {activeCondId&&(()=>{
+            const ac=itemsRef.current.find(i=>i.id===activeCondId);
+            if(!ac||ac.measurement_type!=='area') return null;
             return(
               <>
                 <div style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>
                 <button onClick={()=>{setArchMode(p=>{const n=!p;if(!n)setArchCtrlPending(false);return n;});setActivePts([]);}}
-                  title="Arch tool (A)"
+                  title="Arc curves for area [A]"
                   style={{width:'100%',padding:'10px 0',border:'none',
-                    background:archMode?'#a855f718':'none',
-                    color:archMode?'#a855f7':t.text3,cursor:'pointer',
+                    background:archMode?'#a855f718':'none',color:archMode?'#a855f7':t.text3,cursor:'pointer',
                     display:'flex',flexDirection:'column',alignItems:'center',gap:2,
                     borderRight:archMode?'2px solid #a855f7':'2px solid transparent',
                     boxSizing:'border-box',transition:'all 0.1s'}}>
                   <span style={{fontSize:15,lineHeight:1}}>⌒</span>
-                  <span style={{fontSize:8,fontWeight:600,color:archMode?'#a855f7':t.text4,letterSpacing:0.2}}>Arch</span>
+                  <span style={{fontSize:8,fontWeight:600,color:archMode?'#a855f7':t.text4,letterSpacing:0.2}}>Arc</span>
                   <span style={{fontSize:7,color:archMode?'#a855f7':t.text4,opacity:0.7}}>[A]</span>
                 </button>
               </>
@@ -6759,14 +7127,21 @@ Return ONLY a valid JSON array, no markdown:
 
           <div style={{flex:1}}/>
           {/* Live measure readout at bottom of tool bar */}
-          {archMode&&(
+          {(archMode||arcPending)&&(
             <div style={{padding:'6px 2px',textAlign:'center',borderTop:`1px solid #a855f730`,width:'100%',background:'#a855f710'}}>
               <span style={{fontSize:9,color:'#a855f7',fontWeight:700,display:'block',lineHeight:1.4}}>⌒</span>
               <span style={{fontSize:7,color:'#a855f7',fontWeight:600,display:'block',lineHeight:1.4}}>
-                {tool==='linear'
-                  ? activePts.length===0?'pt 1':activePts.length===1?'pt 2':'bulge'
-                  : archCtrlPending?'ctrl pt':'vertex'}
+                {arcPending
+                  ? (activePts.length===0?'start':activePts.length===1?'peak':'end')
+                  : tool==='linear'?(activePts.length===0?'pt 1':activePts.length===1?'pt 2':'bulge')
+                  : (archCtrlPending?'ctrl pt':'vertex')}
               </span>
+            </div>
+          )}
+          {snapEnabled&&(
+            <div style={{padding:'6px 2px',textAlign:'center',borderTop:`1px solid #facc1530`,width:'100%',background:'#facc1510'}}>
+              <span style={{fontSize:9,color:'#facc15',fontWeight:700,display:'block',lineHeight:1.4}}>⊕</span>
+              <span style={{fontSize:7,color:'#facc15',fontWeight:600,display:'block',lineHeight:1.4}}>45/60/90°</span>
             </div>
           )}
           {!archMode&&tool==='area'&&activePts.length>=3&&scale&&hoverPt&&(
