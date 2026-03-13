@@ -8,6 +8,12 @@ const supabase = createClient(
 
 const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || "";
 
+// ─── AI Model ───────────────────────────────────────────────────────────────
+// Single source of truth for every Claude API call in this app.
+// Change this one line to upgrade the model across all features simultaneously.
+const AI_MODEL = AI_MODEL;
+// ────────────────────────────────────────────────────────────────────────────
+
 const COMPANIES = [
   { id: "all", name: "All Companies", color: "#F97316", short: "ALL" },
   { id: "fcg", name: "Foundation Construction Group", color: "#3B82F6", short: "FCG" },
@@ -659,7 +665,7 @@ function AIModal({ onClose, onAdd, team }) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: AI_MODEL,
           max_tokens: 1000,
           system: `You parse natural language task descriptions into structured JSON.
 Today: ${TODAY}.
@@ -1546,7 +1552,7 @@ function ReceiptModal({ receipt, projectId, onSave, onClose }) {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
+            model: AI_MODEL,
             max_tokens: 300,
             system: `You extract receipt data. Respond ONLY with valid JSON, no markdown, no explanation. Format: {"vendor":"string","amount":number_or_null,"date":"YYYY-MM-DD_or_null","category":"one of: Labor,Concrete,Rebar/Steel,Formwork,Equipment Rental,Subcontractor,Fuel,Tools/Supplies,Permits/Fees,Other","notes":"string - list the key items purchased, e.g. 2x4 lumber x40, concrete mix x10 bags, rebar #4 x20"}. For notes, extract the actual line items from the receipt. Keep it concise but specific - what was bought, quantities if visible. Max 120 chars.`,
             messages: [{ role:"user", content:[
@@ -1718,7 +1724,7 @@ function SubcontractModal({ sub, projectId, onSave, onClose }) {
           const res = await fetch("/api/claude", {
             method:"POST", headers:{"Content-Type":"application/json"},
             body: JSON.stringify({
-              model:"claude-sonnet-4-20250514", max_tokens:400,
+              model:AI_MODEL, max_tokens:400,
               system:`Extract subcontract data. Return ONLY valid JSON, no markdown. Format: {"sub_name":"string","scope":"string","contract_amount":number_or_null,"start_date":"YYYY-MM-DD_or_null","end_date":"YYYY-MM-DD_or_null","retainage_pct":number_default_10}`,
               messages:[{ role:"user", content: msgContent }]
             })
@@ -2213,7 +2219,7 @@ function ScheduleTab({ project }) {
 
     const res = await fetch("/api/claude", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:2500, messages:[{ role:"user", content: msgContent }] })
+      body: JSON.stringify({ model:AI_MODEL, max_tokens:2500, messages:[{ role:"user", content: msgContent }] })
     });
     const json = await res.json();
     const text = json?.content?.find(b=>b.type==="text")?.text || "";
@@ -2333,7 +2339,7 @@ function SOVModal({ project, sovItems, onSave, onClose }) {
     ];
     const res = await fetch("/api/claude", {
       method:"POST", headers:{"Content-Type":"application/json"},
-      body: JSON.stringify({ model:"claude-sonnet-4-20250514", max_tokens:1000, messages:[{ role:"user", content:msgContent }] })
+      body: JSON.stringify({ model:AI_MODEL, max_tokens:1000, messages:[{ role:"user", content:msgContent }] })
     });
     const json = await res.json();
     const text = json?.content?.find(b=>b.type==="text")?.text || "";
@@ -2349,7 +2355,7 @@ function SOVModal({ project, sovItems, onSave, onClose }) {
     const res = await fetch("/api/claude", {
       method:"POST", headers:{"Content-Type":"application/json"},
       body: JSON.stringify({
-        model:"claude-sonnet-4-20250514", max_tokens:800,
+        model:AI_MODEL, max_tokens:800,
         system:`You are a construction PM specializing in concrete and masonry work. Generate a Schedule of Values for an AIA G702 pay application. Return ONLY a JSON array, no markdown. Each item: {"item_no":"string","description":"string","scheduled_value":number}. Values must sum EXACTLY to the contract amount. Break down costs realistically for the specific project type.`,
         messages:[{ role:"user", content:`Project: "${project.name}". Address: ${project.address||"not specified"}. Contract value: $${project.contract_value}. GC: ${project.gc_name||"not specified"}. Start: ${project.start_date||"not specified"}, End: ${project.end_date||"not specified"}. Company doing work: ${getCompany(project.company).name} (concrete/masonry contractor). Generate 8-14 SOV line items that reflect the actual scope — mobilization, concrete work, formwork, rebar, flatwork, masonry, equipment, etc. based on the project name and details. Values must sum to exactly $${project.contract_value}.` }]
       })
@@ -2743,7 +2749,7 @@ function FinancialsTab({ project, cos }) {
       const res = await fetch("/api/claude", {
         method:"POST", headers:{"Content-Type":"application/json"},
         body: JSON.stringify({
-          model:"claude-sonnet-4-20250514", max_tokens:1000,
+          model:AI_MODEL, max_tokens:1000,
           system:"You generate Google Sheets CSV data for a PM budget review. Return ONLY a JSON object with key 'csv' containing the full CSV string with proper formatting.",
           messages:[{ role:"user", content:`Generate a PM Budget Review spreadsheet CSV for this project data: ${JSON.stringify(sheetData)}. Include: 1) Project header info, 2) Financial waterfall (contract → COs → revised → costs → margin), 3) Subcontractor log table, 4) Direct costs by category, 5) Receipt ledger. Use proper CSV formatting with commas and quotes.` }]
         })
@@ -3274,7 +3280,7 @@ function PreconTab({ project }) {
     const block=isImg?{type:'image',source:{type:'base64',media_type:mime,data:b64}}:{type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}};
     const res=await fetch('/api/claude',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:2500,
+      body:JSON.stringify({model:AI_MODEL,max_tokens:2500,
         messages:[{role:'user',content:[block,{type:'text',text:`You are a concrete and masonry construction estimator. Analyze this plan/drawing carefully.
 
 Project: "${project.name}" | Contract: ${project.contract_value?'$'+project.contract_value:'TBD'} | GC: ${project.gc_name||'N/A'}
@@ -4543,7 +4549,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const block=isImg?{type:'image',source:{type:'base64',media_type:mime,data:b64}}:{type:'document',source:{type:'base64',media_type:'application/pdf',data:b64}};
     try{
       const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:256,
+        body:JSON.stringify({model:AI_MODEL,max_tokens:256,
           messages:[{role:'user',content:[block,{type:'text',text:'Look at this construction drawing. Find the scale bar or scale notation in the title block or anywhere on the drawing. Return ONLY a JSON object like: {"scale":"1\"=20ft","found":true} or {"found":false} if you cannot find one. No other text.'}]}]})});
       const json=await res.json();
       const text=json?.content?.find(b=>b.type==='text')?.text||'';
@@ -4866,7 +4872,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         const b64 = out.toDataURL('image/jpeg', 0.88).split(',')[1];
         const resp = await fetch('/api/claude', {
           method: 'POST', headers: {'Content-Type':'application/json'},
-          body: JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:60,
+          body: JSON.stringify({ model:AI_MODEL, max_tokens:60,
             messages:[{role:'user',content:[
               {type:'image',source:{type:'base64',media_type:'image/jpeg',data:b64}},
               {type:'text',text:'Find the title block on this construction drawing (usually bottom-right corner) and extract the sheet number and title.\nReply with ONLY this format: SHEET_NUMBER - SHEET_TITLE\nExamples: C3.01 - SITE PLAN  /  A-101 - FLOOR PLAN  /  M-201 - MECHANICAL PLAN\nIf unreadable reply: UNKNOWN'}
@@ -4993,7 +4999,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
             const resp = await fetch('/api/claude', {
               method:'POST', headers:{'Content-Type':'application/json'},
               body: JSON.stringify({
-                model:'claude-sonnet-4-20250514', max_tokens:60,
+                model:AI_MODEL, max_tokens:60,
                 messages:[{role:'user', content:[
                   {type:'image', source:{type:'base64', media_type:'image/jpeg', data:b64}},
                   {type:'text', text:'This is the bottom-right corner of a construction drawing showing the title block. Extract the sheet number and sheet title.\nReply with ONLY this format: SHEET_NUMBER - SHEET_TITLE\nExamples:\n  C3.01 - SITE PLAN\n  A-101 - FLOOR PLAN\n  S2.0 - FOUNDATION PLAN\n  E-201 - ELECTRICAL PLAN\nIf you cannot clearly read a sheet number and title, reply: UNKNOWN'}
@@ -5072,7 +5078,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const costs = getUnitCosts();
     const res=await fetch('/api/claude',{
       method:'POST',headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:3000,
+      body:JSON.stringify({model:AI_MODEL,max_tokens:3000,
         messages:[{role:'user',content:[block,{type:'text',text:`You are a senior concrete and masonry construction estimator. Analyze this plan drawing extremely carefully.
 
 Project: "${project.name}" | GC: ${project.gc_name||'N/A'} | Est. Value: ${project.contract_value?'$'+project.contract_value:'TBD'}
