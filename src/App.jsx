@@ -4286,6 +4286,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [collapsedPlans, setCollapsedPlans] = useState({});
   const [showSheetsDD, setShowSheetsDD] = useState(false);
   const [showScalePanel, setShowScalePanel] = useState(false);
+  const [customScaleInput, setCustomScaleInput] = useState('');
   const [openTabs, setOpenTabs] = useState([]); // plan IDs open as browser tabs
   const [leftTab, setLeftTab] = useState('takeoffs'); // 'plans' | 'takeoffs'
 
@@ -6142,44 +6143,95 @@ Return ONLY a valid JSON array, no markdown:
               {showScalePanel&&!scaleStep&&(
                 <>
                   <div style={{position:'fixed',inset:0,zIndex:29}} onClick={()=>setShowScalePanel(false)}/>
-                  <div style={{position:'absolute',bottom:'100%',right:0,marginBottom:6,
+                  <div style={{position:'absolute',bottom:'calc(100% + 8px)',right:0,
                     background:'#1a1a1a',border:'1px solid rgba(255,255,255,0.12)',borderRadius:8,
-                    boxShadow:'0 8px 32px rgba(0,0,0,0.6)',minWidth:200,zIndex:31,overflow:'hidden',backdropFilter:'blur(8px)'}}>
-                    <div style={{padding:'8px 12px',borderBottom:'1px solid rgba(255,255,255,0.08)',fontSize:10,fontWeight:700,color:'rgba(255,255,255,0.4)',letterSpacing:0.8}}>SET SCALE — {selPlan?.name}</div>
+                    boxShadow:'0 8px 32px rgba(0,0,0,0.6)',width:220,zIndex:31,
+                    backdropFilter:'blur(8px)',display:'flex',flexDirection:'column',
+                    maxHeight:'min(480px, calc(100vh - 80px))'}}>
+
+                    {/* Header */}
+                    <div style={{padding:'8px 12px',borderBottom:'1px solid rgba(255,255,255,0.08)',fontSize:10,fontWeight:700,color:'rgba(255,255,255,0.4)',letterSpacing:0.8,flexShrink:0}}>
+                      SET SCALE — {selPlan?.name?.slice(0,22)}
+                    </div>
+
+                    {/* Custom ratio input — 1" = X ft */}
+                    <div style={{padding:'8px 10px',borderBottom:'1px solid rgba(255,255,255,0.08)',flexShrink:0}}>
+                      <div style={{fontSize:9,color:'rgba(255,255,255,0.35)',marginBottom:5,letterSpacing:0.5}}>CUSTOM  (1&quot; = ? ft)</div>
+                      <div style={{display:'flex',gap:6,alignItems:'center'}}>
+                        <span style={{fontSize:11,color:'rgba(255,255,255,0.5)',flexShrink:0}}>1&quot; =</span>
+                        <input
+                          type="number" min="0.1" step="any"
+                          value={customScaleInput}
+                          onChange={e=>setCustomScaleInput(e.target.value)}
+                          placeholder="e.g. 40"
+                          style={{flex:1,background:'rgba(255,255,255,0.07)',border:'1px solid rgba(255,255,255,0.15)',
+                            color:'#fff',borderRadius:4,padding:'5px 8px',fontSize:12,outline:'none',minWidth:0}}
+                          onKeyDown={async e=>{
+                            if(e.key!=='Enter') return;
+                            const ft = parseFloat(customScaleInput);
+                            if(!ft||ft<=0) return;
+                            const pxPerFt = (planDpi*12)/( ft*12 );
+                            const label = `1"=${ft}ft`;
+                            setScale(pxPerFt); setPresetScale(label);
+                            if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+                            setShowScalePanel(false); setCustomScaleInput('');
+                          }}
+                        />
+                        <span style={{fontSize:11,color:'rgba(255,255,255,0.5)',flexShrink:0}}>ft</span>
+                        <button onClick={async()=>{
+                          const ft = parseFloat(customScaleInput);
+                          if(!ft||ft<=0) return;
+                          const pxPerFt = (planDpi*12)/( ft*12 );
+                          const label = `1"=${ft}ft`;
+                          setScale(pxPerFt); setPresetScale(label);
+                          if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+                          setShowScalePanel(false); setCustomScaleInput('');
+                        }} disabled={!customScaleInput||parseFloat(customScaleInput)<=0}
+                          style={{background:'#10B981',border:'none',color:'#fff',borderRadius:4,padding:'5px 10px',cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0,opacity:customScaleInput&&parseFloat(customScaleInput)>0?1:0.4}}>
+                          Set
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Calibrate + Auto-detect */}
                     <button onClick={()=>{setTool('scale');setScaleStep('picking');setScalePts([]);setActivePts([]);setShowScalePanel(false);}}
-                      style={{width:'100%',background:'none',border:'none',color:'#10B981',padding:'9px 14px',cursor:'pointer',fontSize:11,fontWeight:700,textAlign:'left',borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
-                      ⊕ Calibrate — click 2 points
+                      style={{width:'100%',background:'none',border:'none',color:'#10B981',padding:'9px 12px',cursor:'pointer',fontSize:11,fontWeight:700,textAlign:'left',borderBottom:'1px solid rgba(255,255,255,0.06)',flexShrink:0,display:'flex',alignItems:'center',gap:7}}>
+                      <span style={{fontSize:13}}>⊕</span> Calibrate — click 2 points
                     </button>
                     <button onClick={()=>{autoDetectScale();setShowScalePanel(false);}}
-                      style={{width:'100%',background:'none',border:'none',color:'#a855f7',padding:'9px 14px',cursor:'pointer',fontSize:11,fontWeight:700,textAlign:'left',borderBottom:'1px solid rgba(255,255,255,0.08)'}}>
-                      ✦ Auto-Detect from drawing
+                      style={{width:'100%',background:'none',border:'none',color:'#a855f7',padding:'9px 12px',cursor:'pointer',fontSize:11,fontWeight:700,textAlign:'left',borderBottom:'1px solid rgba(255,255,255,0.1)',flexShrink:0,display:'flex',alignItems:'center',gap:7}}>
+                      <span style={{fontSize:13}}>✦</span> Auto-Detect from drawing
                     </button>
-                    <div style={{padding:'6px 12px 2px',fontSize:9,color:'rgba(255,255,255,0.3)',letterSpacing:0.6}}>CIVIL / ENGINEERING</div>
-                    {CONSTRUCTION_SCALES.filter(s=>s.group==='civil').map(s=>(
-                      <button key={s.label} onClick={async()=>{
-                        const pxPerFt=(planDpi*12)/s.ratio;
-                        setScale(pxPerFt); setPresetScale(s.label);
-                        if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
-                        setShowScalePanel(false);
-                      }} style={{width:'100%',background:presetScale===s.label?'rgba(16,185,129,0.15)':'none',border:'none',
-                        color:presetScale===s.label?'#10B981':'rgba(255,255,255,0.7)',
-                        padding:'6px 14px',cursor:'pointer',fontSize:11,textAlign:'left',display:'flex',alignItems:'center',gap:6}}>
-                        {presetScale===s.label&&<span style={{color:'#10B981',fontSize:9}}>✓</span>}{s.label}
-                      </button>
-                    ))}
-                    <div style={{padding:'6px 12px 2px',fontSize:9,color:'rgba(255,255,255,0.3)',letterSpacing:0.6}}>ARCHITECTURAL</div>
-                    {CONSTRUCTION_SCALES.filter(s=>s.group==='arch').map(s=>(
-                      <button key={s.label} onClick={async()=>{
-                        const pxPerFt=(planDpi*12)/s.ratio;
-                        setScale(pxPerFt); setPresetScale(s.label);
-                        if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
-                        setShowScalePanel(false);
-                      }} style={{width:'100%',background:presetScale===s.label?'rgba(16,185,129,0.15)':'none',border:'none',
-                        color:presetScale===s.label?'#10B981':'rgba(255,255,255,0.7)',
-                        padding:'6px 14px',cursor:'pointer',fontSize:11,textAlign:'left',display:'flex',alignItems:'center',gap:6}}>
-                        {presetScale===s.label&&<span style={{color:'#10B981',fontSize:9}}>✓</span>}{s.label}
-                      </button>
-                    ))}
+
+                    {/* Scrollable preset list */}
+                    <div style={{overflowY:'auto',flex:1}}>
+                      <div style={{padding:'6px 12px 2px',fontSize:9,color:'rgba(255,255,255,0.3)',letterSpacing:0.6,position:'sticky',top:0,background:'#1a1a1a'}}>CIVIL / ENGINEERING</div>
+                      {CONSTRUCTION_SCALES.filter(s=>s.group==='civil').map(s=>(
+                        <button key={s.label} onClick={async()=>{
+                          const pxPerFt=(planDpi*12)/s.ratio;
+                          setScale(pxPerFt); setPresetScale(s.label);
+                          if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+                          setShowScalePanel(false);
+                        }} style={{width:'100%',background:presetScale===s.label?'rgba(16,185,129,0.15)':'none',border:'none',
+                          color:presetScale===s.label?'#10B981':'rgba(255,255,255,0.7)',
+                          padding:'6px 14px',cursor:'pointer',fontSize:11,textAlign:'left',display:'flex',alignItems:'center',gap:6}}>
+                          {presetScale===s.label&&<span style={{color:'#10B981',fontSize:9}}>✓</span>}{s.label}
+                        </button>
+                      ))}
+                      <div style={{padding:'6px 12px 2px',fontSize:9,color:'rgba(255,255,255,0.3)',letterSpacing:0.6,position:'sticky',top:0,background:'#1a1a1a'}}>ARCHITECTURAL</div>
+                      {CONSTRUCTION_SCALES.filter(s=>s.group==='arch').map(s=>(
+                        <button key={s.label} onClick={async()=>{
+                          const pxPerFt=(planDpi*12)/s.ratio;
+                          setScale(pxPerFt); setPresetScale(s.label);
+                          if(selPlan?.id&&selPlan.id!=='preview') await supabase.from('precon_plans').update({scale_px_per_ft:pxPerFt}).eq('id',selPlan.id);
+                          setShowScalePanel(false);
+                        }} style={{width:'100%',background:presetScale===s.label?'rgba(16,185,129,0.15)':'none',border:'none',
+                          color:presetScale===s.label?'#10B981':'rgba(255,255,255,0.7)',
+                          padding:'6px 14px',cursor:'pointer',fontSize:11,textAlign:'left',display:'flex',alignItems:'center',gap:6}}>
+                          {presetScale===s.label&&<span style={{color:'#10B981',fontSize:9}}>✓</span>}{s.label}
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </>
               )}
