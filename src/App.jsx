@@ -4720,16 +4720,18 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   };
 
   // finishShape: double-click saves whatever is drawn
-  const finishShape=()=>{
+  // extraPt = the double-click position that never made it into activePts due to debounce cancellation
+  const finishShape=(extraPt=null)=>{
     if(!activeCondId) return;
     const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
     if(!activeCond) return;
     const mt = activeCond.measurement_type;
-    if(mt==='linear' && activePts.length>=2){
-      appendMeasurement(activeCondId, activePts);
+    const pts = extraPt ? [...activePts, extraPt] : activePts;
+    if(mt==='linear' && pts.length>=2){
+      appendMeasurement(activeCondId, pts);
       setActivePts([]);
-    } else if(mt==='area' && activePts.filter(p=>!p._ctrl).length>=3){
-      appendMeasurement(activeCondId, activePts);
+    } else if(mt==='area' && pts.filter(p=>!p._ctrl).length>=3){
+      appendMeasurement(activeCondId, pts);
       setActivePts([]); setArchCtrlPending(false);
     }
   };
@@ -4765,8 +4767,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const handleSvgDoubleClick=(e)=>{
     if(!selPlan||spaceHeld||tool==='select') return;
     if(clickTimerRef.current){ clearTimeout(clickTimerRef.current); clickTimerRef.current=null; }
+    const lastPt = pendingClickRef.current; // grab before clearing
     pendingClickRef.current=null;
-    finishShape();
+    finishShape(lastPt); // include the final point that debounce cancelled
   };
 
   const handleSvgContextMenu=(e)=>{ e.preventDefault(); };
