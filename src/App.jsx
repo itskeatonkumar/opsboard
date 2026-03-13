@@ -4453,7 +4453,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const handleKey=(e)=>{
       // Ignore if typing in an input/textarea
       const tag=(e.target?.tagName||'').toLowerCase();
-      if(tag==='input'||tag==='textarea'||tag==='select') return;
+      if(tag==='input'||tag==='textarea'||tag==='select'||e.target?.isContentEditable) return;
 
       if(e.key===' '){ e.preventDefault(); setSpaceHeld(true); }
 
@@ -4493,9 +4493,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       }
 
       // Delete / Backspace — delete selected shapes
-      if((e.key==='Delete'||e.key==='Backspace')&&!e.repeat){
+      if(e.key==='Delete'||e.key==='Backspace'){
+        if(selectedShapesRef.current.size===0) return;
+        e.preventDefault(); e.stopPropagation();
+        if(e.repeat) return;
+        console.log('[DEL] deleting', [...selectedShapesRef.current]);
         const keys=[...selectedShapesRef.current];
-        if(!keys.length) return;
         const byItem={};
         keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
         Object.entries(byItem).forEach(([id,idxs])=>{
@@ -4566,9 +4569,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       }
     };
     const handleKeyUp=(e)=>{ if(e.key===' ') setSpaceHeld(false); };
-    window.addEventListener('keydown',handleKey);
+    window.addEventListener('keydown',handleKey, true); // capture phase — nothing can intercept
     window.addEventListener('keyup',handleKeyUp);
-    return ()=>{ window.removeEventListener('keydown',handleKey); window.removeEventListener('keyup',handleKeyUp); };
+    return ()=>{ window.removeEventListener('keydown',handleKey, true); window.removeEventListener('keyup',handleKeyUp); };
   },[]);
 
   // Container callback ref — attaches wheel + pan handlers
