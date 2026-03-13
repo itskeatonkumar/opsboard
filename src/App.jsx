@@ -5408,97 +5408,113 @@ Return ONLY a valid JSON array, no markdown:
       }
     }
 
-    // Legend — clean white panel, Houzz PRO style
+    // Legend — clean white panel with qty per item
     if(withLegend && planItemsEx.length > 0){
+      // Group by description → sum qty, keep color + unit
       const legendMap = new Map();
-      planItemsEx.forEach(it => { if(!legendMap.has(it.description)) legendMap.set(it.description, it.color||'#10B981'); });
-      const legendItems = [...legendMap.entries()];
+      planItemsEx.forEach(it => {
+        const key = it.description;
+        if(legendMap.has(key)){
+          legendMap.get(key).qty += (it.quantity || 0);
+        } else {
+          legendMap.set(key, { color: it.color||'#10B981', qty: it.quantity||0, unit: it.unit||'' });
+        }
+      });
+      const legendItems = [...legendMap.entries()]; // [desc, {color,qty,unit}]
 
-      // Scale font/spacing relative to plan width
-      const scale = Math.max(1, W / 1200);
-      const fs       = Math.round(13 * scale);
-      const fsSub    = Math.round(9  * scale);
-      const fsTitle  = Math.round(10 * scale);
-      const padX     = Math.round(14 * scale);
-      const padY     = Math.round(12 * scale);
-      const swSize   = Math.round(10 * scale);
-      const rowH     = Math.round(22 * scale);
-      const gap      = Math.round(4  * scale);
-      const divH     = Math.round(1  * scale);
-      const headerH  = Math.round(36 * scale);
+      const sc     = Math.max(1, W / 1200);
+      const fs     = Math.round(13 * sc);
+      const fsSub  = Math.round(9  * sc);
+      const fsTitle= Math.round(11 * sc);
+      const fsQty  = Math.round(11 * sc);
+      const padX   = Math.round(14 * sc);
+      const padY   = Math.round(12 * sc);
+      const swSize = Math.round(10 * sc);
+      const rowH   = Math.round(24 * sc);
+      const gap    = Math.round(4  * sc);
+      const headerH= Math.round(40 * sc);
 
-      const legendW  = Math.round(210 * scale);
-      const legendH  = padY + headerH + divH + gap + legendItems.length * (rowH + gap) + padY;
-      const lx = Math.round(20 * scale);
-      const ly = Math.round(20 * scale);
-      const r  = Math.round(5  * scale);
+      // Measure longest row to set width
+      const tmpCanvas = document.createElement('canvas');
+      const tmpCtx = tmpCanvas.getContext('2d');
+      tmpCtx.font = `${fs}px Arial,sans-serif`;
+      let maxRowW = 0;
+      legendItems.forEach(([desc, {qty, unit}]) => {
+        const label = (desc.length > 22 ? desc.slice(0,22)+'…' : desc);
+        const qtyStr = qty > 0 ? `  ${Math.round(qty * 10)/10} ${unit}` : '';
+        const w = tmpCtx.measureText(label + qtyStr).width;
+        if(w > maxRowW) maxRowW = w;
+      });
+      const legendW = Math.round(padX*2 + swSize + Math.round(8*sc) + maxRowW + Math.round(16*sc));
+      const legendH = padY + headerH + legendItems.length * (rowH + gap) + padY;
+      const lx = Math.round(20 * sc);
+      const ly = Math.round(20 * sc);
+      const r  = Math.round(5  * sc);
 
       // Drop shadow
       ctx.save();
       ctx.shadowColor = 'rgba(0,0,0,0.18)';
-      ctx.shadowBlur  = Math.round(12 * scale);
-      ctx.shadowOffsetX = 0;
-      ctx.shadowOffsetY = Math.round(3 * scale);
+      ctx.shadowBlur  = Math.round(12 * sc);
+      ctx.shadowOffsetY = Math.round(3 * sc);
       ctx.fillStyle = '#ffffff';
       roundRect(ctx, lx, ly, legendW, legendH, r); ctx.fill();
       ctx.restore();
 
-      // White panel border
-      ctx.strokeStyle = '#d1d5db';
-      ctx.lineWidth = Math.max(1, scale);
+      // Border
+      ctx.strokeStyle = '#d1d5db'; ctx.lineWidth = Math.max(1, sc);
       roundRect(ctx, lx, ly, legendW, legendH, r); ctx.stroke();
 
-      // Header background (light grey)
+      // Header bg
       ctx.save();
       ctx.beginPath();
-      ctx.moveTo(lx + r, ly);
-      ctx.lineTo(lx + legendW - r, ly);
-      ctx.quadraticCurveTo(lx + legendW, ly, lx + legendW, ly + r);
-      ctx.lineTo(lx + legendW, ly + headerH);
-      ctx.lineTo(lx, ly + headerH);
-      ctx.lineTo(lx, ly + r);
-      ctx.quadraticCurveTo(lx, ly, lx + r, ly);
-      ctx.closePath();
-      ctx.fillStyle = '#f3f4f6';
-      ctx.fill();
+      ctx.moveTo(lx+r, ly); ctx.lineTo(lx+legendW-r, ly);
+      ctx.quadraticCurveTo(lx+legendW, ly, lx+legendW, ly+r);
+      ctx.lineTo(lx+legendW, ly+headerH); ctx.lineTo(lx, ly+headerH);
+      ctx.lineTo(lx, ly+r); ctx.quadraticCurveTo(lx, ly, lx+r, ly);
+      ctx.closePath(); ctx.fillStyle='#f3f4f6'; ctx.fill();
       ctx.restore();
 
       // Header divider
-      ctx.fillStyle = '#e5e7eb';
-      ctx.fillRect(lx, ly + headerH, legendW, divH);
+      ctx.fillStyle='#e5e7eb'; ctx.fillRect(lx, ly+headerH, legendW, Math.max(1,sc));
 
-      // Header label — "TAKEOFFS"
-      ctx.fillStyle = '#6b7280';
-      ctx.font = `700 ${fsSub}px Arial,sans-serif`;
-      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
-      ctx.fillText('TAKEOFFS', lx + padX, ly + padY * 0.7);
+      // "TAKEOFFS" label
+      ctx.fillStyle='#6b7280'; ctx.font=`700 ${fsSub}px Arial,sans-serif`;
+      ctx.textAlign='left'; ctx.textBaseline='top';
+      ctx.fillText('TAKEOFFS', lx+padX, ly+Math.round(padY*0.7));
 
-      // Header sheet name
-      ctx.fillStyle = '#111827';
-      ctx.font = `600 ${fsTitle}px Arial,sans-serif`;
-      ctx.fillText(plan.name.slice(0, 28), lx + padX, ly + padY * 0.7 + fsSub + Math.round(4 * scale));
+      // Sheet name
+      ctx.fillStyle='#111827'; ctx.font=`600 ${fsTitle}px Arial,sans-serif`;
+      ctx.fillText(plan.name.slice(0,32), lx+padX, ly+Math.round(padY*0.7)+fsSub+Math.round(4*sc));
 
       // Rows
-      legendItems.forEach(([desc, color], i) => {
-        const ry = ly + headerH + divH + gap + i * (rowH + gap) + Math.round(rowH * 0.15);
+      legendItems.forEach(([desc, {color, qty, unit}], i) => {
+        const ry = ly + headerH + Math.round(sc) + gap + i*(rowH+gap);
+        const midY = ry + rowH/2;
 
-        // Color swatch — rounded square
+        // Swatch
         ctx.fillStyle = color;
-        roundRect(ctx, lx + padX, ry + Math.round((rowH - swSize) / 2), swSize, swSize, Math.round(2 * scale));
+        roundRect(ctx, lx+padX, midY - swSize/2, swSize, swSize, Math.round(2*sc));
         ctx.fill();
-
-        // Swatch border
-        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
-        ctx.lineWidth = Math.max(1, scale * 0.5);
-        roundRect(ctx, lx + padX, ry + Math.round((rowH - swSize) / 2), swSize, swSize, Math.round(2 * scale));
+        ctx.strokeStyle='rgba(0,0,0,0.12)'; ctx.lineWidth=Math.max(1,sc*0.5);
+        roundRect(ctx, lx+padX, midY - swSize/2, swSize, swSize, Math.round(2*sc));
         ctx.stroke();
 
-        // Item label
-        ctx.fillStyle = '#1f2937';
-        ctx.font = `${fs}px Arial,sans-serif`;
-        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
-        const label = desc.length > 22 ? desc.slice(0, 22) + '…' : desc;
-        ctx.fillText(label, lx + padX + swSize + Math.round(8 * scale), ry + rowH / 2);
+        const textX = lx + padX + swSize + Math.round(8*sc);
+
+        // Description
+        const label = desc.length > 22 ? desc.slice(0,22)+'…' : desc;
+        ctx.fillStyle='#1f2937'; ctx.font=`${fs}px Arial,sans-serif`;
+        ctx.textAlign='left'; ctx.textBaseline='middle';
+        ctx.fillText(label, textX, midY);
+
+        // Qty + unit — right-aligned, bold, colored
+        if(qty > 0){
+          const qtyStr = `${Math.round(qty*10)/10} ${unit}`;
+          ctx.font=`700 ${fsQty}px Arial,sans-serif`;
+          ctx.fillStyle = color;
+          ctx.textAlign='right';
+          ctx.fillText(qtyStr, lx+legendW-padX, midY);
+        }
       });
     }
 
