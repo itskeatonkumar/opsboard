@@ -5380,32 +5380,34 @@ Return ONLY a valid JSON array, no markdown:
           ctx.closePath(); ctx.fill(); ctx.stroke();
           const cx = realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
           const cy = realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
-          const sf = Math.round(calcArea(realPts)*10)/10;
-          const fs = Math.max(10, W/80);
-          ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(cx-fs*2.8,cy-fs*0.9,fs*5.6,fs*1.8);
-          ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
-          ctx.textAlign='center'; ctx.textBaseline='middle';
-          ctx.fillText(sf+' SF', cx, cy);
+          const labelStr = it.quantity ? `${Math.round(it.quantity*10)/10} ${it.unit||'SF'}` : '';
+          if(labelStr){
+            const fs = Math.max(10, W/80);
+            ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(cx-fs*3,cy-fs*0.9,fs*6,fs*1.8);
+            ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(labelStr, cx, cy);
+          }
         } else if(mt === 'linear' && realPts.length >= 2){
           ctx.setLineDash([6,3]); ctx.beginPath(); ctx.moveTo(realPts[0].x, realPts[0].y);
           for(let i=1;i<realPts.length;i++) ctx.lineTo(realPts[i].x, realPts[i].y);
           ctx.stroke(); ctx.setLineDash([]);
           realPts.forEach(p=>{ ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill(); });
-          const mx=realPts.reduce((s,p)=>s+p.x,0)/realPts.length, my=realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
-          let pxDist=0; for(let i=1;i<realPts.length;i++) pxDist+=Math.sqrt((realPts[i].x-realPts[i-1].x)**2+(realPts[i].y-realPts[i-1].y)**2);
-          const lfVal = planScale ? Math.round((pxDist/planScale)*10)/10 : null;
-          const labelStr = lfVal != null ? `${lfVal} LF` : `${Math.round(pxDist)} px`;
-          const fs=Math.max(10,W/80);
-          ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(mx-fs*2.8,my-fs*2.4,fs*5.6,fs*1.6);
-          ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
-          ctx.textAlign='center'; ctx.textBaseline='middle';
-          ctx.fillText(labelStr, mx, my-fs*1.6);
+          const mx = realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
+          const my = realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
+          const labelStr = it.quantity ? `${Math.round(it.quantity*10)/10} ${it.unit||'LF'}` : '';
+          if(labelStr){
+            const fs = Math.max(10, W/80);
+            ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(mx-fs*3,my-fs*2.4,fs*6,fs*1.6);
+            ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
+            ctx.textAlign='center'; ctx.textBaseline='middle';
+            ctx.fillText(labelStr, mx, my-fs*1.6);
+          }
         } else if(mt === 'count' && pts[0]){
           const p=pts[0];
           ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x,p.y,8,0,Math.PI*2); ctx.fill();
           ctx.fillStyle='#fff'; ctx.font='bold 10px monospace';
-          ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('✕',p.x,p.y);
-        }
+          ctx.textAlign='center'; ctx.textBaseline='middle'; ctx.fillText('✕',p.x,p.y);        }
         ctx.restore();
       }
     }
