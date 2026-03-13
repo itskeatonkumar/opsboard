@@ -6925,6 +6925,12 @@ Return ONLY a valid JSON array, no markdown:
             })()}
           </div>
 
+          {/* ── DEBUG overlay (remove before prod) ── */}
+          <div style={{position:'absolute',bottom:8,left:8,zIndex:99,
+            background:'rgba(0,0,0,0.75)',color:'#0f0',fontFamily:'monospace',
+            fontSize:10,padding:'4px 8px',borderRadius:4,pointerEvents:'none',lineHeight:1.6}}>
+            sel:{selectedIds.size} | clip:{clipboard.length} | ids:[{[...selectedIds].join(',')}]
+          </div>
           {/* ── Multi-select floating action bar ── */}
           {selectedIds.size>0&&(
             <div style={{position:'absolute',top:10,left:'50%',transform:'translateX(-50%)',zIndex:40,
