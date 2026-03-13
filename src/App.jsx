@@ -5408,27 +5408,97 @@ Return ONLY a valid JSON array, no markdown:
       }
     }
 
-    // Legend
+    // Legend — clean white panel, Houzz PRO style
     if(withLegend && planItemsEx.length > 0){
       const legendMap = new Map();
       planItemsEx.forEach(it => { if(!legendMap.has(it.description)) legendMap.set(it.description, it.color||'#10B981'); });
       const legendItems = [...legendMap.entries()];
-      const fs=Math.max(11, W/100), pad=14, sw=10, lh=fs*2;
-      const legendW=fs*20, legendH=pad*2+fs*1.8+legendItems.length*(lh+2);
-      const lx=16, ly=16;
-      ctx.fillStyle='rgba(10,10,10,0.85)';
-      roundRect(ctx,lx,ly,legendW,legendH,7); ctx.fill();
-      ctx.strokeStyle='rgba(255,255,255,0.15)'; ctx.lineWidth=1;
-      roundRect(ctx,lx,ly,legendW,legendH,7); ctx.stroke();
-      ctx.fillStyle='rgba(255,255,255,0.4)'; ctx.font=`700 ${fs*0.78}px "DM Mono",monospace`;
-      ctx.textAlign='left'; ctx.textBaseline='top';
-      ctx.fillText('TAKEOFFS — '+plan.name.toUpperCase().slice(0,26), lx+pad, ly+pad);
-      legendItems.forEach(([desc,color],i)=>{
-        const iy=ly+pad+fs*1.8+i*(lh+2);
-        ctx.fillStyle=color; roundRect(ctx,lx+pad,iy+3,sw,sw,2); ctx.fill();
-        ctx.fillStyle='rgba(255,255,255,0.9)'; ctx.font=`${fs}px "DM Mono",monospace`;
-        ctx.textAlign='left'; ctx.textBaseline='top';
-        ctx.fillText(desc.length>24?desc.slice(0,24)+'…':desc, lx+pad+sw+8, iy+2);
+
+      // Scale font/spacing relative to plan width
+      const scale = Math.max(1, W / 1200);
+      const fs       = Math.round(13 * scale);
+      const fsSub    = Math.round(9  * scale);
+      const fsTitle  = Math.round(10 * scale);
+      const padX     = Math.round(14 * scale);
+      const padY     = Math.round(12 * scale);
+      const swSize   = Math.round(10 * scale);
+      const rowH     = Math.round(22 * scale);
+      const gap      = Math.round(4  * scale);
+      const divH     = Math.round(1  * scale);
+      const headerH  = Math.round(36 * scale);
+
+      const legendW  = Math.round(210 * scale);
+      const legendH  = padY + headerH + divH + gap + legendItems.length * (rowH + gap) + padY;
+      const lx = Math.round(20 * scale);
+      const ly = Math.round(20 * scale);
+      const r  = Math.round(5  * scale);
+
+      // Drop shadow
+      ctx.save();
+      ctx.shadowColor = 'rgba(0,0,0,0.18)';
+      ctx.shadowBlur  = Math.round(12 * scale);
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = Math.round(3 * scale);
+      ctx.fillStyle = '#ffffff';
+      roundRect(ctx, lx, ly, legendW, legendH, r); ctx.fill();
+      ctx.restore();
+
+      // White panel border
+      ctx.strokeStyle = '#d1d5db';
+      ctx.lineWidth = Math.max(1, scale);
+      roundRect(ctx, lx, ly, legendW, legendH, r); ctx.stroke();
+
+      // Header background (light grey)
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(lx + r, ly);
+      ctx.lineTo(lx + legendW - r, ly);
+      ctx.quadraticCurveTo(lx + legendW, ly, lx + legendW, ly + r);
+      ctx.lineTo(lx + legendW, ly + headerH);
+      ctx.lineTo(lx, ly + headerH);
+      ctx.lineTo(lx, ly + r);
+      ctx.quadraticCurveTo(lx, ly, lx + r, ly);
+      ctx.closePath();
+      ctx.fillStyle = '#f3f4f6';
+      ctx.fill();
+      ctx.restore();
+
+      // Header divider
+      ctx.fillStyle = '#e5e7eb';
+      ctx.fillRect(lx, ly + headerH, legendW, divH);
+
+      // Header label — "TAKEOFFS"
+      ctx.fillStyle = '#6b7280';
+      ctx.font = `700 ${fsSub}px Arial,sans-serif`;
+      ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+      ctx.fillText('TAKEOFFS', lx + padX, ly + padY * 0.7);
+
+      // Header sheet name
+      ctx.fillStyle = '#111827';
+      ctx.font = `600 ${fsTitle}px Arial,sans-serif`;
+      ctx.fillText(plan.name.slice(0, 28), lx + padX, ly + padY * 0.7 + fsSub + Math.round(4 * scale));
+
+      // Rows
+      legendItems.forEach(([desc, color], i) => {
+        const ry = ly + headerH + divH + gap + i * (rowH + gap) + Math.round(rowH * 0.15);
+
+        // Color swatch — rounded square
+        ctx.fillStyle = color;
+        roundRect(ctx, lx + padX, ry + Math.round((rowH - swSize) / 2), swSize, swSize, Math.round(2 * scale));
+        ctx.fill();
+
+        // Swatch border
+        ctx.strokeStyle = 'rgba(0,0,0,0.1)';
+        ctx.lineWidth = Math.max(1, scale * 0.5);
+        roundRect(ctx, lx + padX, ry + Math.round((rowH - swSize) / 2), swSize, swSize, Math.round(2 * scale));
+        ctx.stroke();
+
+        // Item label
+        ctx.fillStyle = '#1f2937';
+        ctx.font = `${fs}px Arial,sans-serif`;
+        ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+        const label = desc.length > 22 ? desc.slice(0, 22) + '…' : desc;
+        ctx.fillText(label, lx + padX + swSize + Math.round(8 * scale), ry + rowH / 2);
       });
     }
 
