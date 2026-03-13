@@ -4289,7 +4289,10 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const clipboardRef                    = useRef([]);       // always-current ref for keydown
   const [eraserHover, setEraserHover]   = useState(null);  // {itemId,shapeIdx}
   const [lassoRect, setLassoRect]       = useState(null);  // {sx,sy,ex,ey} live lasso box
-  const lassoStartRef                   = useRef(null);    // lasso drag start
+  const [copyFlash, setCopyFlash]         = useState(0);     // >0 = show 'Copied N' briefly
+  const pasteOffsetRef                  = useRef(0);        // accumulates per paste
+  const lassoStartRef                   = useRef(null);     // lasso drag start
+  const suppressNextClickRef            = useRef(false);    // suppress SVG click after lasso drag
   const [takeoffStep, setTakeoffStep] = useState(null); // null | 'type' | 'create' | 'settings'
   const [newTOType, setNewTOType] = useState(null);
   const [newTOName, setNewTOName] = useState('');
@@ -4461,6 +4464,13 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         setSelectedIds(new Set());
       }
 
+      // V — switch to Select tool
+      if(e.key==='v'||e.key==='V'){
+        if(!(e.ctrlKey||e.metaKey)){
+          setTool('select'); setActivePts([]); setArcPending(false); setArchMode(false);
+        }
+      }
+
       // S — toggle angle snap (45°/60°/90°)
       if(e.key==='s'||e.key==='S'){
         setSnapEnabled(p=>!p);
@@ -4499,33 +4509,41 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           const toCopy = itemsRef.current.filter(i=>ids.includes(i.id));
           clipboardRef.current = toCopy;
           setClipboard(toCopy);
+          pasteOffsetRef.current = 0; // reset accumulator for this fresh copy
+          // Flash copy count in action bar (via a temp state-like approach)
+          setCopyFlash(toCopy.length);
+          setTimeout(()=>setCopyFlash(0), 1800);
         }
       }
 
-      // Ctrl+V — paste clipboard with offset
+      // Ctrl+V — paste clipboard, auto-select pasted items, accumulate offset
       if((e.ctrlKey||e.metaKey)&&(e.key==='v'||e.key==='V')){
         const src = clipboardRef.current;
-        if(src.length>0){
-          const OFFSET=20;
-          const inserts = src.map(it=>{
-            const shiftedPts = it.points
-              ? (Array.isArray(it.points[0])
-                  ? it.points.map(sh=>sh.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET})))
-                  : [it.points.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET}))])
-              : null;
-            return {
-              project_id:it.project_id, plan_id:selPlanRef.current?.id||it.plan_id,
-              category:it.category, description:it.description+' (copy)',
-              quantity:it.quantity, unit:it.unit, unit_cost:it.unit_cost,
-              total_cost:it.total_cost, measurement_type:it.measurement_type,
-              color:it.color, points:shiftedPts, ai_generated:false,
-              sort_order:itemsRef.current.length,
-            };
-          });
-          supabase.from('takeoff_items').insert(inserts).select().then(({data})=>{
-            if(data) setItems(prev=>[...prev,...data]);
-          });
-        }
+        if(!src.length) return;
+        // Accumulate offset so repeated pastes don't stack perfectly
+        pasteOffsetRef.current = (pasteOffsetRef.current || 0) + 40;
+        const OFFSET = pasteOffsetRef.current;
+        const inserts = src.map(it=>{
+          const shift = (sh) => sh.map(p=>({...p, x:p.x+OFFSET, y:p.y+OFFSET}));
+          const shiftedPts = it.points
+            ? (Array.isArray(it.points[0]) ? it.points.map(shift) : [shift(it.points)])
+            : null;
+          return {
+            project_id:it.project_id, plan_id:selPlanRef.current?.id||it.plan_id,
+            category:it.category, description:it.description,
+            quantity:it.quantity, unit:it.unit, unit_cost:it.unit_cost,
+            total_cost:it.total_cost, measurement_type:it.measurement_type,
+            color:it.color, points:shiftedPts, ai_generated:false,
+            sort_order:itemsRef.current.length,
+          };
+        });
+        supabase.from('takeoff_items').insert(inserts).select().then(({data})=>{
+          if(data){
+            setItems(prev=>[...prev,...data]);
+            // Auto-select the newly pasted items so user can see them
+            setSelectedIds(new Set(data.map(i=>i.id)));
+          }
+        });
       }
     };
     const handleKeyUp=(e)=>{ if(e.key===' ') setSpaceHeld(false); };
@@ -4934,7 +4952,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     }
     if(spaceHeld) return;
     if(tool==='select'){
-      // Plain click on empty canvas clears selection (clicks on shapes are handled in onClick via renderMeasurements)
+      // Suppress click fired immediately after a lasso drag-release
+      if(suppressNextClickRef.current){ suppressNextClickRef.current=false; return; }
+      // Plain click on empty canvas clears selection
       setSelectedIds(new Set());
       return;
     }
@@ -5058,6 +5078,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         const minY=Math.min(startPt.y,cur.y), maxY=Math.max(startPt.y,cur.y);
         const moved = Math.abs(cur.x-startPt.x)>4 || Math.abs(cur.y-startPt.y)>4;
         if(moved){
+          suppressNextClickRef.current = true; // block the click event that fires right after mouseup
           const hit = new Set();
           itemsRef.current.filter(i=>i.plan_id===selPlanRef.current?.id&&i.points?.length).forEach(it=>{
             const shapes = Array.isArray(it.points[0]) ? it.points : (it.points[0]?.x!=null?[it.points]:it.points);
@@ -6911,12 +6932,16 @@ Return ONLY a valid JSON array, no markdown:
               borderRadius:10,padding:'7px 14px',boxShadow:'0 4px 24px rgba(0,0,0,0.6)',
               backdropFilter:'blur(10px)',display:'flex',alignItems:'center',gap:10,pointerEvents:'all'}}>
               <span style={{fontSize:11,color:'#94A3B8',fontWeight:600}}>{selectedIds.size} selected</span>
+              {copyFlash>0&&<span style={{fontSize:11,color:'#6EE7B7',fontWeight:700,animation:'fadeIn 0.2s ease'}}>✓ Copied {copyFlash}</span>}
               <div style={{width:1,height:18,background:'rgba(255,255,255,0.12)'}}/>
               <button onClick={()=>{
                 const ids=[...selectedIdsRef.current];
                 const toCopy=itemsRef.current.filter(i=>ids.includes(i.id));
                 clipboardRef.current = toCopy;
                 setClipboard(toCopy);
+                pasteOffsetRef.current = 0;
+                setCopyFlash(toCopy.length);
+                setTimeout(()=>setCopyFlash(0), 1800);
               }} title="Copy (Ctrl+C)"
                 style={{background:'none',border:'none',color:'#93C5FD',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
                 onMouseEnter={e=>e.currentTarget.style.background='rgba(59,130,246,0.15)'}
@@ -7107,7 +7132,7 @@ Return ONLY a valid JSON array, no markdown:
         {/* ── Right Tool Bar ── */}
         <div style={{width:56,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,alignItems:'center',paddingTop:6}}>
           {[
-            {id:'select', icon:'↖', label:'Select', color:'#94A3B8'},
+            {id:'select', icon:'↖', label:'Select [V]', color:'#94A3B8'},
             null,
             {id:'area',   icon:'⬡', label:'Area',   color:'#F59E0B'},
             {id:'linear', icon:'━', label:'Linear', color:'#06B6D4'},
