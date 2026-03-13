@@ -6988,14 +6988,14 @@ Return ONLY a valid JSON array, no markdown:
           </div>
 
           {/* ── DEBUG overlay (remove before prod) ── */}
-          <div style={{position:'absolute',bottom:8,left:8,zIndex:99,
+          <div style={{position:'absolute',bottom:8,left:8,zIndex:110,
             background:'rgba(0,0,0,0.75)',color:'#0f0',fontFamily:'monospace',
             fontSize:10,padding:'4px 8px',borderRadius:4,pointerEvents:'none',lineHeight:1.6}}>
             sel:{selectedShapes.size} | clip:{clipboard.length}
           </div>
           {/* ── Multi-select floating action bar ── */}
           {selectedShapes.size>0&&(
-            <div style={{position:'absolute',top:10,left:'50%',transform:'translateX(-50%)',zIndex:40,
+            <div style={{position:'absolute',top:10,left:'50%',transform:'translateX(-50%)',zIndex:110,
               background:'rgba(15,15,15,0.96)',border:'1px solid rgba(59,130,246,0.5)',
               borderRadius:10,padding:'7px 14px',boxShadow:'0 4px 24px rgba(0,0,0,0.6)',
               backdropFilter:'blur(10px)',display:'flex',alignItems:'center',gap:10,pointerEvents:'all'}}>
