@@ -5359,7 +5359,8 @@ Return ONLY a valid JSON array, no markdown:
       ctx.drawImage(img, 0, 0, W, H);
     }
 
-    // Draw takeoff shapes
+    // Draw takeoff shapes — use plan's own scale, not the live UI state
+    const planScale = plan.scale_px_per_ft || scale || null;
     const planItemsEx = items.filter(it => it.points?.length && it.plan_id === plan.id);
     for(const it of planItemsEx){
       const shapes = normalizeShapes(it.points);
@@ -5391,13 +5392,14 @@ Return ONLY a valid JSON array, no markdown:
           ctx.stroke(); ctx.setLineDash([]);
           realPts.forEach(p=>{ ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill(); });
           const mx=realPts.reduce((s,p)=>s+p.x,0)/realPts.length, my=realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
-          let lf=0; for(let i=1;i<realPts.length;i++) lf+=calcLinear(realPts[i-1],realPts[i]);
-          lf=Math.round(lf*10)/10;
+          let pxDist=0; for(let i=1;i<realPts.length;i++) pxDist+=Math.sqrt((realPts[i].x-realPts[i-1].x)**2+(realPts[i].y-realPts[i-1].y)**2);
+          const lfVal = planScale ? Math.round((pxDist/planScale)*10)/10 : null;
+          const labelStr = lfVal != null ? `${lfVal} LF` : `${Math.round(pxDist)} px`;
           const fs=Math.max(10,W/80);
           ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(mx-fs*2.8,my-fs*2.4,fs*5.6,fs*1.6);
           ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
           ctx.textAlign='center'; ctx.textBaseline='middle';
-          ctx.fillText(lf+(scale?' LF':' px'), mx, my-fs*1.6);
+          ctx.fillText(labelStr, mx, my-fs*1.6);
         } else if(mt === 'count' && pts[0]){
           const p=pts[0];
           ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x,p.y,8,0,Math.PI*2); ctx.fill();
