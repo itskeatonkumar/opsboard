@@ -7039,7 +7039,12 @@ Return ONLY a valid JSON array, no markdown:
                 onMouseLeave={e=>e.currentTarget.style.background='none'}>
                 ⧉ Duplicate
               </button>
-              <button onClick={()=>{ if(deleteShapesRef.current) deleteShapesRef.current(); }}
+              <button onClick={(e)=>{ 
+                e.stopPropagation();
+                console.log('DELETE BTN CLICKED, ref:', deleteShapesRef.current, 'sel:', selectedShapesRef.current.size);
+                if(deleteShapesRef.current) deleteShapesRef.current(); 
+                else console.error('deleteShapesRef.current is NULL');
+              }}
                 title="Delete selected (Del)"
                 style={{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
                 onMouseEnter={e=>e.currentTarget.style.background='rgba(252,165,165,0.15)'}
