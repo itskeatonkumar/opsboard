@@ -3992,7 +3992,7 @@ function TakeoffProjectModal({ project, apmProjects, onSave, onClose }) {
         )}
       </div>
       <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'space-between'}}>
-        {!isNew&&<button onClick={()=>onSave(project,'delete')} style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'8px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Delete</button>}
+        {!isNew&&<button onClick={()=>{if(window.confirm('Delete "'+project.name+'"? This will permanently remove the project and all takeoff data.'))onSave(project,'delete');}} style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'8px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Delete</button>}
         <div style={{display:'flex',gap:8,marginLeft:'auto'}}>
           <button onClick={onClose} style={{background:'none',border:`1px solid var(--bd2)`,color:'var(--tx3)',padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13}}>Cancel</button>
           <button onClick={handleSave} disabled={saving||!form.name.trim()} style={{background:'#F97316',border:'none',color:'#000',padding:'8px 22px',borderRadius:6,cursor:'pointer',fontSize:13,fontWeight:700}}>{saving?'Saving...':isNew?'Create':'Save'}</button>
@@ -7598,7 +7598,7 @@ Return ONLY a valid JSON array, no markdown:
       {showAssembly&&<AssemblyPicker onApply={applyAssembly} onClose={()=>setShowAssembly(false)}/>}
       {showUnitCosts&&<UnitCostEditor onClose={()=>setShowUnitCosts(false)}/>}
       {showBidSummary&&<BidSummaryModal project={project} items={items} onClose={()=>setShowBidSummary(false)}/>}
-      {editProject&&<TakeoffProjectModal project={project} apmProjects={apmProjects} onSave={async(data,type)=>{ if(type!=='delete'&&data){ const {data:updated}=await supabase.from('precon_projects').update({name:data.name,company:data.company,address:data.address,gc_name:data.gc_name,bid_date:data.bid_date,contract_value:data.contract_value,status:data.status,apm_project_id:data.apm_project_id}).eq('id',data.id).select().single(); if(updated) onBack(); } else { onBack(); } setEditProject(false); }} onClose={()=>setEditProject(false)}/>}
+      {editProject&&<TakeoffProjectModal project={project} apmProjects={apmProjects} onSave={async(data,type)=>{ if(type==='delete'){ await supabase.from('takeoff_items').delete().eq('project_id',data.id); await supabase.from('precon_plans').delete().eq('project_id',data.id); await supabase.from('precon_projects').delete().eq('id',data.id); onBack(); } else if(data){ const {data:updated}=await supabase.from('precon_projects').update({name:data.name,company:data.company,address:data.address,gc_name:data.gc_name,bid_date:data.bid_date,contract_value:data.contract_value,status:data.status,apm_project_id:data.apm_project_id}).eq('id',data.id).select().single(); if(updated) onBack(); } else { onBack(); } setEditProject(false); }} onClose={()=>setEditProject(false)}/>}
     </div>
   );
 }
