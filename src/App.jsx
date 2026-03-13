@@ -4270,12 +4270,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const itemsRef = useRef(items); // always-current items ref — fixes stale closure in appendMeasurement
   useEffect(()=>{ itemsRef.current = items; },[items]);
   const activePtsRef    = useRef([]);
-  useEffect(()=>{ activePtsRef.current = activePts; },[activePts]);
   const activeCondIdRef = useRef(null);
-  useEffect(()=>{ activeCondIdRef.current = activeCondId; },[activeCondId]);
   const selPlanRef      = useRef(null);
-  useEffect(()=>{ selPlanRef.current = selPlan; },[selPlan]);
-  const commitCurrentPtsRef = useRef(null); // set after appendMeasurement is defined
+  const commitCurrentPtsRef = useRef(null); // assigned mid-render after appendMeasurement is defined
   const [spaceHeld, setSpaceHeld] = useState(false);
   const [activeCondId, setActiveCondId] = useState(null); // condition currently armed for drawing
   const [estSaving, setEstSaving] = useState(null);
@@ -4304,6 +4301,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [customScaleInput, setCustomScaleInput] = useState('');
   const [openTabs, setOpenTabs] = useState([]); // plan IDs open as browser tabs
   const [leftTab, setLeftTab] = useState('takeoffs'); // 'plans' | 'takeoffs'
+
+  // ── Always-current refs: assigned synchronously each render (correct React pattern) ──
+  // avoids TDZ crash that useEffect([dep]) would cause when refs precede state declarations
+  activePtsRef.current    = activePts;
+  activeCondIdRef.current = activeCondId;
+  selPlanRef.current      = selPlan;
 
 
   useEffect(()=>{
