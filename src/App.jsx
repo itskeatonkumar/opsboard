@@ -4268,7 +4268,6 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const clickTimerRef = useRef(null);   // debounce single vs double click
   const pendingClickRef = useRef(null); // pending single-click event pos
   const itemsRef = useRef(items); // always-current items ref — fixes stale closure in appendMeasurement
-  useEffect(()=>{ itemsRef.current = items; },[items]);
   const activePtsRef    = useRef([]);
   const activeCondIdRef = useRef(null);
   const selPlanRef      = useRef(null);
@@ -4310,6 +4309,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
   // ── Always-current refs: assigned synchronously each render (correct React pattern) ──
   // avoids TDZ crash that useEffect([dep]) would cause when refs precede state declarations
+  itemsRef.current        = items;          // must be sync — keydown delete reads this
   activePtsRef.current    = activePts;
   activeCondIdRef.current = activeCondId;
   selPlanRef.current      = selPlan;
