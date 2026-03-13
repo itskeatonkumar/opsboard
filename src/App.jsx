@@ -11,7 +11,7 @@ const N8N_WEBHOOK_URL = import.meta.env.VITE_N8N_WEBHOOK_URL || "";
 // ─── AI Model ───────────────────────────────────────────────────────────────
 // Single source of truth for every Claude API call in this app.
 // Change this one line to upgrade the model across all features simultaneously.
-const AI_MODEL = AI_MODEL;
+const AI_MODEL = 'claude-sonnet-4-20250514';
 // ────────────────────────────────────────────────────────────────────────────
 
 const COMPANIES = [
