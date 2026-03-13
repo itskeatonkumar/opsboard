@@ -5323,19 +5323,52 @@ Return ONLY a valid JSON array, no markdown:
   };
 
   const exportPlanCanvas = async (plan, withLegend) => {
-    // Fetch the plan image and draw all markup onto an offscreen canvas, return blob
-    const img = new Image(); img.crossOrigin = 'anonymous';
-    await new Promise((res, rej) => { img.onload=res; img.onerror=rej; img.src=plan.file_url; });
-    const W = img.naturalWidth || 800;
-    const H = img.naturalHeight || 1100;
+    // Load image via fetch→blob to avoid CORS canvas taint on Supabase URLs
+    const loadImg = async (url) => {
+      // For the currently-open PDF plan we can use canvasRef directly
+      if(plan.id === selPlan?.id && isPdfPlan && canvasRef.current) return null;
+      try {
+        // Extract storage path from URL and use supabase download (handles CORS)
+        const pathMatch = url.match(/precon\/(.+)$/);
+        if(pathMatch){
+          const { data, error } = await supabase.storage.from('attachments').download('precon/'+pathMatch[1]);
+          if(!error && data){
+            const bUrl = URL.createObjectURL(data);
+            const img = new Image();
+            await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=bUrl; });
+            URL.revokeObjectURL(bUrl);
+            return img;
+          }
+        }
+      } catch(e){ console.warn('supabase download failed, trying direct fetch', e); }
+      // Fallback: direct fetch as blob
+      try {
+        const resp = await fetch(url);
+        const blob = await resp.blob();
+        const bUrl = URL.createObjectURL(blob);
+        const img = new Image();
+        await new Promise((res,rej)=>{ img.onload=res; img.onerror=rej; img.src=bUrl; });
+        URL.revokeObjectURL(bUrl);
+        return img;
+      } catch(e){ console.error('image load failed', e); return null; }
+    };
+
+    const img = await loadImg(plan.file_url);
+    const W = (plan.id===selPlan?.id && isPdfPlan && canvasRef.current)
+      ? canvasRef.current.width
+      : (img?.naturalWidth || 800);
+    const H = (plan.id===selPlan?.id && isPdfPlan && canvasRef.current)
+      ? canvasRef.current.height
+      : (img?.naturalHeight || 1100);
+
     const out = document.createElement('canvas');
     out.width = W; out.height = H;
     const ctx = out.getContext('2d');
 
-    // If this is the currently-rendered PDF plan use its canvas directly (higher quality)
+    // Draw background
     if(plan.id === selPlan?.id && isPdfPlan && canvasRef.current){
       ctx.drawImage(canvasRef.current, 0, 0, W, H);
-    } else {
+    } else if(img){
       ctx.drawImage(img, 0, 0, W, H);
     }
 
@@ -5417,15 +5450,20 @@ Return ONLY a valid JSON array, no markdown:
 
   const exportPlan = async (plan, withLegend=true) => {
     if(!plan) return;
+    console.log('[export] starting for plan:', plan.name, 'withLegend:', withLegend);
     setExporting(true); setShowExportMenu(false);
     try {
       const blob = await exportPlanCanvas(plan, withLegend);
+      console.log('[export] blob:', blob);
+      if(!blob){ alert('Export failed — canvas could not be converted to image.'); setExporting(false); return; }
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
       a.download = `${(project.name||'plan').replace(/\s+/g,'-')}_${plan.name.replace(/\s+/g,'-')}_takeoff.png`;
+      document.body.appendChild(a);
       a.click();
+      document.body.removeChild(a);
       setTimeout(()=>URL.revokeObjectURL(a.href),8000);
-    } catch(e){ console.error('export error',e); alert('Export failed: '+e.message); }
+    } catch(e){ console.error('[export] error', e); alert('Export failed: '+e.message); }
     setExporting(false);
   };
 
