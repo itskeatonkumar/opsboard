@@ -4492,27 +4492,31 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         }
       }
 
-      // Delete / Backspace — delete selected items
+      // Delete / Backspace — delete selected shapes
       if((e.key==='Delete'||e.key==='Backspace')&&!e.repeat){
         const keys=[...selectedShapesRef.current];
-        if(keys.length>0){
-          // Group by itemId, remove specific shapes from each item
-          const byItem={};
-          keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
-          Object.entries(byItem).forEach(([id,idxs])=>{
-            const item=itemsRef.current.find(i=>i.id===id); if(!item) return;
-            const shapes=(Array.isArray(item.points[0])?item.points:(item.points[0]?.x!=null?[item.points]:item.points));
-            const kept=shapes.filter((_,i)=>!idxs.includes(i));
-            if(kept.length===0){
-              supabase.from('takeoff_items').delete().eq('id',id);
-              setItems(prev=>prev.filter(i=>i.id!==id));
-            } else {
-              supabase.from('takeoff_items').update({points:kept}).eq('id',id);
-              setItems(prev=>prev.map(i=>i.id===id?{...i,points:kept}:i));
-            }
-          });
-          setSelectedShapes(new Set());
-        }
+        if(!keys.length) return;
+        const byItem={};
+        keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
+        Object.entries(byItem).forEach(([id,idxs])=>{
+          const item=itemsRef.current.find(i=>i.id===id); if(!item) return;
+          const shapes=Array.isArray(item.points?.[0]) ? item.points : (item.points?.length ? [item.points] : []);
+          const kept=shapes.filter((_,i)=>!idxs.includes(i));
+          if(kept.length===0){
+            // Optimistic local remove, then persist
+            setItems(prev=>prev.filter(i=>i.id!==id));
+            supabase.from('takeoff_items').delete().eq('id',id).then(({error})=>{
+              if(error){ console.error('delete error',error); }
+            });
+          } else {
+            // Optimistic local update, then persist
+            setItems(prev=>prev.map(i=>i.id===id?{...i,points:kept}:i));
+            supabase.from('takeoff_items').update({points:kept}).eq('id',id).then(({error})=>{
+              if(error){ console.error('update error',error); }
+            });
+          }
+        });
+        setSelectedShapes(new Set());
       }
 
       // Ctrl+C — copy selected shapes (shape-level) into clipboardRef
@@ -4945,8 +4949,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         const shapes = Array.isArray(item.points[0]) ? item.points : [item.points];
         if(shapes.length<=1){
           // Delete the whole item
-          supabase.from('takeoff_items').delete().eq('id',itemId);
           setItems(prev=>prev.filter(i=>i.id!==itemId));
+          supabase.from('takeoff_items').delete().eq('id',itemId).then(({error})=>{ if(error) console.error('eraser del',error); });
         } else {
           // Remove just this shape
           const newShapes=shapes.filter((_,i)=>i!==shapeIdx);
@@ -4958,8 +4962,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           else if(mt==='count') qty=newShapes.length;
           qty=Math.round(qty*10)/10;
           const total_cost=qty*(item.unit_cost||0);
-          supabase.from('takeoff_items').update({points:newShapes,quantity:qty,total_cost}).eq('id',itemId);
           setItems(prev=>prev.map(i=>i.id===itemId?{...i,points:newShapes,quantity:qty,total_cost}:i));
+          supabase.from('takeoff_items').update({points:newShapes,quantity:qty,total_cost}).eq('id',itemId).then(({error})=>{ if(error) console.error('eraser upd',error); });
         }
         setEraserHover(null);
       }
@@ -7004,10 +7008,15 @@ Return ONLY a valid JSON array, no markdown:
                 keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
                 Object.entries(byItem).forEach(([id,idxs])=>{
                   const item=itemsRef.current.find(i=>i.id===id); if(!item) return;
-                  const allShapes=(Array.isArray(item.points[0])?item.points:(item.points[0]?.x!=null?[item.points]:item.points));
-                  const kept=allShapes.filter((_,i)=>!idxs.includes(i));
-                  if(kept.length===0){ supabase.from('takeoff_items').delete().eq('id',id); setItems(prev=>prev.filter(i=>i.id!==id)); }
-                  else { supabase.from('takeoff_items').update({points:kept}).eq('id',id); setItems(prev=>prev.map(i=>i.id===id?{...i,points:kept}:i)); }
+                  const shapes=Array.isArray(item.points?.[0]) ? item.points : (item.points?.length ? [item.points] : []);
+                  const kept=shapes.filter((_,i)=>!idxs.includes(i));
+                  if(kept.length===0){
+                    setItems(prev=>prev.filter(i=>i.id!==id));
+                    supabase.from('takeoff_items').delete().eq('id',id).then(({error})=>{ if(error) console.error('del',error); });
+                  } else {
+                    setItems(prev=>prev.map(i=>i.id===id?{...i,points:kept}:i));
+                    supabase.from('takeoff_items').update({points:kept}).eq('id',id).then(({error})=>{ if(error) console.error('upd',error); });
+                  }
                 });
                 setSelectedShapes(new Set());
               }} title="Delete selected (Del)"
