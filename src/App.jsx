@@ -4224,7 +4224,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [plans, setPlans] = useState([]);
   const [planSets, setPlanSets] = useState({}); // {batchId:{name,planIds:[]}} persisted to localStorage
   const [namingAll, setNamingAll] = useState(false);
-  const [uploadTargetFolder, setUploadTargetFolder] = useState(null); // folderId to upload into, or null=new folder
+  const [uploadTargetFolder, setUploadTargetFolder] = useState(null);
+  const [plansFilter, setPlansFilter] = useState('all'); // 'all' | 'marked'
   const [selPlan, setSelPlan] = useState(null);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -5523,7 +5524,7 @@ Return ONLY a valid JSON array, no markdown:
           {leftTab==='plans'&&(
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
 
-              {/* Toolbar: New Folder | Upload | Name All */}
+              {/* Toolbar: New Folder | Upload | Name All | Filter */}
               <div style={{padding:'8px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',gap:5}}>
                 <button onClick={()=>{
                   const n=window.prompt('Folder name:','');
@@ -5563,6 +5564,26 @@ Return ONLY a valid JSON array, no markdown:
                 <input ref={fileRef} type="file" accept="image/*,application/pdf" style={{display:'none'}} onChange={e=>handleUpload(e.target.files[0])}/>
               </div>
 
+              {/* Filter strip */}
+              <div style={{display:'flex',borderBottom:`1px solid ${t.border}`,flexShrink:0}}>
+                {[['all','All'],['marked','Marked']].map(([val,lbl])=>{
+                  const markedCount = val==='marked' ? plans.filter(p=>items.some(i=>i.plan_id===p.id&&i.points?.length)).length : plans.length;
+                  const active = plansFilter===val;
+                  return(
+                    <button key={val} onClick={()=>setPlansFilter(val)}
+                      style={{flex:1,padding:'5px 0',border:'none',borderBottom:active?`2px solid #10B981`:'2px solid transparent',
+                        background:'none',color:active?'#10B981':t.text4,cursor:'pointer',fontSize:10,fontWeight:active?700:400,
+                        display:'flex',alignItems:'center',justifyContent:'center',gap:4}}>
+                      {lbl}
+                      <span style={{fontSize:9,background:active?'rgba(16,185,129,0.15)':t.bg3,color:active?'#10B981':t.text4,
+                        borderRadius:8,padding:'1px 5px',fontFamily:"'DM Mono',monospace"}}>
+                        {markedCount}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
               {/* Folder tree */}
               <div style={{flex:1,overflowY:'auto',padding:'6px 4px'}}>
                 {plans.length===0&&Object.keys(planSets).length===0&&(
@@ -5570,15 +5591,24 @@ Return ONLY a valid JSON array, no markdown:
                     Create a folder and upload plans<br/>or upload directly
                   </div>
                 )}
+                {plansFilter==='marked'&&plans.length>0&&!plans.some(p=>items.some(i=>i.plan_id===p.id&&i.points?.length))&&(
+                  <div style={{textAlign:'center',padding:'32px 12px',color:t.text4,fontSize:11,lineHeight:1.8}}>
+                    No plans with takeoffs yet.<br/>
+                    <span style={{fontSize:10,color:t.text4}}>Draw measurements on a plan to mark it.</span>
+                  </div>
+                )}
                 {(()=>{
+                  const markedIds = new Set(items.filter(i=>i.points?.length).map(i=>i.plan_id));
+                  const visiblePlans = plansFilter==='marked' ? plans.filter(p=>markedIds.has(p.id)) : plans;
                   const assignedIds=new Set(Object.values(planSets).flatMap(s=>s.planIds||[]));
-                  const ungrouped=plans.filter(p=>!assignedIds.has(p.id));
+                  const ungrouped=visiblePlans.filter(p=>!assignedIds.has(p.id));
                   const folderEntries=Object.entries(planSets);
 
                   const PlanRow=({p,folderId})=>{
                     const isActive=selPlan?.id===p.id;
                     const isOpen=openTabs.includes(p.id);
                     const cnt=items.filter(it=>it.plan_id===p.id).length;
+                    const isMarked=items.some(i=>i.plan_id===p.id&&i.points?.length);
                     return(
                       <div onClick={()=>{
                           if(!openTabs.includes(p.id)) setOpenTabs(prev=>[...prev,p.id]);
@@ -5590,14 +5620,17 @@ Return ONLY a valid JSON array, no markdown:
                         style={{display:'flex',alignItems:'center',gap:7,padding:'5px 6px 5px 20px',borderRadius:5,
                           cursor:'pointer',marginBottom:1,
                           background:isActive?'rgba(16,185,129,0.1)':'transparent',
-                          borderLeft:isActive?'2px solid #10B981':'2px solid transparent',
+                          borderLeft:isActive?'2px solid #10B981':isMarked?'2px solid rgba(16,185,129,0.35)':'2px solid transparent',
                           transition:'all 0.1s'}}>
                         <div style={{width:36,height:28,borderRadius:3,overflow:'hidden',flexShrink:0,background:t.bg3,border:`1px solid ${t.border}`}}>
                           <img src={p.file_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>
                         </div>
                         <div style={{flex:1,minWidth:0}}>
                           <div style={{fontSize:10,fontWeight:isActive?700:400,color:isActive?'#10B981':t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||'Unnamed'}</div>
-                          <div style={{fontSize:8,color:t.text4}}>{cnt?`${cnt} item${cnt!==1?'s':''}`:'No items'}{isOpen?' · open':''}</div>
+                          <div style={{fontSize:8,color:t.text4,display:'flex',alignItems:'center',gap:3}}>
+                            {isMarked&&<span style={{display:'inline-block',width:5,height:5,borderRadius:'50%',background:'#10B981',flexShrink:0}}/>}
+                            <span>{cnt?`${cnt} item${cnt!==1?'s':''}`:'No items'}{isOpen?' · open':''}</span>
+                          </div>
                         </div>
                         <div style={{display:'flex',gap:2,flexShrink:0}} onClick={e=>e.stopPropagation()}>
                           <button onClick={async()=>{
@@ -5634,7 +5667,9 @@ Return ONLY a valid JSON array, no markdown:
                   };
 
                   const FolderRow=([folderId,folder])=>{
-                    const folderPlans=(folder.planIds||[]).map(id=>plans.find(p=>p.id===id)).filter(Boolean);
+                    const folderPlans=(folder.planIds||[]).map(id=>visiblePlans.find(p=>p.id===id)).filter(Boolean);
+                    // Hide empty folders when filtering to marked only
+                    if(plansFilter==='marked' && folderPlans.length===0) return null;
                     const collapsed=folder.collapsed;
                     return(
                       <div key={folderId} style={{marginBottom:4}}>
