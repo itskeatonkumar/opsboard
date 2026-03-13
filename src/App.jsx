@@ -5308,6 +5308,142 @@ Return ONLY a valid JSON array, no markdown:
     );
   };
 
+  // ── Export plan with markup + optional legend ──────────────────────────────
+  const [exporting, setExporting] = useState(false);
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  const roundRect = (ctx, x, y, w, h, r) => {
+    ctx.beginPath(); ctx.moveTo(x+r, y);
+    ctx.lineTo(x+w-r, y); ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+    ctx.lineTo(x+w, y+h-r); ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+    ctx.lineTo(x+r, y+h); ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+    ctx.lineTo(x, y+r); ctx.quadraticCurveTo(x, y, x+r, y);
+    ctx.closePath();
+  };
+
+  const exportPlan = async (withLegend = true) => {
+    if(!selPlan) return;
+    setExporting(true); setShowExportMenu(false);
+    try {
+      const W = imgNat.w || canvasRef.current?.width || 800;
+      const H = imgNat.h || canvasRef.current?.height || 1100;
+      const out = document.createElement('canvas');
+      out.width = W; out.height = H;
+      const ctx = out.getContext('2d');
+
+      // 1. Draw plan background
+      if(isPdfPlan && canvasRef.current){
+        ctx.drawImage(canvasRef.current, 0, 0, W, H);
+      } else if(imgRef.current?.complete && imgRef.current.naturalWidth){
+        ctx.drawImage(imgRef.current, 0, 0, W, H);
+      } else {
+        const img = new Image(); img.crossOrigin = 'anonymous';
+        await new Promise((res, rej) => { img.onload=res; img.onerror=rej; img.src = selPlan.file_url; });
+        ctx.drawImage(img, 0, 0, W, H);
+      }
+
+      // 2. Draw takeoff shapes
+      const planItemsExport = items.filter(it => it.points?.length && it.plan_id === selPlan.id);
+      for(const it of planItemsExport){
+        const shapes = normalizeShapes(it.points);
+        const c = it.color || '#10B981';
+        const mt = it.measurement_type;
+        for(const pts of shapes){
+          if(!pts.length) continue;
+          const realPts = pts.filter(p => !p._ctrl);
+          ctx.save();
+          ctx.lineWidth = 2.5;
+          ctx.strokeStyle = c;
+
+          if(mt === 'area' && realPts.length >= 3){
+            ctx.fillStyle = c + '33';
+            ctx.beginPath();
+            ctx.moveTo(realPts[0].x, realPts[0].y);
+            for(let i=1; i<realPts.length; i++) ctx.lineTo(realPts[i].x, realPts[i].y);
+            ctx.closePath(); ctx.fill(); ctx.stroke();
+            // Area label
+            const cx = realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
+            const cy = realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
+            const sf = Math.round(calcArea(realPts)*10)/10;
+            ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(cx-30, cy-10, 60, 20);
+            ctx.fillStyle = '#eee'; ctx.font = 'bold 11px "DM Mono",monospace';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(sf+' SF', cx, cy);
+          } else if(mt === 'linear' && realPts.length >= 2){
+            ctx.setLineDash([6, 3]);
+            ctx.beginPath();
+            ctx.moveTo(realPts[0].x, realPts[0].y);
+            for(let i=1; i<realPts.length; i++) ctx.lineTo(realPts[i].x, realPts[i].y);
+            ctx.stroke(); ctx.setLineDash([]);
+            realPts.forEach(p => { ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill(); });
+            const mx = realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
+            const my = realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
+            let lf = 0; for(let i=1; i<realPts.length; i++) lf += calcLinear(realPts[i-1],realPts[i]);
+            lf = Math.round(lf*10)/10;
+            ctx.fillStyle = 'rgba(0,0,0,0.7)'; ctx.fillRect(mx-28, my-24, 56, 16);
+            ctx.fillStyle = '#eee'; ctx.font = 'bold 10px "DM Mono",monospace';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText(lf+(scale?' LF':' px'), mx, my-16);
+          } else if(mt === 'count' && pts[0]){
+            const p = pts[0];
+            ctx.fillStyle = c; ctx.beginPath(); ctx.arc(p.x, p.y, 8, 0, Math.PI*2); ctx.fill();
+            ctx.fillStyle = '#fff'; ctx.font = 'bold 10px monospace';
+            ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+            ctx.fillText('✕', p.x, p.y);
+          }
+          ctx.restore();
+        }
+      }
+
+      // 3. Legend — upper-left corner
+      if(withLegend && planItemsExport.length > 0){
+        const legendMap = new Map();
+        planItemsExport.forEach(it => {
+          if(!legendMap.has(it.description)) legendMap.set(it.description, it.color||'#10B981');
+        });
+        const legendItems = [...legendMap.entries()];
+        const pad=14, swSize=10, lh=22;
+        const legendW = 240;
+        const legendH = pad*2 + 20 + legendItems.length*(lh+2);
+        const lx=16, ly=16;
+
+        ctx.fillStyle = 'rgba(10,10,10,0.85)';
+        roundRect(ctx, lx, ly, legendW, legendH, 7); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1;
+        roundRect(ctx, lx, ly, legendW, legendH, 7); ctx.stroke();
+
+        ctx.fillStyle = 'rgba(255,255,255,0.4)'; ctx.font = '700 9px "DM Mono",monospace';
+        ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+        ctx.fillText('TAKEOFFS — ' + selPlan.name.toUpperCase().slice(0,26), lx+pad, ly+pad);
+
+        legendItems.forEach(([desc, color], i) => {
+          const iy = ly + pad + 20 + i*(lh+2);
+          ctx.fillStyle = color;
+          roundRect(ctx, lx+pad, iy+4, swSize, swSize, 2); ctx.fill();
+          ctx.fillStyle = 'rgba(255,255,255,0.9)'; ctx.font = '11px "DM Mono",monospace';
+          ctx.textAlign = 'left'; ctx.textBaseline = 'top';
+          ctx.fillText(desc.length>24 ? desc.slice(0,24)+'…' : desc, lx+pad+swSize+8, iy+3);
+        });
+      }
+
+      // 4. Download PNG
+      out.toBlob(blob => {
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${(project.name||'plan').replace(/\s+/g,'-')}_${selPlan.name.replace(/\s+/g,'-')}_takeoff.png`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 8000);
+        setExporting(false);
+      }, 'image/png', 0.95);
+
+    } catch(e){
+      console.error('export error', e);
+      alert('Export failed: ' + e.message);
+      setExporting(false);
+    }
+  };
+  // ──────────────────────────────────────────────────────────────────────────
+
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden',position:'relative'}}>
 
@@ -6036,6 +6172,43 @@ Return ONLY a valid JSON array, no markdown:
             {/* Placeholder if no tabs */}
             {openTabs.length===0&&(
               <div style={{display:'flex',alignItems:'center',padding:'0 14px',fontSize:10,color:t.text4}}>Open a plan from Plans panel</div>
+            )}
+            {/* Export */}
+            {selPlan&&planItems.some(i=>i.points?.length)&&(
+              <div style={{position:'relative',flexShrink:0}}>
+                <button onClick={()=>setShowExportMenu(v=>!v)} disabled={exporting}
+                  style={{height:'100%',padding:'0 14px',border:'none',borderLeft:`1px solid ${t.border}`,
+                    background:'none',color:exporting?t.text4:'#3B82F6',cursor:'pointer',fontSize:11,fontWeight:700,
+                    display:'flex',alignItems:'center',gap:5,whiteSpace:'nowrap'}}>
+                  {exporting?<><span style={{animation:'spin 0.8s linear infinite',display:'inline-block'}}>◌</span> Exporting…</>:<>↓ Export</>}
+                </button>
+                {showExportMenu&&!exporting&&(
+                  <>
+                    <div style={{position:'fixed',inset:0,zIndex:49}} onClick={()=>setShowExportMenu(false)}/>
+                    <div style={{position:'absolute',top:'100%',right:0,zIndex:50,marginTop:2,
+                      background:'#1a1a1a',border:'1px solid rgba(255,255,255,0.12)',borderRadius:7,
+                      boxShadow:'0 8px 24px rgba(0,0,0,0.5)',minWidth:200,overflow:'hidden'}}>
+                      <div style={{padding:'7px 12px',fontSize:9,fontWeight:700,color:'rgba(255,255,255,0.3)',letterSpacing:0.8,borderBottom:'1px solid rgba(255,255,255,0.07)'}}>
+                        EXPORT — {selPlan.name.slice(0,22)}
+                      </div>
+                      <button onClick={()=>exportPlan(true)}
+                        style={{width:'100%',background:'none',border:'none',color:'rgba(255,255,255,0.85)',
+                          padding:'10px 14px',cursor:'pointer',fontSize:11,textAlign:'left',
+                          display:'flex',flexDirection:'column',gap:2,borderBottom:'1px solid rgba(255,255,255,0.06)'}}>
+                        <span style={{fontWeight:700,color:'#3B82F6'}}>↓ PNG with Legend</span>
+                        <span style={{fontSize:9,color:'rgba(255,255,255,0.4)'}}>Takeoff markup + legend in upper-left</span>
+                      </button>
+                      <button onClick={()=>exportPlan(false)}
+                        style={{width:'100%',background:'none',border:'none',color:'rgba(255,255,255,0.85)',
+                          padding:'10px 14px',cursor:'pointer',fontSize:11,textAlign:'left',
+                          display:'flex',flexDirection:'column',gap:2}}>
+                        <span style={{fontWeight:700,color:'rgba(255,255,255,0.7)'}}>↓ PNG without Legend</span>
+                        <span style={{fontSize:9,color:'rgba(255,255,255,0.4)'}}>Markup only, clean export</span>
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
             {/* AI Takeoff */}
             {selPlan&&<button onClick={runAITakeoff} disabled={analyzing}
