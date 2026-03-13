@@ -5380,14 +5380,16 @@ Return ONLY a valid JSON array, no markdown:
           ctx.closePath(); ctx.fill(); ctx.stroke();
           const cx = realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
           const cy = realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
-          const labelStr = it.quantity ? `${Math.round(it.quantity*10)/10} ${it.unit||'SF'}` : '';
-          if(labelStr){
-            const fs = Math.max(10, W/80);
-            ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(cx-fs*3,cy-fs*0.9,fs*6,fs*1.8);
-            ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
-            ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText(labelStr, cx, cy);
-          }
+          // Per-shape area from geometry
+          const pxArea = Math.abs(realPts.reduce((s,p,i)=>{ const n=realPts[(i+1)%realPts.length]; return s+(p.x*n.y-n.x*p.y); },0)/2);
+          const shapeQty = planScale ? Math.round((pxArea/(planScale*planScale))*10)/10 : Math.round(pxArea*10)/10;
+          const shapeUnit = it.unit || 'SF';
+          const labelStr = `${shapeQty.toLocaleString()} ${shapeUnit}`;
+          const fs = Math.max(10, W/80);
+          ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(cx-fs*3,cy-fs*0.9,fs*6,fs*1.8);
+          ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
+          ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(labelStr, cx, cy);
         } else if(mt === 'linear' && realPts.length >= 2){
           ctx.setLineDash([6,3]); ctx.beginPath(); ctx.moveTo(realPts[0].x, realPts[0].y);
           for(let i=1;i<realPts.length;i++) ctx.lineTo(realPts[i].x, realPts[i].y);
@@ -5395,14 +5397,16 @@ Return ONLY a valid JSON array, no markdown:
           realPts.forEach(p=>{ ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fill(); });
           const mx = realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
           const my = realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
-          const labelStr = it.quantity ? `${Math.round(it.quantity*10)/10} ${it.unit||'LF'}` : '';
-          if(labelStr){
-            const fs = Math.max(10, W/80);
-            ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(mx-fs*3,my-fs*2.4,fs*6,fs*1.6);
-            ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
-            ctx.textAlign='center'; ctx.textBaseline='middle';
-            ctx.fillText(labelStr, mx, my-fs*1.6);
-          }
+          // Per-shape length from geometry
+          let pxLen=0; for(let i=1;i<realPts.length;i++) pxLen+=Math.sqrt((realPts[i].x-realPts[i-1].x)**2+(realPts[i].y-realPts[i-1].y)**2);
+          const shapeQty = planScale ? Math.round((pxLen/planScale)*10)/10 : Math.round(pxLen*10)/10;
+          const shapeUnit = planScale ? (it.unit||'LF') : 'px';
+          const labelStr = `${shapeQty} ${shapeUnit}`;
+          const fs = Math.max(10, W/80);
+          ctx.fillStyle='rgba(0,0,0,0.72)'; ctx.fillRect(mx-fs*3,my-fs*2.4,fs*6,fs*1.6);
+          ctx.fillStyle='#eee'; ctx.font=`bold ${fs}px "DM Mono",monospace`;
+          ctx.textAlign='center'; ctx.textBaseline='middle';
+          ctx.fillText(labelStr, mx, my-fs*1.6);
         } else if(mt === 'count' && pts[0]){
           const p=pts[0];
           ctx.fillStyle=c; ctx.beginPath(); ctx.arc(p.x,p.y,8,0,Math.PI*2); ctx.fill();
