@@ -4284,8 +4284,11 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [snapEnabled, setSnapEnabled]   = useState(false); // S-key angle snap
   const [arcPending, setArcPending]     = useState(false); // A-key arc mode
   const [selectedIds, setSelectedIds]   = useState(new Set()); // multi-select item IDs
+  const selectedIdsRef                  = useRef(new Set()); // always-current ref for keydown
   const [clipboard, setClipboard]       = useState([]);    // copy/paste buffer
+  const clipboardRef                    = useRef([]);       // always-current ref for keydown
   const [eraserHover, setEraserHover]   = useState(null);  // {itemId,shapeIdx}
+  const [lassoRect, setLassoRect]       = useState(null);  // {sx,sy,ex,ey} live lasso box
   const lassoStartRef                   = useRef(null);    // lasso drag start
   const [takeoffStep, setTakeoffStep] = useState(null); // null | 'type' | 'create' | 'settings'
   const [newTOType, setNewTOType] = useState(null);
@@ -4307,6 +4310,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   activePtsRef.current    = activePts;
   activeCondIdRef.current = activeCondId;
   selPlanRef.current      = selPlan;
+  selectedIdsRef.current  = selectedIds;
+  clipboardRef.current    = clipboard;
 
 
   useEffect(()=>{
@@ -4479,30 +4484,30 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
       // Delete / Backspace — delete selected items
       if((e.key==='Delete'||e.key==='Backspace')&&!e.repeat){
-        const ids=[...selectedIds];
+        const ids=[...selectedIdsRef.current];
         if(ids.length>0){
-          ids.forEach(id=>{
-            supabase.from('takeoff_items').delete().eq('id',id);
-          });
+          ids.forEach(id=>supabase.from('takeoff_items').delete().eq('id',id));
           setItems(prev=>prev.filter(i=>!ids.includes(i.id)));
           setSelectedIds(new Set());
         }
       }
 
-      // Ctrl+C — copy selected items
+      // Ctrl+C — copy selected items into clipboardRef
       if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')){
-        const ids=[...selectedIds];
+        const ids=[...selectedIdsRef.current];
         if(ids.length>0){
           const toCopy = itemsRef.current.filter(i=>ids.includes(i.id));
+          clipboardRef.current = toCopy;
           setClipboard(toCopy);
         }
       }
 
-      // Ctrl+V — paste copied items with offset
+      // Ctrl+V — paste clipboard with offset
       if((e.ctrlKey||e.metaKey)&&(e.key==='v'||e.key==='V')){
-        if(clipboard.length>0){
+        const src = clipboardRef.current;
+        if(src.length>0){
           const OFFSET=20;
-          const inserts = clipboard.map(it=>{
+          const inserts = src.map(it=>{
             const shiftedPts = it.points
               ? (Array.isArray(it.points[0])
                   ? it.points.map(sh=>sh.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET})))
@@ -4527,8 +4532,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     window.addEventListener('keydown',handleKey);
     window.addEventListener('keyup',handleKeyUp);
     return ()=>{ window.removeEventListener('keydown',handleKey); window.removeEventListener('keyup',handleKeyUp); };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  },[selectedIds, clipboard]);
+  },[]);
 
   // Container callback ref — attaches wheel + pan handlers
   const containerCallbackRef = (el) => {
@@ -4928,7 +4932,12 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       }
       return;
     }
-    if(spaceHeld || tool==='select') return;
+    if(spaceHeld) return;
+    if(tool==='select'){
+      // Plain click on empty canvas clears selection (clicks on shapes are handled in onClick via renderMeasurements)
+      setSelectedIds(new Set());
+      return;
+    }
     const pt=getSvgPos(e);
     // Scale calibration — no debounce
     if(tool==='scale'&&scaleStep==='picking'){
@@ -5020,8 +5029,61 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   };
 
   const handleSvgMouseDown=(e)=>{
-    // Pan: left-click in select mode, space+left, or middle-click
-    const doPan = e.button===1 || panRef.current._spaceHeld || tool==='select';
+    // Middle-click or space+left = always pan
+    const forceP = e.button===1 || panRef.current._spaceHeld;
+    // Select tool + left-click without space = lasso box
+    const doLasso = !forceP && e.button===0 && tool==='select';
+    // Drawing tools + space+left = pan; any other left in drawing mode = ignore (handled by click)
+    const doPan = forceP || (!doLasso && (e.button===1 || tool==='select'));
+
+    if(doLasso){
+      // Don't start lasso if clicking directly on a shape element
+      if(e.target.closest && e.target.closest('[data-shape]')) return;
+      e.stopPropagation();
+      const startPt = getSvgPos(e);
+      lassoStartRef.current = startPt;
+      setLassoRect({sx:startPt.x, sy:startPt.y, ex:startPt.x, ey:startPt.y});
+      const onMove=(mv)=>{
+        const cur = getSvgPos(mv);
+        setLassoRect({sx:startPt.x, sy:startPt.y, ex:cur.x, ey:cur.y});
+      };
+      const onUp=(up)=>{
+        window.removeEventListener('mousemove',onMove);
+        window.removeEventListener('mouseup',onUp);
+        const cur = getSvgPos(up);
+        setLassoRect(null);
+        lassoStartRef.current = null;
+        // Select all items whose centroid falls inside the lasso box
+        const minX=Math.min(startPt.x,cur.x), maxX=Math.max(startPt.x,cur.x);
+        const minY=Math.min(startPt.y,cur.y), maxY=Math.max(startPt.y,cur.y);
+        const moved = Math.abs(cur.x-startPt.x)>4 || Math.abs(cur.y-startPt.y)>4;
+        if(moved){
+          const hit = new Set();
+          itemsRef.current.filter(i=>i.plan_id===selPlanRef.current?.id&&i.points?.length).forEach(it=>{
+            const shapes = Array.isArray(it.points[0]) ? it.points : (it.points[0]?.x!=null?[it.points]:it.points);
+            shapes.forEach(sh=>{
+              const realPts = sh.filter(p=>!p._ctrl&&!p._hole);
+              if(!realPts.length) return;
+              const cx=realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
+              const cy=realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
+              if(cx>=minX&&cx<=maxX&&cy>=minY&&cy<=maxY) hit.add(it.id);
+            });
+          });
+          if(hit.size>0){
+            setSelectedIds(prev=>{
+              // shift = add to existing; plain = replace
+              if(up.shiftKey){ const n=new Set(prev); hit.forEach(id=>n.add(id)); return n; }
+              return hit;
+            });
+          }
+        }
+        // If no drag (just a click), clear selection handled by handleSvgClick
+      };
+      window.addEventListener('mousemove',onMove);
+      window.addEventListener('mouseup',onUp);
+      return;
+    }
+
     if(!doPan) return;
     if(e.button===1) e.preventDefault();
     e.stopPropagation();
@@ -5029,7 +5091,6 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     panRef.current = {...panRef.current, active:true, startX:e.clientX, startY:e.clientY,
       scrollX:c?c.scrollLeft:0, scrollY:c?c.scrollTop:0};
     const onUp=()=>{
-      // Only mark as "just panned" if actually moved
       panRef.current.active=false;
       window.removeEventListener('mouseup',onUp);
     };
@@ -5456,7 +5517,7 @@ Return ONLY a valid JSON array, no markdown:
           const onClick = (e)=>{
             if(tool==='eraser') return; // handled in handleSvgClick
             if(tool==='select'||(e.ctrlKey||e.metaKey)){
-              // Multi-select: ctrl-click toggles, plain click sets single
+              e.stopPropagation(); // prevent SVG onClick from clearing selection
               if(e.ctrlKey||e.metaKey){
                 setSelectedIds(prev=>{ const n=new Set(prev); n.has(it.id)?n.delete(it.id):n.add(it.id); return n; });
               } else {
@@ -5479,7 +5540,7 @@ Return ONLY a valid JSON array, no markdown:
             const strokeColor = isEraserTarget ? '#EF4444' : isHole ? '#EF444488' : c;
             const fillColor   = isHole ? '#EF444411' : c+'22';
             const strokeW     = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
-            return(<g key={key} onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+            return(<g key={key} data-shape="1" onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
               <path d={d} fill={fillColor} stroke={strokeColor} strokeWidth={strokeW} fillRule="evenodd"/>
               {isSelected&&<path d={d} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
               {!isHole&&<rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>}
@@ -5499,7 +5560,7 @@ Return ONLY a valid JSON array, no markdown:
             const lw=36/zoom, lh=padH*1.5;
             const strokeColor = isEraserTarget ? '#EF4444' : c;
             const strokeW = isEraserTarget ? sw*2.5 : sw*1.2;
-            return(<g key={key} onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+            return(<g key={key} data-shape="1" onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
               <path d={d} fill="none" stroke={strokeColor} strokeWidth={strokeW} strokeDasharray={`${6/zoom},${3/zoom}`}/>
               {isSelected&&<path d={d} fill="none" stroke="#3B82F6" strokeWidth={sw*2.5} opacity={0.4} style={{pointerEvents:'none'}}/>}
               {realPts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r*0.8} fill={strokeColor} stroke="#fff" strokeWidth={sw*0.4}/>)}
@@ -5511,7 +5572,7 @@ Return ONLY a valid JSON array, no markdown:
           if(mt==='count'&&pts[0]){
             const p=pts[0];
             const isEr=isEraserTarget;
-            return(<g key={key} onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+            return(<g key={key} data-shape="1" onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
               <circle cx={p.x} cy={p.y} r={r*1.8} fill={isEr?'#EF4444':c} stroke={isSelected?'#3B82F6':'#fff'} strokeWidth={isSelected?sw*2:sw*0.5}/>
               <text x={p.x} y={p.y+fs*0.38} fontSize={fs*0.9} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
             </g>);
@@ -6824,6 +6885,17 @@ Return ONLY a valid JSON array, no markdown:
                             <circle cx={p2.x} cy={p2.y} r={6/zoom} fill="#10B981"/>
                           </g>);
                         })()}
+                        {/* Lasso selection box */}
+                        {lassoRect&&(()=>{
+                          const {sx,sy,ex,ey}=lassoRect;
+                          const lx=Math.min(sx,ex),ly=Math.min(sy,ey),lw=Math.abs(ex-sx),lh=Math.abs(ey-sy);
+                          if(lw<2&&lh<2) return null;
+                          return(<g style={{pointerEvents:'none'}}>
+                            <rect x={lx} y={ly} width={lw} height={lh}
+                              fill="rgba(59,130,246,0.08)" stroke="#3B82F6"
+                              strokeWidth={1.5/zoom} strokeDasharray={`${5/zoom},${3/zoom}`}/>
+                          </g>);
+                        })()}
                       </g>
                     </svg>
                   </div>
@@ -6841,8 +6913,9 @@ Return ONLY a valid JSON array, no markdown:
               <span style={{fontSize:11,color:'#94A3B8',fontWeight:600}}>{selectedIds.size} selected</span>
               <div style={{width:1,height:18,background:'rgba(255,255,255,0.12)'}}/>
               <button onClick={()=>{
-                const ids=[...selectedIds];
+                const ids=[...selectedIdsRef.current];
                 const toCopy=itemsRef.current.filter(i=>ids.includes(i.id));
+                clipboardRef.current = toCopy;
                 setClipboard(toCopy);
               }} title="Copy (Ctrl+C)"
                 style={{background:'none',border:'none',color:'#93C5FD',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
@@ -6851,12 +6924,10 @@ Return ONLY a valid JSON array, no markdown:
                 ⎘ Copy
               </button>
               <button onClick={()=>{
-                if(clipboard.length===0){
-                  const ids=[...selectedIds];
-                  setClipboard(itemsRef.current.filter(i=>ids.includes(i.id)));
-                }
                 const OFFSET=20;
-                const src=clipboard.length>0?clipboard:itemsRef.current.filter(i=>selectedIds.has(i.id));
+                const src=clipboardRef.current.length>0
+                  ? clipboardRef.current
+                  : itemsRef.current.filter(i=>selectedIdsRef.current.has(i.id));
                 const inserts=src.map(it=>{
                   const shiftedPts=it.points?(Array.isArray(it.points[0])?it.points.map(sh=>sh.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET}))):[it.points.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET}))]):null;
                   return {project_id:it.project_id,plan_id:selPlan?.id||it.plan_id,category:it.category,description:it.description+' (copy)',quantity:it.quantity,unit:it.unit,unit_cost:it.unit_cost,total_cost:it.total_cost,measurement_type:it.measurement_type,color:it.color,points:shiftedPts,ai_generated:false,sort_order:itemsRef.current.length};
@@ -6871,7 +6942,7 @@ Return ONLY a valid JSON array, no markdown:
                 ⧉ Duplicate
               </button>
               <button onClick={()=>{
-                const ids=[...selectedIds];
+                const ids=[...selectedIdsRef.current];
                 ids.forEach(id=>supabase.from('takeoff_items').delete().eq('id',id));
                 setItems(prev=>prev.filter(i=>!ids.includes(i.id)));
                 setSelectedIds(new Set());
