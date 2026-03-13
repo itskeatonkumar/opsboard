@@ -4283,8 +4283,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   // ── New tool features ──────────────────────────────────────────────────
   const [snapEnabled, setSnapEnabled]   = useState(false); // S-key angle snap
   const [arcPending, setArcPending]     = useState(false); // A-key arc mode
-  const [selectedIds, setSelectedIds]   = useState(new Set()); // multi-select item IDs
-  const selectedIdsRef                  = useRef(new Set()); // always-current ref for keydown
+  const [selectedShapes, setSelectedShapes] = useState(new Set()); // shape-level: "itemId::shapeIdx"
+  const selectedShapesRef               = useRef(new Set()); // always-current ref for keydown
   const [clipboard, setClipboard]       = useState([]);    // copy/paste buffer
   const clipboardRef                    = useRef([]);       // always-current ref for keydown
   const [eraserHover, setEraserHover]   = useState(null);  // {itemId,shapeIdx}
@@ -4313,7 +4313,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   activePtsRef.current    = activePts;
   activeCondIdRef.current = activeCondId;
   selPlanRef.current      = selPlan;
-  selectedIdsRef.current  = selectedIds;
+  selectedShapesRef.current = selectedShapes;
   clipboardRef.current    = clipboard;
 
 
@@ -4461,7 +4461,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         setActivePts([]); setScalePts([]); setScaleStep(null);
         setTool('select'); setShowScalePicker(false);
         setArcPending(false); setArchMode(false); setArchCtrlPending(false);
-        setSelectedIds(new Set());
+        setSelectedShapes(new Set());
       }
 
       // V — switch to Select tool
@@ -4494,54 +4494,69 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
       // Delete / Backspace — delete selected items
       if((e.key==='Delete'||e.key==='Backspace')&&!e.repeat){
-        const ids=[...selectedIdsRef.current];
-        if(ids.length>0){
-          ids.forEach(id=>supabase.from('takeoff_items').delete().eq('id',id));
-          setItems(prev=>prev.filter(i=>!ids.includes(i.id)));
-          setSelectedIds(new Set());
+        const keys=[...selectedShapesRef.current];
+        if(keys.length>0){
+          // Group by itemId, remove specific shapes from each item
+          const byItem={};
+          keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
+          Object.entries(byItem).forEach(([id,idxs])=>{
+            const item=itemsRef.current.find(i=>i.id===id); if(!item) return;
+            const shapes=(Array.isArray(item.points[0])?item.points:(item.points[0]?.x!=null?[item.points]:item.points));
+            const kept=shapes.filter((_,i)=>!idxs.includes(i));
+            if(kept.length===0){
+              supabase.from('takeoff_items').delete().eq('id',id);
+              setItems(prev=>prev.filter(i=>i.id!==id));
+            } else {
+              supabase.from('takeoff_items').update({points:kept}).eq('id',id);
+              setItems(prev=>prev.map(i=>i.id===id?{...i,points:kept}:i));
+            }
+          });
+          setSelectedShapes(new Set());
         }
       }
 
-      // Ctrl+C — copy selected items into clipboardRef
+      // Ctrl+C — copy selected shapes (shape-level) into clipboardRef
       if((e.ctrlKey||e.metaKey)&&(e.key==='c'||e.key==='C')){
-        const ids=[...selectedIdsRef.current];
-        if(ids.length>0){
-          const toCopy = itemsRef.current.filter(i=>ids.includes(i.id));
-          clipboardRef.current = toCopy;
-          setClipboard(toCopy);
-          pasteOffsetRef.current = 0; // reset accumulator for this fresh copy
-          // Flash copy count in action bar (via a temp state-like approach)
-          setCopyFlash(toCopy.length);
+        const keys=[...selectedShapesRef.current];
+        if(keys.length>0){
+          // Build clipboard as array of {item, shapes:[]} — one entry per unique item
+          const byItem={};
+          keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
+          const entries=Object.entries(byItem).map(([id,idxs])=>{
+            const item=itemsRef.current.find(i=>i.id===id); if(!item) return null;
+            const allShapes=(Array.isArray(item.points[0])?item.points:(item.points[0]?.x!=null?[item.points]:item.points));
+            const pickedShapes=idxs.map(i=>allShapes[i]).filter(Boolean);
+            return {item, shapes:pickedShapes};
+          }).filter(Boolean);
+          clipboardRef.current = entries;
+          setClipboard(entries);
+          pasteOffsetRef.current = 0;
+          setCopyFlash(keys.length);
           setTimeout(()=>setCopyFlash(0), 1800);
         }
       }
 
-      // Ctrl+V — paste clipboard, auto-select pasted items, accumulate offset
+      // Ctrl+V — paste shape-level clipboard with offset
       if((e.ctrlKey||e.metaKey)&&(e.key==='v'||e.key==='V')){
         const src = clipboardRef.current;
         if(!src.length) return;
-        // Accumulate offset so repeated pastes don't stack perfectly
         pasteOffsetRef.current = (pasteOffsetRef.current || 0) + 40;
-        const OFFSET = pasteOffsetRef.current;
-        const inserts = src.map(it=>{
-          const shift = (sh) => sh.map(p=>({...p, x:p.x+OFFSET, y:p.y+OFFSET}));
-          const shiftedPts = it.points
-            ? (Array.isArray(it.points[0]) ? it.points.map(shift) : [shift(it.points)])
-            : null;
-          return {
-            project_id:it.project_id, plan_id:selPlanRef.current?.id||it.plan_id,
-            category:it.category, description:it.description,
-            quantity:it.quantity, unit:it.unit, unit_cost:it.unit_cost,
-            total_cost:it.total_cost, measurement_type:it.measurement_type,
-            color:it.color, points:shiftedPts, ai_generated:false,
-            sort_order:itemsRef.current.length,
-          };
-        });
+        const OFF = pasteOffsetRef.current;
+        const shift = (sh) => sh.map(p=>({...p, x:p.x+OFF, y:p.y+OFF}));
+        // Each clipboard entry creates a new item with only the copied shapes
+        const inserts = src.map(({item, shapes})=>({
+          project_id:item.project_id, plan_id:selPlanRef.current?.id||item.plan_id,
+          category:item.category, description:item.description,
+          quantity:0, unit:item.unit, unit_cost:item.unit_cost,
+          total_cost:0, measurement_type:item.measurement_type,
+          color:item.color, points:shapes.map(shift), ai_generated:false,
+          sort_order:itemsRef.current.length,
+        }));
         supabase.from('takeoff_items').insert(inserts).select().then(({data})=>{
           if(data){
             setItems(prev=>[...prev,...data]);
-            // Auto-select the newly pasted items so user can see them
-            setSelectedIds(new Set(data.map(i=>i.id)));
+            // Auto-select all shape 0 of each pasted item
+            setSelectedShapes(new Set(data.map(i=>`${i.id}::0`)));
           }
         });
       }
@@ -4955,7 +4970,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       // Suppress click fired immediately after a lasso drag-release
       if(suppressNextClickRef.current){ suppressNextClickRef.current=false; return; }
       // Plain click on empty canvas clears selection
-      setSelectedIds(new Set());
+      setSelectedShapes(new Set());
       return;
     }
     const pt=getSvgPos(e);
@@ -5082,18 +5097,17 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           const hit = new Set();
           itemsRef.current.filter(i=>i.plan_id===selPlanRef.current?.id&&i.points?.length).forEach(it=>{
             const shapes = Array.isArray(it.points[0]) ? it.points : (it.points[0]?.x!=null?[it.points]:it.points);
-            shapes.forEach(sh=>{
+            shapes.forEach((sh,si)=>{
               const realPts = sh.filter(p=>!p._ctrl&&!p._hole);
               if(!realPts.length) return;
               const cx=realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
               const cy=realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
-              if(cx>=minX&&cx<=maxX&&cy>=minY&&cy<=maxY) hit.add(it.id);
+              if(cx>=minX&&cx<=maxX&&cy>=minY&&cy<=maxY) hit.add(`${it.id}::${si}`);
             });
           });
           if(hit.size>0){
-            setSelectedIds(prev=>{
-              // shift = add to existing; plain = replace
-              if(up.shiftKey){ const n=new Set(prev); hit.forEach(id=>n.add(id)); return n; }
+            setSelectedShapes(prev=>{
+              if(up.shiftKey){ const n=new Set(prev); hit.forEach(k=>n.add(k)); return n; }
               return hit;
             });
           }
@@ -5527,22 +5541,24 @@ Return ONLY a valid JSON array, no markdown:
         const shapes = normalizeShapes(it.points);
         if(!shapes.length) return [];
         const isActive = it.id===activeCondId;
-        const isSelected = selectedIds.has(it.id);
+        const isSelected = false; // resolved per-shape below using selectedShapes
         const c = isActive ? '#F97316' : isSelected ? '#3B82F6' : (it.color||'#10B981');
         const mt = it.measurement_type;
 
         return shapes.map((pts, shapeIdx)=>{
           const key = `${it.id}-${shapeIdx}`;
           const isHole = pts[0]?._hole;
+          const isSelected = selectedShapes.has(`${it.id}::${shapeIdx}`);
           const isEraserTarget = eraserHover?.itemId===it.id && eraserHover?.shapeIdx===shapeIdx;
+          const shapeKey = `${it.id}::${shapeIdx}`;
           const onClick = (e)=>{
             if(tool==='eraser') return; // handled in handleSvgClick
             if(tool==='select'||(e.ctrlKey||e.metaKey)){
               e.stopPropagation(); // prevent SVG onClick from clearing selection
               if(e.ctrlKey||e.metaKey){
-                setSelectedIds(prev=>{ const n=new Set(prev); n.has(it.id)?n.delete(it.id):n.add(it.id); return n; });
+                setSelectedShapes(prev=>{ const n=new Set(prev); n.has(shapeKey)?n.delete(shapeKey):n.add(shapeKey); return n; });
               } else {
-                setSelectedIds(new Set([it.id]));
+                setSelectedShapes(new Set([shapeKey]));
               }
               return;
             }
@@ -6929,24 +6945,30 @@ Return ONLY a valid JSON array, no markdown:
           <div style={{position:'absolute',bottom:8,left:8,zIndex:99,
             background:'rgba(0,0,0,0.75)',color:'#0f0',fontFamily:'monospace',
             fontSize:10,padding:'4px 8px',borderRadius:4,pointerEvents:'none',lineHeight:1.6}}>
-            sel:{selectedIds.size} | clip:{clipboard.length} | ids:[{[...selectedIds].join(',')}]
+            sel:{selectedShapes.size} | clip:{clipboard.length}
           </div>
           {/* ── Multi-select floating action bar ── */}
-          {selectedIds.size>0&&(
+          {selectedShapes.size>0&&(
             <div style={{position:'absolute',top:10,left:'50%',transform:'translateX(-50%)',zIndex:40,
               background:'rgba(15,15,15,0.96)',border:'1px solid rgba(59,130,246,0.5)',
               borderRadius:10,padding:'7px 14px',boxShadow:'0 4px 24px rgba(0,0,0,0.6)',
               backdropFilter:'blur(10px)',display:'flex',alignItems:'center',gap:10,pointerEvents:'all'}}>
-              <span style={{fontSize:11,color:'#94A3B8',fontWeight:600}}>{selectedIds.size} selected</span>
+              <span style={{fontSize:11,color:'#94A3B8',fontWeight:600}}>{selectedShapes.size} selected</span>
               {copyFlash>0&&<span style={{fontSize:11,color:'#6EE7B7',fontWeight:700,animation:'fadeIn 0.2s ease'}}>✓ Copied {copyFlash}</span>}
               <div style={{width:1,height:18,background:'rgba(255,255,255,0.12)'}}/>
               <button onClick={()=>{
-                const ids=[...selectedIdsRef.current];
-                const toCopy=itemsRef.current.filter(i=>ids.includes(i.id));
-                clipboardRef.current = toCopy;
-                setClipboard(toCopy);
+                const keys=[...selectedShapesRef.current];
+                const byItem={};
+                keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
+                const entries=Object.entries(byItem).map(([id,idxs])=>{
+                  const item=itemsRef.current.find(i=>i.id===id); if(!item) return null;
+                  const allShapes=(Array.isArray(item.points[0])?item.points:(item.points[0]?.x!=null?[item.points]:item.points));
+                  return {item, shapes:idxs.map(i=>allShapes[i]).filter(Boolean)};
+                }).filter(Boolean);
+                clipboardRef.current = entries;
+                setClipboard(entries);
                 pasteOffsetRef.current = 0;
-                setCopyFlash(toCopy.length);
+                setCopyFlash(keys.length);
                 setTimeout(()=>setCopyFlash(0), 1800);
               }} title="Copy (Ctrl+C)"
                 style={{background:'none',border:'none',color:'#93C5FD',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
@@ -6955,14 +6977,18 @@ Return ONLY a valid JSON array, no markdown:
                 ⎘ Copy
               </button>
               <button onClick={()=>{
-                const OFFSET=20;
-                const src=clipboardRef.current.length>0
-                  ? clipboardRef.current
-                  : itemsRef.current.filter(i=>selectedIdsRef.current.has(i.id));
-                const inserts=src.map(it=>{
-                  const shiftedPts=it.points?(Array.isArray(it.points[0])?it.points.map(sh=>sh.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET}))):[it.points.map(p=>({...p,x:p.x+OFFSET,y:p.y+OFFSET}))]):null;
-                  return {project_id:it.project_id,plan_id:selPlan?.id||it.plan_id,category:it.category,description:it.description+' (copy)',quantity:it.quantity,unit:it.unit,unit_cost:it.unit_cost,total_cost:it.total_cost,measurement_type:it.measurement_type,color:it.color,points:shiftedPts,ai_generated:false,sort_order:itemsRef.current.length};
-                });
+                const OFF=20;
+                const shift=(sh)=>sh.map(p=>({...p,x:p.x+OFF,y:p.y+OFF}));
+                // Build from selected shapes directly
+                const keys=[...selectedShapesRef.current];
+                const byItem={};
+                keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
+                const inserts=Object.entries(byItem).map(([id,idxs])=>{
+                  const item=itemsRef.current.find(i=>i.id===id); if(!item) return null;
+                  const allShapes=(Array.isArray(item.points[0])?item.points:(item.points[0]?.x!=null?[item.points]:item.points));
+                  const picked=idxs.map(i=>allShapes[i]).filter(Boolean);
+                  return {project_id:item.project_id,plan_id:selPlan?.id||item.plan_id,category:item.category,description:item.description,quantity:0,unit:item.unit,unit_cost:item.unit_cost,total_cost:0,measurement_type:item.measurement_type,color:item.color,points:picked.map(shift),ai_generated:false,sort_order:itemsRef.current.length};
+                }).filter(Boolean);
                 supabase.from('takeoff_items').insert(inserts).select().then(({data})=>{
                   if(data) setItems(prev=>[...prev,...data]);
                 });
@@ -6973,10 +6999,17 @@ Return ONLY a valid JSON array, no markdown:
                 ⧉ Duplicate
               </button>
               <button onClick={()=>{
-                const ids=[...selectedIdsRef.current];
-                ids.forEach(id=>supabase.from('takeoff_items').delete().eq('id',id));
-                setItems(prev=>prev.filter(i=>!ids.includes(i.id)));
-                setSelectedIds(new Set());
+                const keys=[...selectedShapesRef.current];
+                const byItem={};
+                keys.forEach(k=>{ const [id,si]=k.split('::'); (byItem[id]=byItem[id]||[]).push(Number(si)); });
+                Object.entries(byItem).forEach(([id,idxs])=>{
+                  const item=itemsRef.current.find(i=>i.id===id); if(!item) return;
+                  const allShapes=(Array.isArray(item.points[0])?item.points:(item.points[0]?.x!=null?[item.points]:item.points));
+                  const kept=allShapes.filter((_,i)=>!idxs.includes(i));
+                  if(kept.length===0){ supabase.from('takeoff_items').delete().eq('id',id); setItems(prev=>prev.filter(i=>i.id!==id)); }
+                  else { supabase.from('takeoff_items').update({points:kept}).eq('id',id); setItems(prev=>prev.map(i=>i.id===id?{...i,points:kept}:i)); }
+                });
+                setSelectedShapes(new Set());
               }} title="Delete selected (Del)"
                 style={{background:'none',border:'none',color:'#FCA5A5',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
                 onMouseEnter={e=>e.currentTarget.style.background='rgba(239,68,68,0.15)'}
@@ -6984,7 +7017,7 @@ Return ONLY a valid JSON array, no markdown:
                 ⌫ Delete
               </button>
               <div style={{width:1,height:18,background:'rgba(255,255,255,0.12)'}}/>
-              <button onClick={()=>setSelectedIds(new Set())} title="Clear selection (Esc)"
+              <button onClick={()=>setSelectedShapes(new Set())} title="Clear selection (Esc)"
                 style={{background:'none',border:'none',color:'rgba(255,255,255,0.3)',cursor:'pointer',fontSize:14,padding:'0 2px',lineHeight:1}}>×</button>
             </div>
           )}
@@ -7152,7 +7185,7 @@ Return ONLY a valid JSON array, no markdown:
             const onClick = ()=>{
               setTool(btn.id);setActivePts([]);setScaleStep(null);setShowScalePanel(false);
               setArchMode(false);setArchCtrlPending(false);setArcPending(false);
-              setSelectedIds(new Set());setEraserHover(null);
+              setSelectedShapes(new Set());setEraserHover(null);
             };
             return(
               <button key={btn.id} onClick={onClick} title={btn.label}
