@@ -4291,6 +4291,10 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [eraserHover, setEraserHover]   = useState(null);  // {itemId,shapeIdx}
   const [lassoRect, setLassoRect]       = useState(null);  // {sx,sy,ex,ey} live lasso box
   const [copyFlash, setCopyFlash]         = useState(0);     // >0 = show 'Copied N' briefly
+  const [dragOffset, setDragOffset]       = useState(null);  // {dx,dy} during shape drag
+  const [vertexDrag, setVertexDrag]       = useState(null);  // {itemId,shapeIdx,vertexIdx,point:{x,y}}
+  const dragOffsetRef                     = useRef(null);
+  const vertexDragRef                     = useRef(null);
   const pasteOffsetRef                  = useRef(0);        // accumulates per paste
   const lassoStartRef                   = useRef(null);     // lasso drag start
   const suppressNextClickRef            = useRef(false);    // suppress SVG click after lasso drag
@@ -4317,6 +4321,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   selPlanRef.current      = selPlan;
   selectedShapesRef.current = selectedShapes;
   clipboardRef.current    = clipboard;
+  dragOffsetRef.current   = dragOffset;
+  vertexDragRef.current   = vertexDrag;
 
 
   useEffect(()=>{
@@ -4464,6 +4470,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         setTool('select'); setShowScalePicker(false);
         setArcPending(false); setArchMode(false); setArchCtrlPending(false);
         setSelectedShapes(new Set());
+        setDragOffset(null); setVertexDrag(null);
       }
 
       // V — switch to Select tool
@@ -5042,9 +5049,74 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     // Drawing tools + space+left = pan; any other left in drawing mode = ignore (handled by click)
     const doPan = forceP || (!doLasso && (e.button===1 || tool==='select'));
 
+    // ── Vertex drag: mousedown on a vertex handle ──
+    if(doLasso && e.target.closest && e.target.closest('[data-vertex]')){
+      const vel = e.target.closest('[data-vertex]');
+      const iid = vel.dataset.itemId;
+      const si = Number(vel.dataset.shapeIdx);
+      const vi = Number(vel.dataset.vertexIdx);
+      const item = itemsRef.current.find(i=>String(i.id)===String(iid));
+      if(!item) return;
+      const shapes = normalizeShapes(item.points);
+      const origPt = shapes[si]?.[vi];
+      if(!origPt) return;
+      e.stopPropagation(); e.preventDefault();
+      setVertexDrag({itemId:iid, shapeIdx:si, vertexIdx:vi, point:{x:origPt.x, y:origPt.y}});
+      const onMove=(mv)=>{
+        const cur = getSvgPos(mv);
+        setVertexDrag(prev=>prev?{...prev, point:{x:cur.x, y:cur.y}}:null);
+      };
+      const onUp=()=>{
+        window.removeEventListener('mousemove',onMove);
+        window.removeEventListener('mouseup',onUp);
+        const vd = vertexDragRef.current;
+        if(vd) commitVertexDrag(vd);
+        setVertexDrag(null);
+        suppressNextClickRef.current = true;
+      };
+      window.addEventListener('mousemove',onMove);
+      window.addEventListener('mouseup',onUp);
+      return;
+    }
+
+    // ── Shape drag: mousedown on an already-selected shape ──
+    if(doLasso && e.target.closest && e.target.closest('[data-shape]')){
+      const sel = e.target.closest('[data-shape]');
+      const iid = sel.dataset.itemId;
+      const si = sel.dataset.shapeIdx;
+      if(iid!=null && si!=null){
+        const shapeKey = `${iid}::${si}`;
+        if(selectedShapesRef.current.has(shapeKey)){
+          e.stopPropagation(); e.preventDefault();
+          const startPt = getSvgPos(e);
+          let moved = false;
+          const onMove=(mv)=>{
+            const cur = getSvgPos(mv);
+            const dx = cur.x - startPt.x;
+            const dy = cur.y - startPt.y;
+            if(!moved && Math.abs(dx)<4 && Math.abs(dy)<4) return;
+            moved = true;
+            setDragOffset({dx, dy});
+          };
+          const onUp=()=>{
+            window.removeEventListener('mousemove',onMove);
+            window.removeEventListener('mouseup',onUp);
+            if(moved){
+              commitShapeDrag(dragOffsetRef.current);
+              suppressNextClickRef.current = true;
+            }
+            setDragOffset(null);
+          };
+          window.addEventListener('mousemove',onMove);
+          window.addEventListener('mouseup',onUp);
+          return;
+        }
+      }
+      // Shape not selected — let click handler select it (fall through to lasso which returns)
+      return;
+    }
+
     if(doLasso){
-      // Don't start lasso if clicking directly on a shape element
-      if(e.target.closest && e.target.closest('[data-shape]')) return;
       e.stopPropagation();
       const startPt = getSvgPos(e);
       lassoStartRef.current = startPt;
@@ -5552,6 +5624,57 @@ Return ONLY a valid JSON array, no markdown:
   };
   deleteShapesRef.current = deleteSelectedShapes;
 
+  // ── Commit shape drag: apply offset to selected shapes ─────────────────
+  const commitShapeDrag = (offset) => {
+    if(!offset) return;
+    const {dx, dy} = offset;
+    const keys = [...selectedShapesRef.current];
+    const byItem = {};
+    keys.forEach(k=>{
+      const colonIdx = k.lastIndexOf('::');
+      const id = k.slice(0, colonIdx);
+      const si = Number(k.slice(colonIdx+2));
+      if(!byItem[id]) byItem[id] = new Set();
+      byItem[id].add(si);
+    });
+    setItems(prev=>prev.map(item=>{
+      const idStr = String(item.id);
+      if(!byItem[idStr]) return item;
+      const selectedIdxs = byItem[idStr];
+      const shapes = normalizeShapes(item.points);
+      const newShapes = shapes.map((sh, si)=>{
+        if(!selectedIdxs.has(si)) return sh;
+        return sh.map(p=>({...p, x:p.x+dx, y:p.y+dy}));
+      });
+      // Save to Supabase (area/length unchanged by translation, just coords)
+      supabase.from('takeoff_items').update({points:newShapes}).eq('id',item.id);
+      return {...item, points:newShapes};
+    }));
+  };
+
+  // ── Commit vertex drag: apply single point change + recompute qty ──────
+  const commitVertexDrag = (vd) => {
+    if(!vd) return;
+    const {itemId, shapeIdx, vertexIdx, point} = vd;
+    setItems(prev=>prev.map(item=>{
+      if(String(item.id)!==String(itemId)) return item;
+      const shapes = normalizeShapes(item.points);
+      const newShapes = shapes.map((sh, si)=>{
+        if(si!==shapeIdx) return sh;
+        return sh.map((p, vi)=> vi===vertexIdx ? {...p, x:point.x, y:point.y} : p);
+      });
+      const mt = item.measurement_type;
+      let qty = 0;
+      if(mt==='area') qty = newShapes.reduce((s,sh)=>s+(sh[0]?._hole?0:(sh.some(p=>p._ctrl)?calcShapeArea(sh):calcArea(sh))),0);
+      else if(mt==='linear') qty = newShapes.reduce((s,sh)=>{let t=0;for(let i=1;i<sh.length;i++){const a=sh[i-1],b=sh[i];if(!a._ctrl&&!b._ctrl) t+=calcLinear(a,b);}return s+t;},0);
+      else if(mt==='count') qty = newShapes.length;
+      qty = Math.round(Math.abs(qty)*10)/10;
+      const total_cost = qty*(item.unit_cost||0);
+      supabase.from('takeoff_items').update({points:newShapes, quantity:qty, total_cost}).eq('id',item.id);
+      return {...item, points:newShapes, quantity:qty, total_cost};
+    }));
+  };
+
   // ── Single source of truth for shape-level copy ───────────────────────────
   const copySelectedShapes = () => {
     const keys = [...selectedShapesRef.current];
@@ -5601,9 +5724,9 @@ Return ONLY a valid JSON array, no markdown:
           const isEraserTarget = eraserHover?.itemId===it.id && eraserHover?.shapeIdx===shapeIdx;
           const shapeKey = `${it.id}::${shapeIdx}`;
           const onClick = (e)=>{
-            if(tool==='eraser') return; // handled in handleSvgClick
+            if(tool==='eraser') return;
             if(tool==='select'||(e.ctrlKey||e.metaKey)){
-              e.stopPropagation(); // prevent SVG onClick from clearing selection
+              e.stopPropagation();
               if(e.ctrlKey||e.metaKey){
                 setSelectedShapes(prev=>{ const n=new Set(prev); n.has(shapeKey)?n.delete(shapeKey):n.add(shapeKey); return n; });
               } else {
@@ -5615,50 +5738,74 @@ Return ONLY a valid JSON array, no markdown:
             setTool(mt==='area'?'area':mt==='perimeter'?'perimeter':mt==='linear'?'linear':mt==='count'?'count':'select');
           };
 
-          if((mt==='area')&&pts.length>=3){
-            const hasArcs = pts.some(p=>p._ctrl);
-            const realPts = pts.filter(p=>!p._ctrl&&!p._hole);
-            const d = hasArcs ? buildShapePath(pts, true) : (pts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+          // ── Apply vertex drag to display points (only for the shape being vertex-edited) ──
+          let dp = pts;
+          if(vertexDrag && String(vertexDrag.itemId)===String(it.id) && vertexDrag.shapeIdx===shapeIdx){
+            dp = pts.map((p,vi)=> vi===vertexDrag.vertexIdx ? {...p, x:vertexDrag.point.x, y:vertexDrag.point.y} : p);
+          }
+
+          // ── Shape drag: use SVG transform on selected shapes (no path recalc, GPU-fast) ──
+          const isDragging = dragOffset && isSelected;
+          const dragTransform = isDragging ? `translate(${dragOffset.dx}, ${dragOffset.dy})` : undefined;
+          const shapeCursor = isDragging ? 'grabbing' : (isSelected && tool==='select') ? 'grab' : tool==='eraser' ? 'cell' : 'pointer';
+
+          // ── Vertex handles: show when selected in select mode, not during shape drag ──
+          const showVertices = isSelected && tool==='select' && !isDragging;
+          const vertexHandles = showVertices ? dp.map((p,vi)=>{
+            if(p._ctrl || p._hole) return null;
+            const isActiveVtx = vertexDrag && String(vertexDrag.itemId)===String(it.id) && vertexDrag.shapeIdx===shapeIdx && vertexDrag.vertexIdx===vi;
+            return <circle key={`vtx-${vi}`} data-vertex="1" data-item-id={it.id} data-shape-idx={shapeIdx} data-vertex-idx={vi}
+              cx={p.x} cy={p.y} r={r*1.1}
+              fill={isActiveVtx?'#3B82F6':'#fff'} stroke="#3B82F6" strokeWidth={sw*0.8}
+              style={{cursor:'move',pointerEvents:'all'}}/>;
+          }).filter(Boolean) : null;
+
+          if((mt==='area')&&dp.length>=3){
+            const hasArcs = dp.some(p=>p._ctrl);
+            const realPts = dp.filter(p=>!p._ctrl&&!p._hole);
+            const d = hasArcs ? buildShapePath(dp, true) : (dp.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
             const cx=realPts.reduce((s,p)=>s+p.x,0)/(realPts.length||1);
             const cy=realPts.reduce((s,p)=>s+p.y,0)/(realPts.length||1);
-            const shapeArea = Math.round(Math.abs(hasArcs?calcShapeArea(pts):calcArea(pts))*10)/10;
+            const shapeArea = Math.round(Math.abs(hasArcs?calcShapeArea(dp):calcArea(dp))*10)/10;
             const lw=38/zoom, lh=padH*1.6;
             const strokeColor = isEraserTarget ? '#EF4444' : isHole ? '#EF444488' : c;
             const fillColor   = isHole ? '#EF444411' : c+'22';
             const strokeW     = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
-            return(<g key={key} data-shape="1" onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+            return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
               <path d={d} fill={fillColor} stroke={strokeColor} strokeWidth={strokeW} fillRule="evenodd"/>
               {isSelected&&<path d={d} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
               {!isHole&&<rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>}
               {!isHole&&<text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{shapeArea} SF</text>}
               {isHole&&<text x={cx} y={cy+fs*0.38} fontSize={fs*0.8} fill="#EF4444" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>⊘ hole</text>}
+              {vertexHandles}
             </g>);
           }
-          if(mt==='linear'&&pts.length>=2){
-            const hasArcs = pts.some(p=>p._ctrl);
-            const d = hasArcs ? buildShapePath(pts) : ('M'+pts.map(p=>`${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' L'));
-            const realPts = pts.filter(p=>!p._ctrl);
+          if(mt==='linear'&&dp.length>=2){
+            const hasArcs = dp.some(p=>p._ctrl);
+            const d = hasArcs ? buildShapePath(dp) : ('M'+dp.map(p=>`${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' L'));
+            const realPts = dp.filter(p=>!p._ctrl);
             const mx=realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
             const my=realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
             const dist = hasArcs
-              ? Math.round((calcShapeLength(pts)/scale)*10)/10
-              : (()=>{ let t=0; for(let i=1;i<pts.length;i++) t+=calcLinear(pts[i-1],pts[i]); return Math.round(t*10)/10; })();
+              ? Math.round((calcShapeLength(dp)/scale)*10)/10
+              : (()=>{ let t=0; for(let i=1;i<dp.length;i++) t+=calcLinear(dp[i-1],dp[i]); return Math.round(t*10)/10; })();
             const lw=36/zoom, lh=padH*1.5;
             const strokeColor = isEraserTarget ? '#EF4444' : c;
             const strokeW = isEraserTarget ? sw*2.5 : sw*1.2;
-            return(<g key={key} data-shape="1" onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+            return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
               <path d={d} fill="none" stroke={strokeColor} strokeWidth={strokeW} strokeDasharray={`${6/zoom},${3/zoom}`}/>
               {isSelected&&<path d={d} fill="none" stroke="#3B82F6" strokeWidth={sw*2.5} opacity={0.4} style={{pointerEvents:'none'}}/>}
               {realPts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r={r*0.8} fill={strokeColor} stroke="#fff" strokeWidth={sw*0.4}/>)}
-              {hasArcs&&pts.filter(p=>p._ctrl).map((p,i)=><circle key={'ctrl'+i} cx={p.x} cy={p.y} r={r*0.5} fill={c} opacity={0.4}/>)}
+              {hasArcs&&dp.filter(p=>p._ctrl).map((p,i)=><circle key={'ctrl'+i} cx={p.x} cy={p.y} r={r*0.5} fill={c} opacity={0.4}/>)}
               <rect x={mx-lw/2} y={my-lh*1.6} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
               <text x={mx} y={my-lh*0.7} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{dist} {scale?'LF':'px'}</text>
+              {vertexHandles}
             </g>);
           }
-          if(mt==='count'&&pts[0]){
-            const p=pts[0];
+          if(mt==='count'&&dp[0]){
+            const p=dp[0];
             const isEr=isEraserTarget;
-            return(<g key={key} data-shape="1" onClick={onClick} style={{cursor: tool==='eraser'?'cell':'pointer'}}>
+            return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
               <circle cx={p.x} cy={p.y} r={r*1.8} fill={isEr?'#EF4444':c} stroke={isSelected?'#3B82F6':'#fff'} strokeWidth={isSelected?sw*2:sw*0.5}/>
               <text x={p.x} y={p.y+fs*0.38} fontSize={fs*0.9} fill="#fff" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>✕</text>
             </g>);
@@ -6994,7 +7141,7 @@ Return ONLY a valid JSON array, no markdown:
           <div style={{position:'absolute',bottom:8,left:8,zIndex:110,
             background:'rgba(0,0,0,0.75)',color:'#0f0',fontFamily:'monospace',
             fontSize:10,padding:'4px 8px',borderRadius:4,pointerEvents:'none',lineHeight:1.6}}>
-            sel:{selectedShapes.size} | clip:{clipboard.length}
+            sel:{selectedShapes.size} | clip:{clipboard.length}{dragOffset?' | drag':''}{ vertexDrag?' | vtx':''}
           </div>
           {/* ── Multi-select floating action bar ── */}
           {selectedShapes.size>0&&(
