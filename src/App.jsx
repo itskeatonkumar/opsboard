@@ -2925,6 +2925,15 @@ function TakeoffItemModal({ item, onSave, onClose }) {
         <APMField label="Description">
           <input value={form.description} onChange={e=>set('description',e.target.value)} style={{...dynInput,fontSize:14}} autoFocus />
         </APMField>
+        <APMField label="Color">
+          <div style={{display:'flex',flexWrap:'wrap',gap:5,padding:'4px 0'}}>
+            {['#10B981','#3B82F6','#F59E0B','#EF4444','#8B5CF6','#F97316','#06B6D4','#EC4899','#84CC16','#A855F7','#14B8A6','#6B7280'].map(c=>(
+              <button key={c} onClick={()=>set('color',c)}
+                style={{width:22,height:22,borderRadius:5,background:c,border:form.color===c?'2px solid #fff':'2px solid transparent',
+                  cursor:'pointer',padding:0,flexShrink:0,boxShadow:form.color===c?`0 0 0 2px ${c}`:undefined,transition:'box-shadow 0.1s'}}/>
+            ))}
+          </div>
+        </APMField>
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:10}}>
           <APMField label="Quantity"><input type="number" value={form.quantity} onChange={e=>set('quantity',e.target.value)} style={{...dynInput}} /></APMField>
           <APMField label="Unit"><input value={form.unit} onChange={e=>set('unit',e.target.value)} style={{...dynInput}} /></APMField>
@@ -4303,6 +4312,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [newTOName, setNewTOName] = useState('');
   const [newTODesc, setNewTODesc] = useState('');
   const [newTOColor, setNewTOColor] = useState('#10B981');
+  const [newTOCat, setNewTOCat] = useState('other');
   const [newTOSize, setNewTOSize] = useState('medium');
   const [creatingTO, setCreatingTO] = useState(false);
   const [toSearch, setToSearch] = useState('');
@@ -6499,7 +6509,7 @@ Return ONLY a valid JSON array, no markdown:
               setActivePts([]); setEditItem(null); setTakeoffStep(null);
             };
             const disarm = () => { setActiveCondId(null); setTool('select'); setActivePts([]); };
-            const resetFlow = () => { setTakeoffStep(null); setNewTOType(null); setNewTOName(''); setNewTODesc(''); setNewTOColor('#10B981'); setNewTOSize('medium'); };
+            const resetFlow = () => { setTakeoffStep(null); setNewTOType(null); setNewTOName(''); setNewTODesc(''); setNewTOColor('#10B981'); setNewTOCat('other'); setNewTOSize('medium'); };
 
             // ── STEP: TYPE SELECTOR ──────────────────────────────────────
             if(takeoffStep==='type') return(
@@ -6510,7 +6520,7 @@ Return ONLY a valid JSON array, no markdown:
                 </div>
                 <div style={{flex:1,overflowY:'auto',padding:'8px 0'}}>
                   {TAKEOFF_TYPES.map(tt=>(
-                    <div key={tt.id} onClick={()=>{setNewTOType(tt);setNewTOColor(tt.color);setTakeoffStep('create');}}
+                    <div key={tt.id} onClick={()=>{setNewTOType(tt);setNewTOColor(tt.color);setNewTOCat(tt.id==='vol2d'||tt.id==='vol3d'?'foundations':tt.mt==='area'?'flatwork':tt.mt==='linear'?'curb_gutter':'other');setTakeoffStep('create');}}
                       style={{display:'flex',alignItems:'flex-start',gap:12,padding:'10px 14px',cursor:'pointer',
                         borderBottom:`1px solid ${t.border}`}}
                       onMouseEnter={e=>e.currentTarget.style.background=t.bg3}
@@ -6560,6 +6570,14 @@ Return ONLY a valid JSON array, no markdown:
                     />
                   </div>
                   {/* Yellow info card like Stack */}
+                  <div style={{marginBottom:14}}>
+                    <label style={{fontSize:11,fontWeight:600,color:t.text3,display:'block',marginBottom:5}}>Category</label>
+                    <select value={newTOCat} onChange={e=>{setNewTOCat(e.target.value);const c=TAKEOFF_CATS.find(x=>x.id===e.target.value);if(c)setNewTOColor(c.color);}}
+                      style={{width:'100%',padding:'8px 10px',border:`1px solid ${t.border2}`,borderRadius:6,
+                        fontSize:12,color:t.text,background:t.bg,outline:'none',boxSizing:'border-box',cursor:'pointer'}}>
+                      {TAKEOFF_CATS.map(c=><option key={c.id} value={c.id}>{c.label}</option>)}
+                    </select>
+                  </div>
                   <div style={{background:'#FEF9C3',border:'1px solid #FDE047',borderRadius:6,padding:'10px 12px',marginBottom:20}}>
                     <div style={{fontSize:12,fontWeight:700,color:'#713F12',marginBottom:4}}>{newTOType?.label}</div>
                     <div style={{fontSize:11,color:'#854D0E',lineHeight:1.5}}>{newTOType?.desc}</div>
@@ -6681,9 +6699,7 @@ Return ONLY a valid JSON array, no markdown:
                         else { setScale(null); setPresetScale(''); }
                       }
                       if(!activePlan){ alert('Please upload a plan first'); setCreatingTO(false); return; }
-                      const catId = newTOType?.id==='vol2d'||newTOType?.id==='vol3d'?'foundations':
-                                    newTOType?.mt==='area'?'flatwork':
-                                    newTOType?.mt==='linear'?'curb_gutter':'other';
+                      const catId = newTOCat;
                       const mt = newTOType?.mt||'area';
                       const payload = {
                         project_id: project.id,
@@ -6713,7 +6729,7 @@ Return ONLY a valid JSON array, no markdown:
                         setTool(mt==='area'?'area':mt==='linear'?'linear':mt==='count'?'count':'area');
                         setActivePts([]);
                         // Reset flow state
-                        setNewTOType(null); setNewTOName(''); setNewTODesc(''); setNewTOColor('#10B981'); setNewTOSize('medium');
+                        setNewTOType(null); setNewTOName(''); setNewTODesc(''); setNewTOColor('#10B981'); setNewTOCat('other'); setNewTOSize('medium');
                       }
                       setCreatingTO(false);
                     }}
@@ -6872,6 +6888,15 @@ Return ONLY a valid JSON array, no markdown:
                                     {(item._totalQty||0)>0?`${Math.round((item._totalQty||0)*10)/10} ${item.unit}`:'—'}
                                   </span>
                                 </div>
+                                {/* ✎ edit item */}
+                                <button onClick={e=>{
+                                  e.stopPropagation();
+                                  setEditItem(item);
+                                }} title="Edit takeoff"
+                                  style={{background:'none',border:'none',color:t.text4,cursor:'pointer',
+                                    fontSize:10,padding:'2px 3px',flexShrink:0,lineHeight:1,opacity:0.4,borderRadius:3}}
+                                  onMouseEnter={e=>e.currentTarget.style.opacity='1'}
+                                  onMouseLeave={e=>e.currentTarget.style.opacity='0.4'}>✎</button>
                                 {/* → jump to plan */}
                                 <button onClick={e=>{
                                   e.stopPropagation();
