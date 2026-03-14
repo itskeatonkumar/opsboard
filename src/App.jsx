@@ -2936,7 +2936,7 @@ function TakeoffItemModal({ item, onSave, onClose }) {
         </div>
       </div>
       <div style={{display:'flex',gap:8,marginTop:20,justifyContent:'space-between'}}>
-        {!isNew && <button onClick={async()=>{await supabase.from('takeoff_items').delete().eq('id',item.id);onSave(null,'delete');}} style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'8px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Delete</button>}
+        {!isNew && <button onClick={async()=>{const {error}=await supabase.from('takeoff_items').delete().eq('id',item.id).select();if(error){console.error('item delete error:',error);alert('Delete failed: '+error.message);}else{onSave(null,'delete');}}} style={{background:'rgba(239,68,68,0.08)',border:'1px solid rgba(239,68,68,0.3)',color:'#ef4444',padding:'8px 14px',borderRadius:6,cursor:'pointer',fontSize:12}}>Delete</button>}
         <div style={{display:'flex',gap:8,marginLeft:'auto'}}>
           <button onClick={onClose} style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:13}}>Cancel</button>
           <button onClick={handleSave} style={{background:'#F97316',border:'none',color:'#000',padding:'8px 22px',borderRadius:6,cursor:'pointer',fontSize:13,fontWeight:700}}>Save</button>
@@ -4917,7 +4917,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         if(shapes.length<=1){
           // Delete the whole item
           setItems(prev=>prev.filter(i=>i.id!==itemId));
-          supabase.from('takeoff_items').delete().eq('id',itemId).then(({error})=>{ if(error) console.error('eraser del',error); });
+          supabase.from('takeoff_items').delete().eq('id',itemId).select().then(({data:del,error})=>{ if(error) console.error('eraser del',error); else if(!del||del.length===0) console.warn('eraser: RLS blocked delete for',itemId); });
         } else {
           // Remove just this shape
           const newShapes=shapes.filter((_,i)=>i!==shapeIdx);
@@ -5463,7 +5463,8 @@ Return ONLY a valid JSON array, no markdown:
   };
 
   const deleteItem = async (id) => {
-    await supabase.from('takeoff_items').delete().eq('id',id);
+    const {error}=await supabase.from('takeoff_items').delete().eq('id',id).select();
+    if(error){console.error('deleteItem error:',error);alert('Delete failed: '+error.message);return;}
     setItems(prev=>prev.filter(i=>i.id!==id));
   };
 
@@ -5532,15 +5533,17 @@ Return ONLY a valid JSON array, no markdown:
       if(kept.length === 0){
         console.log('[deleteSelectedShapes] deleting entire item', id);
         setItems(prev => prev.filter(i => i.id !== id));
-        supabase.from('takeoff_items').delete().eq('id', id).then(({ error }) => {
+        supabase.from('takeoff_items').delete().eq('id', id).select().then(({ data:del, error }) => {
           if(error) console.error('[deleteSelectedShapes] supabase delete error:', error);
+          else if(!del||del.length===0) console.warn('[deleteSelectedShapes] RLS blocked delete for', id);
           else console.log('[deleteSelectedShapes] supabase delete OK for', id);
         });
       } else {
         console.log('[deleteSelectedShapes] trimming item', id, 'kept shapes:', kept.length);
         setItems(prev => prev.map(i => i.id === id ? {...i, points: kept} : i));
-        supabase.from('takeoff_items').update({ points: kept }).eq('id', id).then(({ error }) => {
+        supabase.from('takeoff_items').update({ points: kept }).eq('id', id).select().then(({ data:upd, error }) => {
           if(error) console.error('[deleteSelectedShapes] supabase update error:', error);
+          else if(!upd||upd.length===0) console.warn('[deleteSelectedShapes] RLS blocked update for', id);
           else console.log('[deleteSelectedShapes] supabase update OK for', id);
         });
       }
@@ -6253,7 +6256,7 @@ Return ONLY a valid JSON array, no markdown:
                           }} style={{fontSize:8,padding:'2px 4px',borderRadius:3,border:'1px solid rgba(168,85,247,0.3)',background:'rgba(168,85,247,0.06)',color:'#a855f7',cursor:'pointer'}} title="AI name">✦</button>
                           <button onClick={async()=>{
                             if(!window.confirm('Delete this sheet?')) return;
-                            if(p.id!=='preview') await supabase.from('precon_plans').delete().eq('id',p.id);
+                            if(p.id!=='preview'){ const {error}=await supabase.from('precon_plans').delete().eq('id',p.id).select(); if(error){console.error('plan delete error:',error);alert('Delete failed: '+error.message);return;} }
                             setPlans(prev=>prev.filter(x=>x.id!==p.id));
                             setOpenTabs(prev=>prev.filter(id=>id!==p.id));
                             if(selPlan?.id===p.id) setSelPlan(null);
@@ -7510,7 +7513,8 @@ Return ONLY a valid JSON array, no markdown:
                           {/* Delete */}
                           <button onClick={async()=>{
                             if(!window.confirm('Delete '+it.description+'?')) return;
-                            await supabase.from('takeoff_items').delete().eq('id',it.id);
+                            const {error}=await supabase.from('takeoff_items').delete().eq('id',it.id).select();
+                            if(error){console.error('item delete error:',error);alert('Delete failed: '+error.message);return;}
                             setItems(prev=>prev.filter(i=>i.id!==it.id));
                           }} style={{background:'none',border:'none',color:t.text4,cursor:'pointer',fontSize:11,opacity:estHover===it.id?0.6:0,transition:'opacity 0.1s',padding:0,textAlign:'center'}}>✕</button>
                         </div>
@@ -7598,7 +7602,7 @@ Return ONLY a valid JSON array, no markdown:
       {showAssembly&&<AssemblyPicker onApply={applyAssembly} onClose={()=>setShowAssembly(false)}/>}
       {showUnitCosts&&<UnitCostEditor onClose={()=>setShowUnitCosts(false)}/>}
       {showBidSummary&&<BidSummaryModal project={project} items={items} onClose={()=>setShowBidSummary(false)}/>}
-      {editProject&&<TakeoffProjectModal project={project} apmProjects={apmProjects} onSave={async(data,type)=>{ if(type==='delete'){ await supabase.from('takeoff_items').delete().eq('project_id',data.id); await supabase.from('precon_plans').delete().eq('project_id',data.id); await supabase.from('precon_projects').delete().eq('id',data.id); onBack(); } else if(data){ const {data:updated}=await supabase.from('precon_projects').update({name:data.name,company:data.company,address:data.address,gc_name:data.gc_name,bid_date:data.bid_date,contract_value:data.contract_value,status:data.status,apm_project_id:data.apm_project_id}).eq('id',data.id).select().single(); if(updated) onBack(); } else { onBack(); } setEditProject(false); }} onClose={()=>setEditProject(false)}/>}
+      {editProject&&<TakeoffProjectModal project={project} apmProjects={apmProjects} onSave={async(data,type)=>{ if(type==='delete'){ const {error}=await supabase.rpc('delete_precon_project',{p_id:data.id}); if(error){console.error('delete_precon_project RPC error:',error);alert('Delete failed: '+error.message);} else{onBack();} } else if(data){ const {data:updated}=await supabase.from('precon_projects').update({name:data.name,company:data.company,address:data.address,gc_name:data.gc_name,bid_date:data.bid_date,contract_value:data.contract_value,status:data.status,apm_project_id:data.apm_project_id}).eq('id',data.id).select().single(); if(updated) onBack(); } else { onBack(); } setEditProject(false); }} onClose={()=>setEditProject(false)}/>}
     </div>
   );
 }
@@ -7649,8 +7653,9 @@ function FCGEstimating({ onExit, deepLinkProjectId }) {
 
   const handleSave = async (data, type) => {
     if (type==='delete') {
-      await supabase.from('precon_projects').delete().eq('id', data?.id);
-      setProjects(prev=>prev.filter(p=>p.id!==data?.id));
+      const {error}=await supabase.rpc('delete_precon_project',{p_id:data?.id});
+      if(error){console.error('delete_precon_project RPC error:',error);alert('Delete failed: '+error.message);}
+      else{setProjects(prev=>prev.filter(p=>p.id!==data?.id));}
       setNewModal(false); return;
     }
     if (type===true) { setProjects(prev=>[data,...prev]); }
