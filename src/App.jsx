@@ -5520,8 +5520,8 @@ Return ONLY a valid JSON array, no markdown:
     });
     console.log('[deleteSelectedShapes] byItem:', byItem);
     Object.entries(byItem).forEach(([id, idxs]) => {
-      const item = itemsRef.current.find(i => i.id === id);
-      if(!item){ console.warn('[deleteSelectedShapes] item not found:', id, 'items count:', itemsRef.current.length); return; }
+      const item = itemsRef.current.find(i => String(i.id) === String(id));
+      if(!item){ console.warn('[deleteSelectedShapes] item not found:', id, 'items count:', itemsRef.current.length, 'ids:', itemsRef.current.map(i=>i.id)); return; }
       const rawPts = item.points;
       let shapes;
       if(!rawPts || rawPts.length === 0){ shapes = []; }
@@ -5532,7 +5532,7 @@ Return ONLY a valid JSON array, no markdown:
       const kept = shapes.filter((_, i) => !idxs.includes(i));
       if(kept.length === 0){
         console.log('[deleteSelectedShapes] deleting entire item', id);
-        setItems(prev => prev.filter(i => i.id !== id));
+        setItems(prev => prev.filter(i => String(i.id) !== String(id)));
         supabase.from('takeoff_items').delete().eq('id', id).select().then(({ data:del, error }) => {
           if(error) console.error('[deleteSelectedShapes] supabase delete error:', error);
           else if(!del||del.length===0) console.warn('[deleteSelectedShapes] RLS blocked delete for', id);
@@ -5540,7 +5540,7 @@ Return ONLY a valid JSON array, no markdown:
         });
       } else {
         console.log('[deleteSelectedShapes] trimming item', id, 'kept shapes:', kept.length);
-        setItems(prev => prev.map(i => i.id === id ? {...i, points: kept} : i));
+        setItems(prev => prev.map(i => String(i.id) === String(id) ? {...i, points: kept} : i));
         supabase.from('takeoff_items').update({ points: kept }).eq('id', id).select().then(({ data:upd, error }) => {
           if(error) console.error('[deleteSelectedShapes] supabase update error:', error);
           else if(!upd||upd.length===0) console.warn('[deleteSelectedShapes] RLS blocked update for', id);
@@ -5564,7 +5564,7 @@ Return ONLY a valid JSON array, no markdown:
       byItem[id].push(si);
     });
     const entries = Object.entries(byItem).map(([id, idxs]) => {
-      const item = itemsRef.current.find(i => i.id === id); if(!item) return null;
+      const item = itemsRef.current.find(i => String(i.id) === String(id)); if(!item) return null;
       const rawPts = item.points;
       let shapes;
       if(!rawPts || rawPts.length===0){ shapes=[]; }
@@ -7020,7 +7020,7 @@ Return ONLY a valid JSON array, no markdown:
                 const byItem={};
                 keys.forEach(k=>{const parts=k.split('::');const id=parts[0];const si=Number(parts[1]);if(!byItem[id])byItem[id]=[];byItem[id].push(si);});
                 const inserts=Object.entries(byItem).map(([id,idxs])=>{
-                  const item=itemsRef.current.find(i=>i.id===id); if(!item) return null;
+                  const item=itemsRef.current.find(i=>String(i.id)===String(id)); if(!item) return null;
                   const rawPts=item.points;
                   let shapes;
                   if(!rawPts||!rawPts.length){shapes=[];}
