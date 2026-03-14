@@ -5727,6 +5727,9 @@ Return ONLY a valid JSON array, no markdown:
         const c = isActive ? '#F97316' : isSelected ? '#3B82F6' : (it.color||'#10B981');
         const mt = it.measurement_type;
 
+        // ── Collect hole shapes for this item (used by outer area shapes) ──
+        const holeShapes = shapes.filter(sh=>sh[0]?._hole);
+
         return shapes.map((pts, shapeIdx)=>{
           const key = `${it.id}-${shapeIdx}`;
           const isHole = pts[0]?._hole;
@@ -5748,18 +5751,18 @@ Return ONLY a valid JSON array, no markdown:
             setTool(mt==='area'?'area':mt==='perimeter'?'perimeter':mt==='linear'?'linear':mt==='count'?'count':'select');
           };
 
-          // ── Apply vertex drag to display points (only for the shape being vertex-edited) ──
+          // ── Apply vertex drag to display points ──
           let dp = pts;
           if(vertexDrag && String(vertexDrag.itemId)===String(it.id) && vertexDrag.shapeIdx===shapeIdx){
             dp = pts.map((p,vi)=> vi===vertexDrag.vertexIdx ? {...p, x:vertexDrag.point.x, y:vertexDrag.point.y} : p);
           }
 
-          // ── Shape drag: use SVG transform on selected shapes (no path recalc, GPU-fast) ──
+          // ── Shape drag ──
           const isDragging = dragOffset && isSelected;
           const dragTransform = isDragging ? `translate(${dragOffset.dx}, ${dragOffset.dy})` : undefined;
           const shapeCursor = isDragging ? 'grabbing' : (isSelected && tool==='select') ? 'grab' : tool==='eraser' ? 'cell' : 'pointer';
 
-          // ── Vertex handles: show when selected in select mode, not during shape drag ──
+          // ── Vertex handles ──
           const showVertices = isSelected && tool==='select' && !isDragging;
           const vertexHandles = showVertices ? dp.map((p,vi)=>{
             if(p._ctrl || p._hole) return null;
@@ -5773,20 +5776,51 @@ Return ONLY a valid JSON array, no markdown:
           if((mt==='area')&&dp.length>=3){
             const hasArcs = dp.some(p=>p._ctrl);
             const realPts = dp.filter(p=>!p._ctrl&&!p._hole);
-            const d = hasArcs ? buildShapePath(dp, true) : (dp.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+
+            if(isHole){
+              // ── HOLE shape: render as dashed red outline only (fill is handled by parent) ──
+              const holeD = hasArcs ? buildShapePath(dp, true) : (dp.filter(p=>!p._hole).map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+              const holePtsClean = dp.filter(p=>!p._hole&&!p._ctrl);
+              // Use first real point position (skip _hole flag point — use its coords)
+              const hcx=realPts.length? realPts.reduce((s,p)=>s+p.x,0)/realPts.length : dp[0].x;
+              const hcy=realPts.length? realPts.reduce((s,p)=>s+p.y,0)/realPts.length : dp[0].y;
+              const holeArea = Math.round(Math.abs(hasArcs?calcShapeArea(dp):calcArea(dp))*10)/10;
+              return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
+                <path d={holeD} fill="none" stroke="#EF4444" strokeWidth={sw} strokeDasharray={`${5/zoom},${3/zoom}`} opacity={0.8}/>
+                {isSelected&&<path d={holeD} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
+                <text x={hcx} y={hcy+fs*0.38} fontSize={fs*0.8} fill="#EF4444" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>⊘ {holeArea} SF</text>
+                {vertexHandles}
+              </g>);
+            }
+
+            // ── OUTER shape: combine path with all hole shapes for evenodd cutout ──
+            const outerD = hasArcs ? buildShapePath(dp, true) : (dp.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+            // Build combined path: outer + all holes (reversed winding for evenodd)
+            let combinedD = outerD;
+            holeShapes.forEach(holeSh=>{
+              const hPts = holeSh.filter(p=>!p._hole);
+              if(hPts.length>=3){
+                const hHasArcs = hPts.some(p=>p._ctrl);
+                const hD = hHasArcs ? buildShapePath(holeSh, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+                combinedD += ' ' + hD;
+              }
+            });
+
             const cx=realPts.reduce((s,p)=>s+p.x,0)/(realPts.length||1);
             const cy=realPts.reduce((s,p)=>s+p.y,0)/(realPts.length||1);
-            const shapeArea = Math.round(Math.abs(hasArcs?calcShapeArea(dp):calcArea(dp))*10)/10;
+            // Net area: outer minus holes
+            const outerArea = Math.abs(hasArcs?calcShapeArea(dp):calcArea(dp));
+            const holesArea = holeShapes.reduce((s,sh)=>s+Math.abs(sh.some(p=>p._ctrl)?calcShapeArea(sh):calcArea(sh)),0);
+            const netArea = Math.round(Math.max(0, outerArea - holesArea)*10)/10;
             const lw=38/zoom, lh=padH*1.6;
-            const strokeColor = isEraserTarget ? '#EF4444' : isHole ? '#EF444488' : c;
-            const fillColor   = isHole ? '#EF444411' : c+'22';
-            const strokeW     = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
+            const strokeColor = isEraserTarget ? '#EF4444' : c;
+            const fillColor = c+'22';
+            const strokeW = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
             return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
-              <path d={d} fill={fillColor} stroke={strokeColor} strokeWidth={strokeW} fillRule="evenodd"/>
-              {isSelected&&<path d={d} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
-              {!isHole&&<rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>}
-              {!isHole&&<text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{shapeArea} SF</text>}
-              {isHole&&<text x={cx} y={cy+fs*0.38} fontSize={fs*0.8} fill="#EF4444" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>⊘ hole</text>}
+              <path d={combinedD} fill={fillColor} stroke={strokeColor} strokeWidth={strokeW} fillRule="evenodd"/>
+              {isSelected&&<path d={outerD} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
+              <rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
+              <text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{netArea} SF</text>
               {vertexHandles}
             </g>);
           }
