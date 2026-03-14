@@ -3100,7 +3100,7 @@ function PreconTab({ project }) {
       }
       // A = toggle arch mode (linear/area only)
       if((e.key==='a'||e.key==='A')&&!e.ctrlKey&&!e.metaKey){
-        const activeCond=itemsRef.current.find(i=>i.id===activeCondId);
+        const activeCond=itemsRef.current.find(i=>String(i.id)===String(activeCondId));
         if(activeCond&&(activeCond.measurement_type==='linear'||activeCond.measurement_type==='area')){
           e.preventDefault();
           setArchMode(prev=>{ const n=!prev; if(!n)setArchCtrlPending(false); return n; });
@@ -4498,7 +4498,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       // A — arc mode for linear takeoffs: auto-commit current segment, enter 3-click arc
       if(e.key==='a'||e.key==='A'){
         const condId = activeCondIdRef.current;
-        const cond = itemsRef.current.find(i=>i.id===condId);
+        const cond = itemsRef.current.find(i=>String(i.id)===String(condId));
         if(cond?.measurement_type==='linear'){
           // Commit current straight segment if we have ≥2 pts
           if(commitCurrentPtsRef.current) commitCurrentPtsRef.current();
@@ -4711,7 +4711,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   // points stored as array-of-shapes: [ [{x,y},...], [{x,y},...] ]
   // qty = sum of all shapes (area, linear, perimeter) or count of shapes (count)
   const appendMeasurement = async (condId, newShape) => {
-    let item = itemsRef.current.find(i=>i.id===condId);
+    let item = itemsRef.current.find(i=>String(i.id)===String(condId));
     if(!item){ console.warn('appendMeasurement: item not found', condId); return; }
 
     // ── Cross-plan drawing: if the active plan differs from the item's plan,
@@ -4794,7 +4794,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const total_cost = qty * (item.unit_cost||0);
     const updated = {...item, points:shapes, quantity:qty, total_cost};
     await supabase.from('takeoff_items').update({points:shapes, quantity:qty, total_cost}).eq('id', item.id);
-    setItems(prev=>prev.map(i=>i.id===item.id ? updated : i));
+    setItems(prev=>prev.map(i=>String(i.id)===String(item.id) ? updated : i));
     // Keep tool armed — stay ready for more shapes
   };
 
@@ -4812,7 +4812,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
   // appendMeasurementHole: append a cutout hole polygon to an area item
   const appendMeasurementHole = async (condId, holePts) => {
-    const item = itemsRef.current.find(i=>i.id===condId);
+    const item = itemsRef.current.find(i=>String(i.id)===String(condId));
     if(!item||item.measurement_type!=='area') return;
     const existing = item.points;
     let shapes = [];
@@ -4829,14 +4829,14 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     const total_cost=Math.max(0,qty)*(item.unit_cost||0);
     const updated={...item,points:newShapes,quantity:Math.max(0,qty),total_cost};
     await supabase.from('takeoff_items').update({points:newShapes,quantity:Math.max(0,qty),total_cost}).eq('id',condId);
-    setItems(prev=>prev.map(i=>i.id===condId?updated:i));
+    setItems(prev=>prev.map(i=>String(i.id)===String(condId)?updated:i));
   };
 
   // processClick: single-click adds a point
   // Applies angle snap when enabled. Handles arc-pending 3-click flow, cutout, area, linear.
   const processClick=(rawPt)=>{
     if(!activeCondId) return;
-    const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+    const activeCond = itemsRef.current.find(i=>String(i.id)===String(activeCondId));
     if(!activeCond) return;
     const mt = activeCond.measurement_type;
 
@@ -4899,7 +4899,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   // extraPt = the double-click position that never made it into activePts due to debounce cancellation
   const finishShape=(extraPt=null)=>{
     if(!activeCondId) return;
-    const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+    const activeCond = itemsRef.current.find(i=>String(i.id)===String(activeCondId));
     if(!activeCond) return;
     const mt = activeCond.measurement_type;
     const rawPts = extraPt ? [...activePts, extraPt] : activePts;
@@ -4970,7 +4970,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
       return;
     }
     if(!activeCondId) return;
-    const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+    const activeCond = itemsRef.current.find(i=>String(i.id)===String(activeCondId));
     if(!activeCond) return;
     // Count is instant, no debounce needed
     if(activeCond.measurement_type==='count'){
@@ -5829,10 +5829,10 @@ Return ONLY a valid JSON array, no markdown:
   const renderActive=()=>{
     const pts=(tool==='scale'&&scaleStep==='picking')?scalePts:activePts;
     if(!pts.length&&!archMode) return null;
-    const c=tool==='scale'?'#10B981':archMode?'#a855f7':tool==='area'?'#F59E0B':tool==='perimeter'?'#F97316':'#06B6D4';
+    const c=tool==='scale'?'#10B981':tool==='cutout'?'#EF4444':archMode?'#a855f7':tool==='area'?'#F59E0B':tool==='perimeter'?'#F97316':'#06B6D4';
     const sw=2.5/zoom, r0=10/zoom, r1=5/zoom, r2=4/zoom, fs=10/zoom;
     const all=hoverPt?[...pts,hoverPt]:pts;
-    const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+    const activeCond = itemsRef.current.find(i=>String(i.id)===String(activeCondId));
     const mt = activeCond?.measurement_type;
 
     // Arch linear: show bezier preview when we have p1+p2 and hovering for ctrl
@@ -5858,8 +5858,11 @@ Return ONLY a valid JSON array, no markdown:
       // First segment — show straight preview to p2
       previewPath = <line x1={pts[0].x} y1={pts[0].y} x2={hoverPt.x} y2={hoverPt.y} stroke={c} strokeWidth={sw} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.7}/>;
     } else if(!isArchLinear){
-      // Normal area/linear preview
-      if(all.length>=2) previewPath = <polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={tool==='area'?'none':`${6/zoom},${3/zoom}`} opacity={0.9}/>;
+      // Normal area/linear/cutout preview
+      if(all.length>=2) previewPath = (<>
+        <polyline points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="none" stroke={c} strokeWidth={sw} strokeDasharray={(tool==='area'||tool==='cutout')?'none':`${6/zoom},${3/zoom}`} opacity={0.9}/>
+        {tool==='cutout'&&all.length>=3&&<polygon points={all.map(p=>`${p.x},${p.y}`).join(' ')} fill="rgba(239,68,68,0.15)" stroke="none"/>}
+      </>);
     }
 
     return(<>
@@ -6498,7 +6501,7 @@ Return ONLY a valid JSON array, no markdown:
           )}
           {/* ── TAKEOFFS tab ── Stack-style */}
           {leftTab==='takeoffs'&&(()=>{
-            const activeCond = itemsRef.current.find(i=>i.id===activeCondId);
+            const activeCond = itemsRef.current.find(i=>String(i.id)===String(activeCondId));
             const armItem = (item) => {
               // If this item has siblings, prefer the one matching the current plan
               const target = (item._siblings && selPlan)
@@ -6761,7 +6764,13 @@ Return ONLY a valid JSON array, no markdown:
             return(
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
               {/* Active measuring banner */}
-              {activeCond&&(
+              {activeCond&&tool==='cutout'?(
+                <div style={{padding:'6px 12px',background:'rgba(239,68,68,0.08)',borderBottom:'2px solid #EF4444',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                  <div style={{width:6,height:6,borderRadius:'50%',background:'#EF4444',flexShrink:0,animation:'pulse 1.2s ease-in-out infinite'}}/>
+                  <span style={{fontSize:11,fontWeight:600,color:'#EF4444',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>⊘ Cutout from: {activeCond.description}</span>
+                  <button onClick={disarm} style={{background:'none',border:'1px solid rgba(239,68,68,0.4)',color:'#EF4444',padding:'2px 8px',borderRadius:3,cursor:'pointer',fontSize:9,fontWeight:700,flexShrink:0}}>Done</button>
+                </div>
+              ):activeCond&&(
                 <div style={{padding:'6px 12px',background:'rgba(249,115,22,0.08)',borderBottom:'2px solid #F97316',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
                   <div style={{width:6,height:6,borderRadius:'50%',background:'#F97316',flexShrink:0,animation:'pulse 1.2s ease-in-out infinite'}}/>
                   <span style={{fontSize:11,fontWeight:600,color:'#F97316',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{activeCond.description}</span>
@@ -7393,6 +7402,19 @@ Return ONLY a valid JSON array, no markdown:
             if(!btn) return <div key={i} style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>;
             const isActive = tool===btn.id;
             const onClick = ()=>{
+              // Cutout: auto-arm first area item on current plan if nothing armed
+              if(btn.id==='cutout'){
+                const armed = activeCondId ? itemsRef.current.find(i=>String(i.id)===String(activeCondId)) : null;
+                if(!armed || armed.measurement_type!=='area'){
+                  const areaItem = itemsRef.current.find(i=>i.measurement_type==='area'&&i.plan_id===selPlan?.id&&i.points?.length>0);
+                  if(areaItem){
+                    setActiveCondId(areaItem.id);
+                  } else {
+                    alert('Draw an area takeoff first, then use Cutout to subtract from it.');
+                    return;
+                  }
+                }
+              }
               setTool(btn.id);setActivePts([]);setScaleStep(null);setShowScalePanel(false);
               setArchMode(false);setArchCtrlPending(false);setArcPending(false);
               setSelectedShapes(new Set());setEraserHover(null);
@@ -7425,7 +7447,7 @@ Return ONLY a valid JSON array, no markdown:
 
           {/* Arc mode [A] — shown when linear item is armed */}
           {activeCondId&&(()=>{
-            const ac=itemsRef.current.find(i=>i.id===activeCondId);
+            const ac=itemsRef.current.find(i=>String(i.id)===String(activeCondId));
             if(!ac||ac.measurement_type!=='linear') return null;
             const arcOn = arcPending;
             return(
@@ -7453,7 +7475,7 @@ Return ONLY a valid JSON array, no markdown:
           })()}
           {/* Area arch toggle — shown when area item armed */}
           {activeCondId&&(()=>{
-            const ac=itemsRef.current.find(i=>i.id===activeCondId);
+            const ac=itemsRef.current.find(i=>String(i.id)===String(activeCondId));
             if(!ac||ac.measurement_type!=='area') return null;
             return(
               <>
