@@ -4810,25 +4810,44 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return pts.length ? pts[pts.length-1] : null;
   };
 
-  // appendMeasurementHole: append a cutout hole polygon to an area item
+  // appendMeasurementHole: embed a cutout polygon into the target outer shape
   const appendMeasurementHole = async (condId, holePts) => {
     const item = itemsRef.current.find(i=>String(i.id)===String(condId));
     if(!item||item.measurement_type!=='area') return;
-    const existing = item.points;
-    let shapes = [];
-    if(!existing||existing.length===0) shapes=[];
-    else if(Array.isArray(existing[0])) shapes=existing;
-    else if(existing[0]?.x!=null) shapes=[existing];
-    else shapes=existing;
-    const newShapes=[...shapes, holePts];
-    // Recompute area: sum outer shapes, subtract holes
-    const qty = Math.round(newShapes.reduce((s,sh)=>{
-      const area=sh.some(p=>p._ctrl)?calcShapeArea(sh):calcArea(sh);
-      return sh[0]?._hole ? s-area : s+area;
-    },0)*10)/10;
-    const total_cost=Math.max(0,qty)*(item.unit_cost||0);
-    const updated={...item,points:newShapes,quantity:Math.max(0,qty),total_cost};
-    await supabase.from('takeoff_items').update({points:newShapes,quantity:Math.max(0,qty),total_cost}).eq('id',condId);
+    const shapes = normalizeShapes(item.points);
+    if(!shapes.length){ console.warn('cutout: no shapes to cut from'); return; }
+
+    // Clean hole points — remove legacy _hole flag
+    const cleanHole = holePts.map(p=>{const {_hole, ...rest}=p; return rest;});
+
+    // Find which outer shape the hole overlaps using centroid point-in-polygon
+    const holeCentroid = {
+      x: cleanHole.reduce((s,p)=>s+p.x,0)/cleanHole.length,
+      y: cleanHole.reduce((s,p)=>s+p.y,0)/cleanHole.length,
+    };
+    let targetIdx = -1;
+    for(let si=0; si<shapes.length; si++){
+      const {outer} = splitShapeHoles(shapes[si]);
+      const realOuter = outer.filter(p=>!p._ctrl);
+      if(realOuter.length>=3 && pointInPoly(holeCentroid, realOuter)){
+        targetIdx = si; break;
+      }
+    }
+    // Fallback: use first non-empty shape
+    if(targetIdx<0) targetIdx = shapes.findIndex(sh=> splitShapeHoles(sh).outer.length>=3);
+    if(targetIdx<0){ console.warn('cutout: no valid outer shape found'); return; }
+
+    // Embed hole: append _holeStart marker + hole points to the target shape
+    const newShapes = shapes.map((sh, si)=>{
+      if(si !== targetIdx) return sh;
+      return [...sh, {_holeStart:true, x:0, y:0}, ...cleanHole];
+    });
+
+    // Recompute total area across all shapes (net = outer - holes for each)
+    const qty = Math.round(newShapes.reduce((s,sh) => s + calcShapeNetArea(sh), 0)*10)/10;
+    const total_cost = Math.max(0, qty) * (item.unit_cost||0);
+    const updated = {...item, points:newShapes, quantity:Math.max(0,qty), total_cost};
+    await supabase.from('takeoff_items').update({points:newShapes, quantity:Math.max(0,qty), total_cost}).eq('id', condId);
     setItems(prev=>prev.map(i=>String(i.id)===String(condId)?updated:i));
   };
 
@@ -4908,8 +4927,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
 
     // Cutout finish — save as hole shape (first point flagged _hole:true)
     if(tool==='cutout' && mt==='area' && pts.filter(p=>!p._ctrl).length>=3){
-      const holePts = pts.map((p,i)=>i===0?{...p,_hole:true}:p);
-      appendMeasurementHole(activeCondId, holePts);
+      appendMeasurementHole(activeCondId, pts);
       setActivePts([]); return;
     }
     if(mt==='linear' && pts.length>=2){
@@ -4941,7 +4959,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           // Recompute qty
           const mt=item.measurement_type;
           let qty=0;
-          if(mt==='area') qty=newShapes.reduce((s,sh)=>s+(sh[0]?._hole?0:(sh.some(p=>p._ctrl)?calcShapeArea(sh):calcArea(sh))),0);
+          if(mt==='area') qty=newShapes.reduce((s,sh)=>s+calcShapeNetArea(sh),0);
           else if(mt==='linear') qty=newShapes.reduce((s,sh)=>{let t=0;for(let i=1;i<sh.length;i++)t+=calcLinear(sh[i-1],sh[i]);return s+t;},0);
           else if(mt==='count') qty=newShapes.length;
           qty=Math.round(qty*10)/10;
@@ -5032,7 +5050,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
             const d=Math.hypot(sh[0].x-rawPt.x,sh[0].y-rawPt.y);
             if(d<threshold*3) found={itemId:it.id,shapeIdx:si};
           } else {
-            const realPts=sh.filter(p=>!p._ctrl&&!p._hole);
+            const realPts=sh.filter(p=>!p._ctrl&&!p._hole&&!p._holeStart);
             for(let pi=1;pi<realPts.length;pi++){
               const a=realPts[pi-1],b=realPts[pi];
               // Point-to-segment distance
@@ -5151,7 +5169,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
           itemsRef.current.filter(i=>i.plan_id===selPlanRef.current?.id&&i.points?.length).forEach(it=>{
             const shapes = Array.isArray(it.points[0]) ? it.points : (it.points[0]?.x!=null?[it.points]:it.points);
             shapes.forEach((sh,si)=>{
-              const realPts = sh.filter(p=>!p._ctrl&&!p._hole);
+              const realPts = sh.filter(p=>!p._ctrl&&!p._hole&&!p._holeStart);
               if(!realPts.length) return;
               const cx=realPts.reduce((s,p)=>s+p.x,0)/realPts.length;
               const cy=realPts.reduce((s,p)=>s+p.y,0)/realPts.length;
@@ -5572,6 +5590,44 @@ Return ONLY a valid JSON array, no markdown:
     return pts;
   };
 
+  // Split a single shape's points into outer boundary + embedded holes
+  // Holes are separated by {_holeStart:true} marker points
+  // Returns {outer: [{x,y},...], holes: [[{x,y},...], ...]}
+  const splitShapeHoles = (pts) => {
+    if(!pts||!pts.length) return {outer:[], holes:[]};
+    const segments = [];
+    let cur = [];
+    for(const p of pts){
+      if(p._holeStart){
+        if(cur.length) segments.push(cur);
+        cur = [];
+      } else {
+        cur.push(p);
+      }
+    }
+    if(cur.length) segments.push(cur);
+    return { outer: segments[0]||[], holes: segments.slice(1) };
+  };
+
+  // Point-in-polygon test (ray casting)
+  const pointInPoly = (pt, poly) => {
+    let inside = false;
+    for(let i=0, j=poly.length-1; i<poly.length; j=i++){
+      const xi=poly[i].x, yi=poly[i].y, xj=poly[j].x, yj=poly[j].y;
+      if(((yi>pt.y)!==(yj>pt.y)) && (pt.x<(xj-xi)*(pt.y-yi)/(yj-yi)+xi)) inside=!inside;
+    }
+    return inside;
+  };
+
+  // Compute net area for a shape that may have embedded holes
+  const calcShapeNetArea = (pts) => {
+    const {outer, holes} = splitShapeHoles(pts);
+    if(outer.length<3) return 0;
+    const outerArea = Math.abs(outer.some(p=>p._ctrl) ? calcShapeArea(outer) : calcArea(outer));
+    const holesArea = holes.reduce((s,h)=> s + Math.abs(h.some(p=>p._ctrl) ? calcShapeArea(h) : calcArea(h)), 0);
+    return Math.max(0, outerArea - holesArea);
+  };
+
   // ── snapToAngle: snap a point to nearest allowed angle from 'from' ──────
   const snapToAngle = (from, to) => {
     if(!from||!snapEnabled) return to;
@@ -5675,7 +5731,7 @@ Return ONLY a valid JSON array, no markdown:
       });
       const mt = item.measurement_type;
       let qty = 0;
-      if(mt==='area') qty = newShapes.reduce((s,sh)=>s+(sh[0]?._hole?0:(sh.some(p=>p._ctrl)?calcShapeArea(sh):calcArea(sh))),0);
+      if(mt==='area') qty = newShapes.reduce((s,sh)=>s+calcShapeNetArea(sh),0);
       else if(mt==='linear') qty = newShapes.reduce((s,sh)=>{let t=0;for(let i=1;i<sh.length;i++){const a=sh[i-1],b=sh[i];if(!a._ctrl&&!b._ctrl) t+=calcLinear(a,b);}return s+t;},0);
       else if(mt==='count') qty = newShapes.length;
       qty = Math.round(Math.abs(qty)*10)/10;
@@ -5727,12 +5783,10 @@ Return ONLY a valid JSON array, no markdown:
         const c = isActive ? '#F97316' : isSelected ? '#3B82F6' : (it.color||'#10B981');
         const mt = it.measurement_type;
 
-        // ── Collect hole shapes for this item (used by outer area shapes) ──
-        const holeShapes = shapes.filter(sh=>sh[0]?._hole);
-
         return shapes.map((pts, shapeIdx)=>{
           const key = `${it.id}-${shapeIdx}`;
-          const isHole = pts[0]?._hole;
+          // Skip legacy separate hole shapes (old data format)
+          if(pts[0]?._hole) return null;
           const isSelected = selectedShapes.has(`${it.id}::${shapeIdx}`);
           const isEraserTarget = eraserHover?.itemId===it.id && eraserHover?.shapeIdx===shapeIdx;
           const shapeKey = `${it.id}::${shapeIdx}`;
@@ -5762,10 +5816,10 @@ Return ONLY a valid JSON array, no markdown:
           const dragTransform = isDragging ? `translate(${dragOffset.dx}, ${dragOffset.dy})` : undefined;
           const shapeCursor = isDragging ? 'grabbing' : (isSelected && tool==='select') ? 'grab' : tool==='eraser' ? 'cell' : 'pointer';
 
-          // ── Vertex handles ──
+          // ── Vertex handles (skip _holeStart markers) ──
           const showVertices = isSelected && tool==='select' && !isDragging;
           const vertexHandles = showVertices ? dp.map((p,vi)=>{
-            if(p._ctrl || p._hole) return null;
+            if(p._ctrl || p._holeStart) return null;
             const isActiveVtx = vertexDrag && String(vertexDrag.itemId)===String(it.id) && vertexDrag.shapeIdx===shapeIdx && vertexDrag.vertexIdx===vi;
             return <circle key={`vtx-${vi}`} data-vertex="1" data-item-id={it.id} data-shape-idx={shapeIdx} data-vertex-idx={vi}
               cx={p.x} cy={p.y} r={r*1.1}
@@ -5774,50 +5828,40 @@ Return ONLY a valid JSON array, no markdown:
           }).filter(Boolean) : null;
 
           if((mt==='area')&&dp.length>=3){
-            const hasArcs = dp.some(p=>p._ctrl);
-            const realPts = dp.filter(p=>!p._ctrl&&!p._hole);
+            // Split shape into outer boundary + embedded holes
+            const {outer: outerPts, holes: embeddedHoles} = splitShapeHoles(dp);
+            if(outerPts.length<3) return null;
+            const hasArcs = outerPts.some(p=>p._ctrl);
+            const realPts = outerPts.filter(p=>!p._ctrl);
 
-            if(isHole){
-              // ── HOLE shape: render as dashed red outline only (fill is handled by parent) ──
-              const holeD = hasArcs ? buildShapePath(dp, true) : (dp.filter(p=>!p._hole).map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
-              const holePtsClean = dp.filter(p=>!p._hole&&!p._ctrl);
-              // Use first real point position (skip _hole flag point — use its coords)
-              const hcx=realPts.length? realPts.reduce((s,p)=>s+p.x,0)/realPts.length : dp[0].x;
-              const hcy=realPts.length? realPts.reduce((s,p)=>s+p.y,0)/realPts.length : dp[0].y;
-              const holeArea = Math.round(Math.abs(hasArcs?calcShapeArea(dp):calcArea(dp))*10)/10;
-              return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
-                <path d={holeD} fill="none" stroke="#EF4444" strokeWidth={sw} strokeDasharray={`${5/zoom},${3/zoom}`} opacity={0.8}/>
-                {isSelected&&<path d={holeD} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
-                <text x={hcx} y={hcy+fs*0.38} fontSize={fs*0.8} fill="#EF4444" textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={700} style={{pointerEvents:'none'}}>⊘ {holeArea} SF</text>
-                {vertexHandles}
-              </g>);
-            }
+            // Build outer SVG path
+            const outerD = hasArcs ? buildShapePath(outerPts, true) : (outerPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
 
-            // ── OUTER shape: combine path with all hole shapes for evenodd cutout ──
-            const outerD = hasArcs ? buildShapePath(dp, true) : (dp.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
-            // Build combined path: outer + all holes (reversed winding for evenodd)
+            // Build combined path: outer + each embedded hole for evenodd cutout
             let combinedD = outerD;
-            holeShapes.forEach(holeSh=>{
-              const hPts = holeSh.filter(p=>!p._hole);
+            embeddedHoles.forEach(hPts=>{
               if(hPts.length>=3){
                 const hHasArcs = hPts.some(p=>p._ctrl);
-                const hD = hHasArcs ? buildShapePath(holeSh, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+                const hD = hHasArcs ? buildShapePath(hPts, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
                 combinedD += ' ' + hD;
               }
             });
 
             const cx=realPts.reduce((s,p)=>s+p.x,0)/(realPts.length||1);
             const cy=realPts.reduce((s,p)=>s+p.y,0)/(realPts.length||1);
-            // Net area: outer minus holes
-            const outerArea = Math.abs(hasArcs?calcShapeArea(dp):calcArea(dp));
-            const holesArea = holeShapes.reduce((s,sh)=>s+Math.abs(sh.some(p=>p._ctrl)?calcShapeArea(sh):calcArea(sh)),0);
-            const netArea = Math.round(Math.max(0, outerArea - holesArea)*10)/10;
+            const netArea = Math.round(calcShapeNetArea(dp)*10)/10;
             const lw=38/zoom, lh=padH*1.6;
             const strokeColor = isEraserTarget ? '#EF4444' : c;
             const fillColor = c+'22';
             const strokeW = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
             return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
-              <path d={combinedD} fill={fillColor} stroke={strokeColor} strokeWidth={strokeW} fillRule="evenodd"/>
+              <path d={combinedD} fill={fillColor} stroke="none" fillRule="evenodd"/>
+              <path d={outerD} fill="none" stroke={strokeColor} strokeWidth={strokeW}/>
+              {embeddedHoles.map((hPts,hi)=>{
+                if(hPts.length<3) return null;
+                const hD = hPts.some(p=>p._ctrl) ? buildShapePath(hPts, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+                return <path key={`hole-${hi}`} d={hD} fill="none" stroke="#EF4444" strokeWidth={sw} strokeDasharray={`${5/zoom},${3/zoom}`} opacity={0.7}/>;
+              })}
               {isSelected&&<path d={outerD} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
               <rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
               <text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{netArea} SF</text>
