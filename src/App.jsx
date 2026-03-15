@@ -5619,14 +5619,23 @@ Return ONLY a valid JSON array, no markdown:
   // Returns the intersection polygon (portion of subject inside clip)
   const clipPolygonToOuter = (subject, clip) => {
     if(!subject.length || !clip.length) return [];
+    // Detect winding direction of clip polygon using signed area
+    // In SVG Y-down: positive = clockwise, negative = counter-clockwise
+    let signedArea = 0;
+    for(let i=0; i<clip.length; i++){
+      const j=(i+1)%clip.length;
+      signedArea += clip[i].x*clip[j].y - clip[j].x*clip[i].y;
+    }
+    // If clockwise (positive in Y-down), inside is RIGHT of edge → flip the cross product test
+    const flip = signedArea > 0 ? -1 : 1;
+
     let output = subject.map(p=>({x:p.x, y:p.y}));
     for(let i=0; i<clip.length; i++){
       if(!output.length) return [];
       const input = [...output];
       output = [];
       const a = clip[i], b = clip[(i+1)%clip.length];
-      // isInside: point is on the left side of edge a→b
-      const inside = (p) => (b.x-a.x)*(p.y-a.y) - (b.y-a.y)*(p.x-a.x) >= 0;
+      const inside = (p) => flip * ((b.x-a.x)*(p.y-a.y) - (b.y-a.y)*(p.x-a.x)) >= 0;
       const intersect = (p1, p2) => {
         const x1=p1.x,y1=p1.y,x2=p2.x,y2=p2.y,x3=a.x,y3=a.y,x4=b.x,y4=b.y;
         const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
