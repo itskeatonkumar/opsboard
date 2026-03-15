@@ -4769,10 +4769,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     // Recompute total quantity
     let qty = 0;
     if(item.measurement_type==='area'){
-      qty = shapes.reduce((s,sh)=>{
-        const hasArcs = sh.some(p=>p._ctrl);
-        return s + (hasArcs ? calcShapeArea(sh) : calcArea(sh));
-      },0);
+      qty = shapes.reduce((s,sh)=> s + calcShapeNetArea(sh), 0);
       qty = Math.round(qty*10)/10;
     } else if(item.measurement_type==='linear'){
       qty = shapes.reduce((s,sh)=>{
@@ -5841,19 +5838,17 @@ Return ONLY a valid JSON array, no markdown:
             if(outerPts.length<3) return null;
             const hasArcs = outerPts.some(p=>p._ctrl);
             const realPts = outerPts.filter(p=>!p._ctrl);
-            const hasHoles = embeddedHoles.some(h=>h.length>=3);
+            const validHoles = embeddedHoles.filter(h=>h.length>=3);
+            const hasHoles = validHoles.length>0;
 
             // Build outer SVG path
             const outerD = hasArcs ? buildShapePath(outerPts, true) : (outerPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
 
-            // Build hole paths
-            const holePaths = embeddedHoles.filter(h=>h.length>=3).map(hPts=>{
+            // Build hole SVG paths
+            const holePaths = validHoles.map(hPts=>{
               const hHasArcs = hPts.some(p=>p._ctrl);
               return hHasArcs ? buildShapePath(hPts, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
             });
-
-            // Combined path for evenodd fill
-            const combinedD = outerD + (holePaths.length ? ' ' + holePaths.join(' ') : '');
 
             const cx=realPts.reduce((s,p)=>s+p.x,0)/(realPts.length||1);
             const cy=realPts.reduce((s,p)=>s+p.y,0)/(realPts.length||1);
@@ -5862,12 +5857,26 @@ Return ONLY a valid JSON array, no markdown:
             const strokeColor = isEraserTarget ? '#EF4444' : c;
             const fillColor = c+'22';
             const strokeW = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
-            const clipId = `clip-${it.id}-${shapeIdx}`;
+            const maskId = `mask-${it.id}-${shapeIdx}`;
+
             return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
-              {/* ClipPath: constrain fill to outer boundary so holes extending past don't create ghost fill */}
-              {hasHoles&&<defs><clipPath id={clipId}><path d={outerD}/></clipPath></defs>}
-              <path d={combinedD} fill={fillColor} stroke="none" fillRule="evenodd" clipPath={hasHoles?`url(#${clipId})`:undefined}/>
+              {/* Mask: white=visible, black=hole. Only needed when holes exist. */}
+              {hasHoles&&(
+                <defs>
+                  <mask id={maskId} maskUnits="userSpaceOnUse"
+                    x={Math.min(...realPts.map(p=>p.x))-10} y={Math.min(...realPts.map(p=>p.y))-10}
+                    width={Math.max(...realPts.map(p=>p.x))-Math.min(...realPts.map(p=>p.x))+20}
+                    height={Math.max(...realPts.map(p=>p.y))-Math.min(...realPts.map(p=>p.y))+20}>
+                    <path d={outerD} fill="white"/>
+                    {holePaths.map((hD,hi)=><path key={hi} d={hD} fill="black"/>)}
+                  </mask>
+                </defs>
+              )}
+              {/* Fill: masked when holes exist so fill disappears at cutouts */}
+              <path d={outerD} fill={fillColor} stroke="none" mask={hasHoles?`url(#${maskId})`:undefined}/>
+              {/* Outer stroke: never masked */}
               <path d={outerD} fill="none" stroke={strokeColor} strokeWidth={strokeW}/>
+              {/* Hole outlines: dashed red */}
               {holePaths.map((hD,hi)=>(
                 <path key={`hole-${hi}`} d={hD} fill="none" stroke="#EF4444" strokeWidth={sw} strokeDasharray={`${5/zoom},${3/zoom}`} opacity={0.7}/>
               ))}
