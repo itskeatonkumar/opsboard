@@ -5792,6 +5792,14 @@ Return ONLY a valid JSON array, no markdown:
           const shapeKey = `${it.id}::${shapeIdx}`;
           const onClick = (e)=>{
             if(tool==='eraser') return;
+            // ── Cutout: click on an area shape to arm it for cutting ──
+            if(tool==='cutout'){
+              if(mt==='area'){
+                e.stopPropagation();
+                setActiveCondId(it.id);
+              }
+              return;
+            }
             if(tool==='select'||(e.ctrlKey||e.metaKey)){
               e.stopPropagation();
               if(e.ctrlKey||e.metaKey){
@@ -5833,19 +5841,19 @@ Return ONLY a valid JSON array, no markdown:
             if(outerPts.length<3) return null;
             const hasArcs = outerPts.some(p=>p._ctrl);
             const realPts = outerPts.filter(p=>!p._ctrl);
+            const hasHoles = embeddedHoles.some(h=>h.length>=3);
 
             // Build outer SVG path
             const outerD = hasArcs ? buildShapePath(outerPts, true) : (outerPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
 
-            // Build combined path: outer + each embedded hole for evenodd cutout
-            let combinedD = outerD;
-            embeddedHoles.forEach(hPts=>{
-              if(hPts.length>=3){
-                const hHasArcs = hPts.some(p=>p._ctrl);
-                const hD = hHasArcs ? buildShapePath(hPts, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
-                combinedD += ' ' + hD;
-              }
+            // Build hole paths
+            const holePaths = embeddedHoles.filter(h=>h.length>=3).map(hPts=>{
+              const hHasArcs = hPts.some(p=>p._ctrl);
+              return hHasArcs ? buildShapePath(hPts, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
             });
+
+            // Combined path for evenodd fill
+            const combinedD = outerD + (holePaths.length ? ' ' + holePaths.join(' ') : '');
 
             const cx=realPts.reduce((s,p)=>s+p.x,0)/(realPts.length||1);
             const cy=realPts.reduce((s,p)=>s+p.y,0)/(realPts.length||1);
@@ -5854,14 +5862,15 @@ Return ONLY a valid JSON array, no markdown:
             const strokeColor = isEraserTarget ? '#EF4444' : c;
             const fillColor = c+'22';
             const strokeW = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
+            const clipId = `clip-${it.id}-${shapeIdx}`;
             return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
-              <path d={combinedD} fill={fillColor} stroke="none" fillRule="evenodd"/>
+              {/* ClipPath: constrain fill to outer boundary so holes extending past don't create ghost fill */}
+              {hasHoles&&<defs><clipPath id={clipId}><path d={outerD}/></clipPath></defs>}
+              <path d={combinedD} fill={fillColor} stroke="none" fillRule="evenodd" clipPath={hasHoles?`url(#${clipId})`:undefined}/>
               <path d={outerD} fill="none" stroke={strokeColor} strokeWidth={strokeW}/>
-              {embeddedHoles.map((hPts,hi)=>{
-                if(hPts.length<3) return null;
-                const hD = hPts.some(p=>p._ctrl) ? buildShapePath(hPts, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
-                return <path key={`hole-${hi}`} d={hD} fill="none" stroke="#EF4444" strokeWidth={sw} strokeDasharray={`${5/zoom},${3/zoom}`} opacity={0.7}/>;
-              })}
+              {holePaths.map((hD,hi)=>(
+                <path key={`hole-${hi}`} d={hD} fill="none" stroke="#EF4444" strokeWidth={sw} strokeDasharray={`${5/zoom},${3/zoom}`} opacity={0.7}/>
+              ))}
               {isSelected&&<path d={outerD} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
               <rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
               <text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{netArea} SF</text>
@@ -6008,7 +6017,7 @@ Return ONLY a valid JSON array, no markdown:
     const subtotal = its.reduce((s,i)=>s+(i._totalCost||0),0);
     return {cat, items:its, subtotal};
   }).filter(Boolean);
-  const toolCursor=(spaceHeld||tool==='select')?'grab':{area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair',cutout:'crosshair',eraser:'cell'}[tool]||'default';
+  const toolCursor=(spaceHeld||tool==='select')?'grab':(tool==='cutout'&&!activeCondId)?'pointer':{area:'crosshair',linear:'crosshair',count:'cell',scale:'crosshair',cutout:'crosshair',eraser:'cell'}[tool]||'default';
 
   const co = COMPANIES.find(c=>c.id===project.company)||COMPANIES[1];
   const STATUS_COLORS_BID = {estimating:'#F59E0B',bid_submitted:'#3B82F6',awarded:'#10B981',lost:'#EF4444',hold:'#555'};
@@ -6842,11 +6851,17 @@ Return ONLY a valid JSON array, no markdown:
             return(
             <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
               {/* Active measuring banner */}
-              {activeCond&&tool==='cutout'?(
+              {tool==='cutout'&&!activeCond?(
+                <div style={{padding:'6px 12px',background:'rgba(239,68,68,0.08)',borderBottom:'2px solid #EF4444',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
+                  <div style={{width:6,height:6,borderRadius:'50%',background:'#EF4444',flexShrink:0}}/>
+                  <span style={{fontSize:11,fontWeight:600,color:'#EF4444',flex:1}}>⊘ Click an area shape on the plan to cut from</span>
+                  <button onClick={()=>{setTool('select');setActiveCondId(null);}} style={{background:'none',border:'1px solid rgba(239,68,68,0.4)',color:'#EF4444',padding:'2px 8px',borderRadius:3,cursor:'pointer',fontSize:9,fontWeight:700,flexShrink:0}}>Cancel</button>
+                </div>
+              ):activeCond&&tool==='cutout'?(
                 <div style={{padding:'6px 12px',background:'rgba(239,68,68,0.08)',borderBottom:'2px solid #EF4444',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
                   <div style={{width:6,height:6,borderRadius:'50%',background:'#EF4444',flexShrink:0,animation:'pulse 1.2s ease-in-out infinite'}}/>
-                  <span style={{fontSize:11,fontWeight:600,color:'#EF4444',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>⊘ Cutout from: {activeCond.description}</span>
-                  <button onClick={disarm} style={{background:'none',border:'1px solid rgba(239,68,68,0.4)',color:'#EF4444',padding:'2px 8px',borderRadius:3,cursor:'pointer',fontSize:9,fontWeight:700,flexShrink:0}}>Done</button>
+                  <span style={{fontSize:11,fontWeight:600,color:'#EF4444',flex:1,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>⊘ Drawing cutout on: {activeCond.description}</span>
+                  <button onClick={()=>{setTool('select');setActiveCondId(null);setActivePts([]);}} style={{background:'none',border:'1px solid rgba(239,68,68,0.4)',color:'#EF4444',padding:'2px 8px',borderRadius:3,cursor:'pointer',fontSize:9,fontWeight:700,flexShrink:0}}>Done</button>
                 </div>
               ):activeCond&&(
                 <div style={{padding:'6px 12px',background:'rgba(249,115,22,0.08)',borderBottom:'2px solid #F97316',display:'flex',alignItems:'center',gap:8,flexShrink:0}}>
@@ -7480,18 +7495,13 @@ Return ONLY a valid JSON array, no markdown:
             if(!btn) return <div key={i} style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>;
             const isActive = tool===btn.id;
             const onClick = ()=>{
-              // Cutout: auto-arm first area item on current plan if nothing armed
               if(btn.id==='cutout'){
-                const armed = activeCondId ? itemsRef.current.find(i=>String(i.id)===String(activeCondId)) : null;
-                if(!armed || armed.measurement_type!=='area'){
-                  const areaItem = itemsRef.current.find(i=>i.measurement_type==='area'&&i.plan_id===selPlan?.id&&i.points?.length>0);
-                  if(areaItem){
-                    setActiveCondId(areaItem.id);
-                  } else {
-                    alert('Draw an area takeoff first, then use Cutout to subtract from it.');
-                    return;
-                  }
-                }
+                // Just enter cutout mode — user clicks a shape to arm it
+                setTool('cutout'); setActivePts([]); setActiveCondId(null);
+                setScaleStep(null); setShowScalePanel(false);
+                setArchMode(false); setArchCtrlPending(false); setArcPending(false);
+                setSelectedShapes(new Set()); setEraserHover(null);
+                return;
               }
               setTool(btn.id);setActivePts([]);setScaleStep(null);setShowScalePanel(false);
               setArchMode(false);setArchCtrlPending(false);setArcPending(false);
