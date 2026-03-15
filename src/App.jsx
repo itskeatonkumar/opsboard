@@ -5626,8 +5626,9 @@ Return ONLY a valid JSON array, no markdown:
       const j=(i+1)%clip.length;
       signedArea += clip[i].x*clip[j].y - clip[j].x*clip[i].y;
     }
-    // If clockwise (positive in Y-down), inside is RIGHT of edge → flip the cross product test
-    const flip = signedArea > 0 ? -1 : 1;
+    // If clockwise (positive in Y-down), inside is RIGHT of edge → cross product is already correct
+    // If counter-clockwise (negative), inside is LEFT → flip the test
+    const flip = signedArea > 0 ? 1 : -1;
 
     let output = subject.map(p=>({x:p.x, y:p.y}));
     for(let i=0; i<clip.length; i++){
