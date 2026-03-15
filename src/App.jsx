@@ -5907,24 +5907,27 @@ Return ONLY a valid JSON array, no markdown:
             return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
               {hasHoles&&(
                 <defs>
-                  {/* Mask: white=visible, black=cutout. Applied to fill AND outer stroke. */}
+                  {/* Mask A: white=outer minus holes. For fill + outer stroke. */}
                   <mask id={maskId} maskUnits="userSpaceOnUse"
                     x="-99999" y="-99999" width="999999" height="999999">
                     <path d={outerD} fill="white"/>
                     {holePaths.map((hD,hi)=><path key={hi} d={hD} fill="black"/>)}
                   </mask>
-                  {/* ClipPath: constrains hole strokes to only show within outer boundary */}
-                  <clipPath id={clipId}><path d={outerD}/></clipPath>
+                  {/* Mask B: white=outer only. For hole strokes — constrains them to outer boundary. */}
+                  <mask id={clipId} maskUnits="userSpaceOnUse"
+                    x="-99999" y="-99999" width="999999" height="999999">
+                    <path d={outerD} fill="white"/>
+                  </mask>
                 </defs>
               )}
               {/* Fill: masked — disappears at cutouts, plan shows through */}
               <path d={outerD} fill={fillColor} stroke="none" mask={hasHoles?`url(#${maskId})`:undefined}/>
               {/* Outer stroke: masked — disappears where it passes through cutout regions */}
               <path d={outerD} fill="none" stroke={strokeColor} strokeWidth={strokeW} mask={hasHoles?`url(#${maskId})`:undefined}/>
-              {/* Hole strokes: same color as outer, clipped to outer boundary.
+              {/* Hole strokes: same color as outer, masked to outer boundary only.
                   Combined with masked outer stroke = continuous boundary of the difference shape. */}
               {hasHoles&&holePaths.map((hD,hi)=>(
-                <path key={`hs-${hi}`} d={hD} fill="none" stroke={strokeColor} strokeWidth={strokeW} clipPath={`url(#${clipId})`}/>
+                <path key={`hs-${hi}`} d={hD} fill="none" stroke={strokeColor} strokeWidth={strokeW} mask={`url(#${clipId})`}/>
               ))}
               {isSelected&&<path d={outerD} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
               <rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
