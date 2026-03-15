@@ -5616,12 +5616,56 @@ Return ONLY a valid JSON array, no markdown:
     return inside;
   };
 
+  // Sutherland-Hodgman polygon clipping — clips subject polygon to clip polygon boundary
+  // Returns the intersection polygon (portion of subject inside clip)
+  const clipPolygonToOuter = (subject, clip) => {
+    if(!subject.length || !clip.length) return [];
+    let output = subject.map(p=>({x:p.x, y:p.y}));
+    for(let i=0; i<clip.length; i++){
+      if(!output.length) return [];
+      const input = [...output];
+      output = [];
+      const a = clip[i], b = clip[(i+1)%clip.length];
+      // isInside: point is on the left side of edge a→b
+      const inside = (p) => (b.x-a.x)*(p.y-a.y) - (b.y-a.y)*(p.x-a.x) >= 0;
+      const intersect = (p1, p2) => {
+        const x1=p1.x,y1=p1.y,x2=p2.x,y2=p2.y,x3=a.x,y3=a.y,x4=b.x,y4=b.y;
+        const d=(x1-x2)*(y3-y4)-(y1-y2)*(x3-x4);
+        if(Math.abs(d)<1e-10) return p1;
+        const t=((x1-x3)*(y3-y4)-(y1-y3)*(x3-x4))/d;
+        return {x:x1+t*(x2-x1), y:y1+t*(y2-y1)};
+      };
+      for(let j=0; j<input.length; j++){
+        const cur = input[j];
+        const prev = input[(j+input.length-1)%input.length];
+        const curIn = inside(cur), prevIn = inside(prev);
+        if(curIn){
+          if(!prevIn) output.push(intersect(prev, cur));
+          output.push(cur);
+        } else if(prevIn){
+          output.push(intersect(prev, cur));
+        }
+      }
+    }
+    return output;
+  };
+
   // Compute net area for a shape that may have embedded holes
+  // Clips each hole to the outer boundary so overflow doesn't over-subtract
   const calcShapeNetArea = (pts) => {
     const {outer, holes} = splitShapeHoles(pts);
     if(outer.length<3) return 0;
+    const outerClean = outer.filter(p=>!p._ctrl);
     const outerArea = Math.abs(outer.some(p=>p._ctrl) ? calcShapeArea(outer) : calcArea(outer));
-    const holesArea = holes.reduce((s,h)=> s + Math.abs(h.some(p=>p._ctrl) ? calcShapeArea(h) : calcArea(h)), 0);
+    // Clip each hole to the outer polygon, then compute its area
+    const holesArea = holes.reduce((s,h)=> {
+      const hClean = h.filter(p=>!p._ctrl);
+      if(hClean.length<3) return s;
+      // Clip the hole to the outer boundary so only the intersection counts
+      const clipped = clipPolygonToOuter(hClean, outerClean);
+      if(clipped.length<3) return s;
+      return s + Math.abs(calcArea(clipped));
+    }, 0);
     return Math.max(0, outerArea - holesArea);
   };
 
