@@ -4807,42 +4807,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     return pts.length ? pts[pts.length-1] : null;
   };
 
-  // mergeHoleIntoPolygon: physically cut a hole into a polygon using bridge technique
-  // Returns a new set of points representing outer-minus-hole as a single continuous polygon
-  const mergeHoleIntoPolygon = (polyPts, holePts) => {
-    const cleanPoly = polyPts.filter(p=>!p._ctrl&&!p._holeStart);
-    const cleanHole = holePts.filter(p=>!p._ctrl);
-    if(cleanPoly.length<3||cleanHole.length<3) return polyPts;
-
-    // Find closest vertex pair between polygon and hole
-    let bestDist = Infinity, bestPi = 0, bestHi = 0;
-    for(let pi=0; pi<cleanPoly.length; pi++){
-      for(let hi=0; hi<cleanHole.length; hi++){
-        const d = Math.hypot(cleanPoly[pi].x-cleanHole[hi].x, cleanPoly[pi].y-cleanHole[hi].y);
-        if(d<bestDist){ bestDist=d; bestPi=pi; bestHi=hi; }
-      }
-    }
-
-    // Walk hole in reverse from bestHi all the way around back to bestHi
-    const holeRev = [];
-    for(let i=0; i<cleanHole.length; i++){
-      const idx = (bestHi - i + cleanHole.length) % cleanHole.length;
-      holeRev.push({x:cleanHole[idx].x, y:cleanHole[idx].y});
-    }
-
-    // Build merged polygon: outer → bridge → hole reversed → bridge back → continue outer
-    const bridgePt = {x:cleanPoly[bestPi].x, y:cleanPoly[bestPi].y};
-    return [
-      ...cleanPoly.slice(0, bestPi+1),
-      {x:cleanHole[bestHi].x, y:cleanHole[bestHi].y}, // bridge in
-      ...holeRev.slice(1),                               // hole reversed (skip first, it's the bridge-in point)
-      {x:cleanHole[bestHi].x, y:cleanHole[bestHi].y}, // bridge back to hole start
-      bridgePt,                                          // bridge back to outer
-      ...cleanPoly.slice(bestPi+1)
-    ];
-  };
-
-  // appendMeasurementHole: cut a hole from the target shape by merging it into the polygon boundary
+  // appendMeasurementHole: embed a cutout into the target shape using _holeStart markers
   const appendMeasurementHole = async (condId, holePts) => {
     const item = itemsRef.current.find(i=>String(i.id)===String(condId));
     if(!item||item.measurement_type!=='area') return;
@@ -4859,25 +4824,23 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
     };
     let targetIdx = -1;
     for(let si=0; si<shapes.length; si++){
-      const realPts = shapes[si].filter(p=>!p._ctrl&&!p._holeStart);
-      if(realPts.length>=3 && pointInPoly(holeCentroid, realPts)){
+      const {outer} = splitShapeHoles(shapes[si]);
+      const realOuter = outer.filter(p=>!p._ctrl);
+      if(realOuter.length>=3 && pointInPoly(holeCentroid, realOuter)){
         targetIdx = si; break;
       }
     }
-    if(targetIdx<0) targetIdx = shapes.findIndex(sh=>sh.filter(p=>!p._ctrl).length>=3);
+    if(targetIdx<0) targetIdx = shapes.findIndex(sh=>splitShapeHoles(sh).outer.length>=3);
     if(targetIdx<0){ console.warn('cutout: no valid shape found'); return; }
 
-    // Merge: physically cut the hole into the polygon using bridge technique
+    // Embed hole into the target shape
     const newShapes = shapes.map((sh, si)=>{
       if(si !== targetIdx) return sh;
-      return mergeHoleIntoPolygon(sh, cleanHole);
+      return [...sh, {_holeStart:true, x:0, y:0}, ...cleanHole];
     });
 
-    // Recompute area — just simple shoelace on each shape, no hole subtraction needed
-    const qty = Math.round(newShapes.reduce((s,sh)=>{
-      const clean = sh.filter(p=>!p._ctrl);
-      return s + Math.abs(clean.length>=3 ? calcArea(clean) : 0);
-    },0)*10)/10;
+    // Recompute area
+    const qty = Math.round(newShapes.reduce((s,sh) => s + calcShapeNetArea(sh), 0)*10)/10;
     const total_cost = Math.max(0, qty) * (item.unit_cost||0);
     const updated = {...item, points:newShapes, quantity:Math.max(0,qty), total_cost};
     await supabase.from('takeoff_items').update({points:newShapes, quantity:Math.max(0,qty), total_cost}).eq('id', condId);
@@ -5913,26 +5876,42 @@ Return ONLY a valid JSON array, no markdown:
           }).filter(Boolean) : null;
 
           if((mt==='area')&&dp.length>=3){
-            const hasArcs = dp.some(p=>p._ctrl);
-            const realPts = dp.filter(p=>!p._ctrl&&!p._holeStart);
-            if(realPts.length<3) return null;
+            const {outer: outerPts, holes: embeddedHoles} = splitShapeHoles(dp);
+            if(outerPts.length<3) return null;
+            const hasArcs = outerPts.some(p=>p._ctrl);
+            const realPts = outerPts.filter(p=>!p._ctrl);
+            const validHoles = embeddedHoles.filter(h=>h.length>=3);
+            const hasHoles = validHoles.length>0;
 
-            // Simple polygon path — bridge-merged cutouts are just part of the boundary now
-            const d = hasArcs ? buildShapePath(dp.filter(p=>!p._holeStart), true) : (dp.filter(p=>!p._holeStart).map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+            // Build SVG paths
+            const outerD = hasArcs ? buildShapePath(outerPts, true) : (outerPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+            let combinedD = outerD;
+            validHoles.forEach(hPts=>{
+              const hD = hPts.some(p=>p._ctrl) ? buildShapePath(hPts, true) : (hPts.map((p,i)=>`${i===0?'M':'L'}${p.x.toFixed(2)},${p.y.toFixed(2)}`).join(' ')+' Z');
+              combinedD += ' ' + hD;
+            });
 
             const cx=realPts.reduce((s,p)=>s+p.x,0)/(realPts.length||1);
             const cy=realPts.reduce((s,p)=>s+p.y,0)/(realPts.length||1);
-            const shapeArea = Math.round(Math.abs(hasArcs?calcShapeArea(dp.filter(p=>!p._holeStart)):calcArea(realPts))*10)/10;
+            const netArea = Math.round(calcShapeNetArea(dp)*10)/10;
             const lw=38/zoom, lh=padH*1.6;
             const strokeColor = isEraserTarget ? '#EF4444' : c;
             const fillColor = c+'22';
             const strokeW = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
+            const clipId = `clip-${it.id}-${shapeIdx}`;
 
             return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
-              <path d={d} fill={fillColor} stroke={strokeColor} strokeWidth={strokeW}/>
-              {isSelected&&<path d={d} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
+              {/* ClipPath: outer boundary constrains everything — no phantom fill, no stroke overflow */}
+              {hasHoles&&<defs><clipPath id={clipId}><path d={outerD}/></clipPath></defs>}
+              {/* ONE path: compound (outer+holes), evenodd fill, stroke traces outer AND hole boundaries.
+                  ClipPath clips stroke at outer boundary so hole lines don't extend outside. */}
+              <path d={combinedD}
+                fill={fillColor} fillRule="evenodd"
+                stroke={strokeColor} strokeWidth={strokeW}
+                clipPath={hasHoles?`url(#${clipId})`:undefined}/>
+              {isSelected&&<path d={outerD} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
               <rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
-              <text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{shapeArea} SF</text>
+              <text x={cx} y={cy+fs*0.38} fontSize={fs*0.9} fill={isActive?'#F97316':'#ddd'} textAnchor="middle" fontFamily="'DM Mono',monospace" fontWeight={600} style={{pointerEvents:'none'}}>{netArea} SF</text>
               {vertexHandles}
             </g>);
           }
