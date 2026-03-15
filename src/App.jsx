@@ -5909,9 +5909,7 @@ Return ONLY a valid JSON array, no markdown:
                 <defs>
                   {/* Mask: white=visible, black=cutout. Applied to fill AND outer stroke. */}
                   <mask id={maskId} maskUnits="userSpaceOnUse"
-                    x={Math.min(...realPts.map(p=>p.x))-50} y={Math.min(...realPts.map(p=>p.y))-50}
-                    width={Math.max(...realPts.map(p=>p.x))-Math.min(...realPts.map(p=>p.x))+100}
-                    height={Math.max(...realPts.map(p=>p.y))-Math.min(...realPts.map(p=>p.y))+100}>
+                    x="-99999" y="-99999" width="999999" height="999999">
                     <path d={outerD} fill="white"/>
                     {holePaths.map((hD,hi)=><path key={hi} d={hD} fill="black"/>)}
                   </mask>
