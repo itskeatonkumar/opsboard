@@ -5858,27 +5858,31 @@ Return ONLY a valid JSON array, no markdown:
             const fillColor = c+'22';
             const strokeW = isEraserTarget ? sw*2 : (isActive?sw*1.5:sw);
             const maskId = `mask-${it.id}-${shapeIdx}`;
+            const clipId = `clip-${it.id}-${shapeIdx}`;
 
             return(<g key={key} data-shape="1" data-item-id={it.id} data-shape-idx={shapeIdx} onClick={onClick} style={{cursor:shapeCursor}} transform={dragTransform}>
-              {/* Mask: white=visible, black=hole. Only needed when holes exist. */}
               {hasHoles&&(
                 <defs>
+                  {/* Mask: white=visible, black=cutout. Applied to fill AND outer stroke. */}
                   <mask id={maskId} maskUnits="userSpaceOnUse"
-                    x={Math.min(...realPts.map(p=>p.x))-10} y={Math.min(...realPts.map(p=>p.y))-10}
-                    width={Math.max(...realPts.map(p=>p.x))-Math.min(...realPts.map(p=>p.x))+20}
-                    height={Math.max(...realPts.map(p=>p.y))-Math.min(...realPts.map(p=>p.y))+20}>
+                    x={Math.min(...realPts.map(p=>p.x))-50} y={Math.min(...realPts.map(p=>p.y))-50}
+                    width={Math.max(...realPts.map(p=>p.x))-Math.min(...realPts.map(p=>p.x))+100}
+                    height={Math.max(...realPts.map(p=>p.y))-Math.min(...realPts.map(p=>p.y))+100}>
                     <path d={outerD} fill="white"/>
                     {holePaths.map((hD,hi)=><path key={hi} d={hD} fill="black"/>)}
                   </mask>
+                  {/* ClipPath: constrains hole strokes to only show within outer boundary */}
+                  <clipPath id={clipId}><path d={outerD}/></clipPath>
                 </defs>
               )}
-              {/* Fill: masked when holes exist so fill disappears at cutouts */}
+              {/* Fill: masked — disappears at cutouts, plan shows through */}
               <path d={outerD} fill={fillColor} stroke="none" mask={hasHoles?`url(#${maskId})`:undefined}/>
-              {/* Outer stroke: never masked */}
-              <path d={outerD} fill="none" stroke={strokeColor} strokeWidth={strokeW}/>
-              {/* Hole outlines: dashed red */}
-              {holePaths.map((hD,hi)=>(
-                <path key={`hole-${hi}`} d={hD} fill="none" stroke="#EF4444" strokeWidth={sw} strokeDasharray={`${5/zoom},${3/zoom}`} opacity={0.7}/>
+              {/* Outer stroke: masked — disappears where it passes through cutout regions */}
+              <path d={outerD} fill="none" stroke={strokeColor} strokeWidth={strokeW} mask={hasHoles?`url(#${maskId})`:undefined}/>
+              {/* Hole strokes: same color as outer, clipped to outer boundary.
+                  Combined with masked outer stroke = continuous boundary of the difference shape. */}
+              {hasHoles&&holePaths.map((hD,hi)=>(
+                <path key={`hs-${hi}`} d={hD} fill="none" stroke={strokeColor} strokeWidth={strokeW} clipPath={`url(#${clipId})`}/>
               ))}
               {isSelected&&<path d={outerD} fill="none" stroke="#3B82F6" strokeWidth={sw*2} strokeDasharray={`${6/zoom},${3/zoom}`} opacity={0.6} style={{pointerEvents:'none'}}/>}
               <rect x={cx-lw/2} y={cy-lh/2} width={lw} height={lh} rx={2/zoom} fill="rgba(0,0,0,0.65)"/>
