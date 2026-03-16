@@ -6378,39 +6378,38 @@ Return ONLY a valid JSON array, no markdown:
   return (
     <div style={{display:'flex',flexDirection:'column',height:'100%',overflow:'hidden',position:'relative'}}>
 
-      {/* ── Top Bar ── */}
-      <div style={{display:'flex',alignItems:'center',height:42,borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,gap:0}}>
-        <button onClick={onBack} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text4,cursor:'pointer',fontSize:12,padding:'0 14px',height:'100%',display:'flex',alignItems:'center',gap:5,flexShrink:0}}>
-          ← Projects
+      {/* ── Top Bar — STACK style ── */}
+      <div style={{display:'flex',alignItems:'center',height:44,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,gap:0,padding:'0 0 0 0'}}>
+        <button onClick={onBack} style={{background:'none',border:'none',color:t.text3,cursor:'pointer',fontSize:12,padding:'0 16px',height:'100%',display:'flex',alignItems:'center',gap:4,flexShrink:0,fontWeight:500}}>
+          ‹ Projects
         </button>
-        {onExitToOps&&<button onClick={onExitToOps} style={{background:'none',border:'none',borderRight:`1px solid ${t.border}`,color:t.text3,cursor:'pointer',fontSize:11,padding:'0 12px',height:'100%',display:'flex',alignItems:'center',fontWeight:600,flexShrink:0}}>
-          ⊞ OPS
+        {onExitToOps&&<button onClick={onExitToOps} style={{background:'none',border:'none',color:t.text3,cursor:'pointer',fontSize:11,padding:'0 12px',height:'100%',display:'flex',alignItems:'center',fontWeight:600,flexShrink:0,borderLeft:`1px solid ${t.border}`}}>
+          OPS
         </button>}
-        <div style={{padding:'0 16px',borderRight:`1px solid ${t.border}`,height:'100%',display:'flex',flexDirection:'column',justifyContent:'center',minWidth:0,maxWidth:240,flexShrink:0}}>
-          <div style={{fontSize:12,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
-          {project.bid_date&&<div style={{fontSize:9,color:t.text4}}>Bid {fmtDate(project.bid_date)}</div>}
+        <div style={{padding:'0 20px',height:'100%',display:'flex',alignItems:'center',minWidth:0,maxWidth:300,flexShrink:0,borderLeft:`1px solid ${t.border}`}}>
+          <div style={{fontSize:13,fontWeight:600,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
         </div>
         <div style={{flex:1}}/>
-        <div style={{display:'flex',alignItems:'center',gap:3,padding:'0 10px',borderLeft:`1px solid ${t.border}`,height:'100%',flexShrink:0}}>
-          <button onClick={()=>setZoom(z=>Math.max(Math.round((z-0.1)*10)/10,0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:22,height:22,borderRadius:3,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center'}}>−</button>
-          <span style={{fontSize:10,color:t.text3,minWidth:36,textAlign:'center'}}>{Math.round(zoom*100)}%</span>
-          <button onClick={()=>setZoom(z=>Math.min(Math.round((z+0.1)*10)/10,4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:22,height:22,borderRadius:3,cursor:'pointer',fontSize:12,display:'flex',alignItems:'center',justifyContent:'center'}}>+</button>
+        <div style={{display:'flex',alignItems:'center',gap:4,padding:'0 12px',height:'100%',flexShrink:0}}>
+          <button onClick={()=>setZoom(z=>Math.max(Math.round((z-0.1)*10)/10,0.1))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:24,height:24,borderRadius:4,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:300}}>−</button>
+          <span style={{fontSize:11,color:t.text3,minWidth:40,textAlign:'center',fontWeight:500}}>{Math.round(zoom*100)}%</span>
+          <button onClick={()=>setZoom(z=>Math.min(Math.round((z+0.1)*10)/10,4))} style={{background:'none',border:`1px solid ${t.border}`,color:t.text3,width:24,height:24,borderRadius:4,cursor:'pointer',fontSize:13,display:'flex',alignItems:'center',justifyContent:'center',fontWeight:300}}>+</button>
         </div>
         <button onClick={()=>setShowBidSummary(true)} disabled={!items.length}
-          style={{height:'100%',padding:'0 18px',border:'none',borderLeft:`1px solid ${t.border}`,
-            background:items.length?'#10B981':'none',color:items.length?'#fff':t.text4,
-            cursor:'pointer',fontSize:12,fontWeight:700,flexShrink:0,opacity:items.length?1:0.3}}>
+          style={{height:'100%',padding:'0 20px',border:'none',borderLeft:`1px solid ${t.border}`,
+            background:items.length?'#10B981':'transparent',color:items.length?'#fff':t.text4,
+            cursor:items.length?'pointer':'default',fontSize:12,fontWeight:600,flexShrink:0}}>
           Bid Summary
         </button>
       </div>
 
-      {/* ── STACK-style Navigation Bar ── */}
-      <div style={{display:'flex',alignItems:'stretch',height:36,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,paddingLeft:12,gap:0}}>
+      {/* ── Navigation Bar — STACK style ── */}
+      <div style={{display:'flex',alignItems:'stretch',height:34,borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,paddingLeft:16,gap:0}}>
         {[
-          {id:'workspace',label:'Plans',icon:'📐'},
-          {id:'workspace',label:'Takeoffs',icon:'⬡',leftTab:'takeoffs'},
-          {id:'reports',label:'Reports',icon:'📊'},
-          {id:'estimate',label:'Estimates',icon:'$'},
+          {id:'workspace',label:'Plans',leftTab:'plans'},
+          {id:'workspace',label:'Takeoffs',leftTab:'takeoffs'},
+          {id:'reports',label:'Reports'},
+          {id:'estimate',label:'Estimates'},
         ].map((tab,i)=>{
           const isActive = tab.id==='estimate'
             ? (mainView==='workspace'&&rightTab==='estimate')
@@ -6426,24 +6425,24 @@ Return ONLY a valid JSON array, no markdown:
                 setMainView('workspace');
                 setRightTab('items');
                 if(tab.leftTab) setLeftTab(tab.leftTab);
-                else setLeftTab('plans');
               } else {
                 setMainView(tab.id);
               }
             }}
-              style={{padding:'0 16px',border:'none',background:'none',cursor:'pointer',
-                fontSize:12,fontWeight:isActive?700:500,
+              style={{padding:'0 18px',border:'none',background:'none',cursor:'pointer',
+                fontSize:13,fontWeight:isActive?600:400,
                 color:isActive?'#10B981':t.text3,
                 borderBottom:isActive?'2px solid #10B981':'2px solid transparent',
-                boxSizing:'border-box',transition:'color 0.15s',
-                display:'flex',alignItems:'center',gap:5}}>
+                boxSizing:'border-box',transition:'color 0.15s',letterSpacing:0.2}}>
               {tab.label}
             </button>
           );
         })}
         <div style={{flex:1}}/>
-        <div style={{display:'flex',alignItems:'center',paddingRight:12,gap:8}}>
-          <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{items.length} conditions · {plans.length} sheets</span>
+        <div style={{display:'flex',alignItems:'center',paddingRight:16,gap:4}}>
+          <span style={{fontSize:11,color:t.text4,fontWeight:400}}>{items.length} conditions</span>
+          <span style={{fontSize:11,color:t.text4}}>·</span>
+          <span style={{fontSize:11,color:t.text4,fontWeight:400}}>{plans.length} sheets</span>
         </div>
       </div>
 
@@ -6611,18 +6610,18 @@ Return ONLY a valid JSON array, no markdown:
       {/* ── Main Body (Workspace) ── */}
       {mainView==='workspace'&&<div style={{display:'flex',flex:1,overflow:'hidden'}}>
 
-        {/* ── Left Panel — Stack-style ── */}
+        {/* ── Left Panel ── */}
         <div style={{width:280,flexShrink:0,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,background:t.bg2,overflow:'hidden'}}>
 
-          {/* Left panel tab strip: Plans | Takeoffs */}
-          <div style={{display:'flex',alignItems:'stretch',borderBottom:`1px solid ${t.border}`,flexShrink:0,height:40}}>
+          {/* Left panel tab strip */}
+          <div style={{display:'flex',alignItems:'stretch',borderBottom:`1px solid ${t.border}`,flexShrink:0,height:36}}>
             {[['plans','Plans'],['takeoffs','Takeoffs']].map(([id,lbl])=>(
               <button key={id} onClick={()=>setLeftTab(id)}
                 style={{flex:1,height:'100%',border:'none',background:'none',cursor:'pointer',
-                  fontSize:12,fontWeight:leftTab===id?700:400,
+                  fontSize:13,fontWeight:leftTab===id?600:400,
                   color:leftTab===id?'#10B981':t.text4,
                   borderBottom:leftTab===id?'2px solid #10B981':'2px solid transparent',
-                  boxSizing:'border-box',transition:'color 0.1s'}}>
+                  boxSizing:'border-box',transition:'color 0.15s'}}>
                 {lbl}
               </button>
             ))}
@@ -7136,26 +7135,26 @@ Return ONLY a valid JSON array, no markdown:
               )}
 
               {/* Search + New Takeoff */}
-              <div style={{padding:'8px 10px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',gap:6,alignItems:'center'}}>
+              <div style={{padding:'8px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,display:'flex',gap:8,alignItems:'center'}}>
                 <div style={{flex:1,position:'relative'}}>
-                  <span style={{position:'absolute',left:7,top:'50%',transform:'translateY(-50%)',color:t.text4,fontSize:11}}>⌕</span>
+                  <span style={{position:'absolute',left:8,top:'50%',transform:'translateY(-50%)',color:t.text4,fontSize:12}}>⌕</span>
                   <input value={toSearch} onChange={e=>setToSearch(e.target.value)}
-                    placeholder="Search Takeoffs"
-                    style={{width:'100%',padding:'5px 8px 5px 22px',border:`1px solid ${t.border}`,borderRadius:5,
-                      fontSize:11,color:t.text,background:t.bg,outline:'none',boxSizing:'border-box'}}/>
+                    placeholder="Search"
+                    style={{width:'100%',padding:'6px 8px 6px 24px',border:`1px solid ${t.border}`,borderRadius:4,
+                      fontSize:12,color:t.text,background:t.bg,outline:'none',boxSizing:'border-box'}}/>
                 </div>
                 <button onClick={()=>setTakeoffStep('type')}
-                  style={{background:'#10B981',border:'none',color:'#fff',padding:'5px 10px',borderRadius:5,
-                    cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:4,flexShrink:0,whiteSpace:'nowrap'}}>
-                  New Takeoff ▾
+                  style={{background:'#10B981',border:'none',color:'#fff',padding:'6px 12px',borderRadius:4,
+                    cursor:'pointer',fontSize:12,fontWeight:600,display:'flex',alignItems:'center',gap:3,flexShrink:0,whiteSpace:'nowrap'}}>
+                  + New Takeoff
                 </button>
               </div>
 
               {/* Column headers */}
-              <div style={{display:'flex',alignItems:'center',padding:'3px 10px',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg3}}>
-                <span style={{fontSize:9,fontWeight:700,color:t.text4,flex:1,letterSpacing:0.8,textTransform:'uppercase'}}>Name</span>
-                <span style={{fontSize:9,fontWeight:700,color:t.text4,width:64,textAlign:'right',letterSpacing:0.8,textTransform:'uppercase'}}>Qty</span>
-                <span style={{width:20}}/>
+              <div style={{display:'flex',alignItems:'center',padding:'5px 12px',borderBottom:`1px solid ${t.border}`,flexShrink:0,background:t.bg}}>
+                <span style={{fontSize:10,fontWeight:600,color:t.text4,flex:1}}>Name</span>
+                <span style={{fontSize:10,fontWeight:600,color:t.text4,width:70,textAlign:'right'}}>Qty</span>
+                <span style={{width:50}}/>
               </div>
 
               {/* Category > Items tree */}
@@ -7321,15 +7320,15 @@ Return ONLY a valid JSON array, no markdown:
           {/* ── ESTIMATE tab (full screen overlay, triggered from bottom bar) ── */}
           {leftTab==='estimate_stub'&&null}
 
-          {/* Bottom: Estimate + total */}
-          <div style={{borderTop:`1px solid ${t.border}`,padding:'8px 10px',background:t.bg2,flexShrink:0,display:'flex',alignItems:'center',gap:8}}>
+          {/* Bottom bar */}
+          <div style={{borderTop:`1px solid ${t.border}`,padding:'6px 12px',background:t.bg2,flexShrink:0,display:'flex',alignItems:'center',gap:10}}>
             <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:9,color:t.text4}}>All sheets</div>
-              <div style={{fontSize:13,fontWeight:700,color:'#10B981'}}>${totalEst.toLocaleString()}</div>
+              <span style={{fontSize:12,fontWeight:600,color:'#10B981'}}>${totalEst.toLocaleString()}</span>
+              <span style={{fontSize:10,color:t.text4,marginLeft:6}}>all sheets</span>
             </div>
-            <button onClick={()=>setRightTab('estimate')}
-              style={{background:'#10B981',border:'none',color:'#fff',padding:'6px 14px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700,flexShrink:0}}>
-              $ Estimate →
+            <button onClick={()=>{setRightTab('estimate');setEstSubTab('worksheet');}}
+              style={{background:'#10B981',border:'none',color:'#fff',padding:'5px 14px',borderRadius:4,cursor:'pointer',fontSize:11,fontWeight:600,flexShrink:0}}>
+              Estimate →
             </button>
           </div>
         </div>
@@ -7337,8 +7336,8 @@ Return ONLY a valid JSON array, no markdown:
         {/* ── Center: Tabs + Canvas ── */}
         <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden',minWidth:0,position:'relative'}}>
 
-          {/* ── Browser-style tab bar ── */}
-          <div style={{display:'flex',alignItems:'stretch',height:36,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,position:'relative'}}>
+          {/* ── Sheet tab bar ── */}
+          <div style={{display:'flex',alignItems:'stretch',height:32,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,position:'relative'}}>
             <div style={{display:'flex',alignItems:'stretch',flex:1,overflowX:'auto',overflowY:'hidden'}}>
             {openTabs.map(tabId=>{
               const p = plans.find(x=>x.id===tabId);
@@ -7749,9 +7748,9 @@ Return ONLY a valid JSON array, no markdown:
         </div>
 
         {/* ── Right Tool Bar ── */}
-        <div style={{width:56,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,alignItems:'center',paddingTop:6}}>
+        <div style={{width:48,flexShrink:0,display:'flex',flexDirection:'column',borderLeft:`1px solid ${t.border}`,background:t.bg2,alignItems:'center',paddingTop:4,gap:0}}>
           {[
-            {id:'select', icon:'↖', label:'Select [V]', color:'#94A3B8'},
+            {id:'select', icon:'↖', label:'Select', color:'#71717a'},
             null,
             {id:'area',   icon:'⬡', label:'Area',   color:'#F59E0B'},
             {id:'linear', icon:'━', label:'Linear', color:'#06B6D4'},
@@ -7760,7 +7759,7 @@ Return ONLY a valid JSON array, no markdown:
             {id:'cutout', icon:'⊘', label:'Cutout', color:'#EF4444'},
             {id:'eraser', icon:'⌫', label:'Eraser', color:'#F97316'},
           ].map((btn,i)=>{
-            if(!btn) return <div key={i} style={{height:1,background:t.border,width:32,margin:'4px 0'}}/>;
+            if(!btn) return <div key={i} style={{height:1,background:t.border,width:28,margin:'3px 0'}}/>;
             const isActive = tool===btn.id;
             const onClick = ()=>{
               if(btn.id==='cutout'){
@@ -7777,13 +7776,13 @@ Return ONLY a valid JSON array, no markdown:
             };
             return(
               <button key={btn.id} onClick={onClick} title={btn.label}
-                style={{width:'100%',padding:'10px 0',border:'none',background:isActive?`${btn.color}18`:'none',
-                  color:isActive?btn.color:t.text3,cursor:'pointer',
-                  display:'flex',flexDirection:'column',alignItems:'center',gap:2,
+                style={{width:'100%',padding:'7px 0',border:'none',background:isActive?`${btn.color}12`:'none',
+                  color:isActive?btn.color:t.text4,cursor:'pointer',
+                  display:'flex',flexDirection:'column',alignItems:'center',gap:1,
                   borderRight:isActive?`2px solid ${btn.color}`:'2px solid transparent',
-                  boxSizing:'border-box',transition:'all 0.1s'}}>
-                <span style={{fontSize:16,lineHeight:1}}>{btn.icon}</span>
-                <span style={{fontSize:8,fontWeight:600,color:isActive?btn.color:t.text4,letterSpacing:0.2}}>{btn.label}</span>
+                  boxSizing:'border-box',transition:'all 0.15s'}}>
+                <span style={{fontSize:14,lineHeight:1}}>{btn.icon}</span>
+                <span style={{fontSize:7,fontWeight:isActive?600:500,color:isActive?btn.color:t.text4,letterSpacing:0.3}}>{btn.label}</span>
               </button>
             );
           })}
