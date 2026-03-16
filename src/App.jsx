@@ -7037,11 +7037,11 @@ Return ONLY a valid JSON array, no markdown:
                                     }
                                   </div>
                                 </div>
-                                {/* Qty — total across all plan siblings */}
-                                <div style={{width:60,textAlign:'right',flexShrink:0}}>
+                                {/* Qty */}
+                                <div style={{width:68,textAlign:'right',flexShrink:0}}>
                                   <span style={{fontSize:10,fontFamily:"'DM Mono',monospace",
-                                    color:(item._totalQty||0)>0?t.text:t.text4,fontWeight:(item._totalQty||0)>0?600:400}}>
-                                    {(item._totalQty||0)>0?`${Math.round((item._totalQty||0)*10)/10} ${item.unit}`:'—'}
+                                    color:qty>0?t.text:t.text4,fontWeight:qty>0?600:400}}>
+                                    {qty>0?`${Math.round(qty*10)/10} ${item.unit}`:'—'}
                                   </span>
                                 </div>
                                 {/* ✎ edit item */}
