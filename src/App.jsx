@@ -4258,6 +4258,8 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [reportSort, setReportSort] = useState({col:'description',asc:true});
   const [reportSearch, setReportSearch] = useState('');
   const [estSubTab, setEstSubTab] = useState('worksheet'); // 'summary' | 'worksheet'
+  const [overheadPct, setOverheadPct] = useState(0);
+  const [profitPct, setProfitPct] = useState(0);
   const [zoom, setZoom] = useState(1);
   const [showScalePicker, setShowScalePicker] = useState(false);
   const [presetScale, setPresetScale] = useState('');
@@ -7896,7 +7898,7 @@ Return ONLY a valid JSON array, no markdown:
         }).filter(Boolean);
         const sheetTotal=planItems.reduce((s,i)=>s+(i.total_cost||0),0);
         const markup = 1.0; // future: user-adjustable
-        const GC_OVERHEAD = 0.12, PROFIT = 0.08;
+        const GC_OVERHEAD = overheadPct/100, PROFIT = profitPct/100;
 
         // Group items by sheet for the sheet breakdown table
         const sheetBreakdown = plans.map(p=>{
@@ -7924,14 +7926,12 @@ Return ONLY a valid JSON array, no markdown:
                 <div style={{fontSize:14,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</div>
                 <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>DIRECT COST</div>
               </div>
-              {project.contract_value&&<div style={{textAlign:'center'}}>
-                <div style={{fontSize:14,fontWeight:800,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace"}}>
-                  {Math.round(((totalEst/(project.contract_value||1))-1)*10000)/100}%
-                </div>
-                <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>MARGIN</div>
+              {(GC_OVERHEAD+PROFIT)>0&&<div style={{textAlign:'center'}}>
+                <div style={{fontSize:14,fontWeight:800,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>{Math.round((GC_OVERHEAD+PROFIT)*100)}%</div>
+                <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>MARKUP</div>
               </div>}
               <div style={{textAlign:'center'}}>
-                <div style={{fontSize:14,fontWeight:800,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*(1+GC_OVERHEAD+PROFIT)).toLocaleString()}</div>
+                <div style={{fontSize:14,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*(1+GC_OVERHEAD+PROFIT)).toLocaleString()}</div>
                 <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>BID TOTAL</div>
               </div>
             </div>
@@ -7962,8 +7962,8 @@ Return ONLY a valid JSON array, no markdown:
                 ].join(','));
                 rows.push('');
                 rows.push(`,,,,DIRECT COST,$${totalEst.toLocaleString()}`);
-                rows.push(`,,,,OVERHEAD (12%),$${Math.round(totalEst*GC_OVERHEAD).toLocaleString()}`);
-                rows.push(`,,,,PROFIT (8%),$${Math.round(totalEst*PROFIT).toLocaleString()}`);
+                rows.push(`,,,,OVERHEAD (${overheadPct}%),$${Math.round(totalEst*GC_OVERHEAD).toLocaleString()}`);
+                rows.push(`,,,,PROFIT (${profitPct}%),$${Math.round(totalEst*PROFIT).toLocaleString()}`);
                 rows.push(`,,,,BID TOTAL,$${Math.round(totalEst*(1+GC_OVERHEAD+PROFIT)).toLocaleString()}`);
                 const csv = [header,...rows].join('\n');
                 const blob = new Blob([csv],{type:'text/csv'});
@@ -7988,75 +7988,134 @@ Return ONLY a valid JSON array, no markdown:
 
           {/* ── SUMMARY SUB-TAB ── */}
           {estSubTab==='summary'&&(
-            <div style={{flex:1,overflowY:'auto',padding:'24px 32px',maxWidth:900,margin:'0 auto',width:'100%'}}>
-              {/* Project info card */}
-              <div style={{background:t.bg2,borderRadius:10,padding:'20px 24px',marginBottom:20,border:`1px solid ${t.border}`}}>
-                <div style={{fontSize:18,fontWeight:800,color:t.text,marginBottom:4,fontFamily:"'Syne',sans-serif"}}>{project.name}</div>
-                {project.gc_name&&<div style={{fontSize:12,color:t.text3,marginBottom:2}}>GC / Owner: {project.gc_name}</div>}
-                {project.address&&<div style={{fontSize:12,color:t.text3,marginBottom:2}}>{project.address}</div>}
-                {project.bid_date&&<div style={{fontSize:12,color:t.text3}}>Bid Date: {fmtDate(project.bid_date)}</div>}
-              </div>
+            <div style={{flex:1,overflowY:'auto'}}>
+              <div style={{maxWidth:860,margin:'0 auto',padding:'28px 32px'}}>
 
-              {/* Cost summary card */}
-              <div style={{background:t.bg2,borderRadius:10,padding:'20px 24px',marginBottom:20,border:`1px solid ${t.border}`}}>
-                <div style={{fontSize:12,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginBottom:16}}>COST SUMMARY</div>
-                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:20}}>
-                  <div style={{background:t.bg3,borderRadius:8,padding:'14px 16px',textAlign:'center'}}>
-                    <div style={{fontSize:24,fontWeight:800,color:t.text,fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</div>
-                    <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:4}}>DIRECT COST</div>
+                {/* Two-column: left=pricing, right=project info */}
+                <div style={{display:'grid',gridTemplateColumns:'1fr 320px',gap:24,marginBottom:24}}>
+
+                  {/* Pricing card */}
+                  <div style={{background:t.bg2,borderRadius:8,border:`1px solid ${t.border}`,overflow:'hidden'}}>
+                    <div style={{padding:'14px 20px',borderBottom:`1px solid ${t.border}`,background:t.bg3}}>
+                      <span style={{fontSize:11,fontWeight:700,color:t.text4,letterSpacing:1,fontFamily:"'DM Mono',monospace"}}>PRICING</span>
+                    </div>
+                    <div style={{padding:'16px 20px'}}>
+                      {/* Direct cost */}
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${t.border}`}}>
+                        <span style={{fontSize:13,color:t.text}}>Direct Cost</span>
+                        <span style={{fontSize:15,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</span>
+                      </div>
+                      {/* Overhead — editable */}
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${t.border}`}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <span style={{fontSize:13,color:t.text}}>Overhead</span>
+                          <div style={{display:'flex',alignItems:'center',gap:2,background:t.bg3,borderRadius:4,border:`1px solid ${t.border}`,padding:'2px 4px'}}>
+                            <input type="number" value={overheadPct} onChange={e=>setOverheadPct(Math.max(0,Number(e.target.value)||0))}
+                              style={{width:40,background:'none',border:'none',color:t.text,fontSize:12,fontFamily:"'DM Mono',monospace",textAlign:'right',outline:'none',padding:0}}/>
+                            <span style={{fontSize:11,color:t.text4,fontFamily:"'DM Mono',monospace"}}>%</span>
+                          </div>
+                        </div>
+                        <span style={{fontSize:13,color:t.text3,fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*GC_OVERHEAD).toLocaleString()}</span>
+                      </div>
+                      {/* Profit — editable */}
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'10px 0',borderBottom:`1px solid ${t.border}`}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <span style={{fontSize:13,color:t.text}}>Profit</span>
+                          <div style={{display:'flex',alignItems:'center',gap:2,background:t.bg3,borderRadius:4,border:`1px solid ${t.border}`,padding:'2px 4px'}}>
+                            <input type="number" value={profitPct} onChange={e=>setProfitPct(Math.max(0,Number(e.target.value)||0))}
+                              style={{width:40,background:'none',border:'none',color:t.text,fontSize:12,fontFamily:"'DM Mono',monospace",textAlign:'right',outline:'none',padding:0}}/>
+                            <span style={{fontSize:11,color:t.text4,fontFamily:"'DM Mono',monospace"}}>%</span>
+                          </div>
+                        </div>
+                        <span style={{fontSize:13,color:t.text3,fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*PROFIT).toLocaleString()}</span>
+                      </div>
+                      {/* Bid total */}
+                      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'14px 0',marginTop:4}}>
+                        <span style={{fontSize:14,fontWeight:800,color:t.text}}>Bid Total</span>
+                        <span style={{fontSize:20,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*(1+GC_OVERHEAD+PROFIT)).toLocaleString()}</span>
+                      </div>
+                    </div>
                   </div>
-                  <div style={{background:t.bg3,borderRadius:8,padding:'14px 16px',textAlign:'center'}}>
-                    <div style={{fontSize:24,fontWeight:800,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*(GC_OVERHEAD+PROFIT)).toLocaleString()}</div>
-                    <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:4}}>MARKUP (20%)</div>
-                  </div>
-                  <div style={{background:'rgba(16,185,129,0.08)',borderRadius:8,padding:'14px 16px',textAlign:'center',border:'1px solid rgba(16,185,129,0.3)'}}>
-                    <div style={{fontSize:24,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*(1+GC_OVERHEAD+PROFIT)).toLocaleString()}</div>
-                    <div style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginTop:4}}>BID TOTAL</div>
+
+                  {/* Project info card */}
+                  <div style={{display:'flex',flexDirection:'column',gap:16}}>
+                    <div style={{background:t.bg2,borderRadius:8,border:`1px solid ${t.border}`,overflow:'hidden'}}>
+                      <div style={{padding:'14px 20px',borderBottom:`1px solid ${t.border}`,background:t.bg3}}>
+                        <span style={{fontSize:11,fontWeight:700,color:t.text4,letterSpacing:1,fontFamily:"'DM Mono',monospace"}}>PROJECT</span>
+                      </div>
+                      <div style={{padding:'16px 20px'}}>
+                        <div style={{fontSize:14,fontWeight:700,color:t.text,marginBottom:8}}>{project.name}</div>
+                        {project.gc_name&&<div style={{fontSize:12,color:t.text3,marginBottom:3}}>{project.gc_name}</div>}
+                        {project.address&&<div style={{fontSize:12,color:t.text3,marginBottom:3}}>{project.address}</div>}
+                        {project.bid_date&&<div style={{fontSize:12,color:t.text3}}>Bid: {fmtDate(project.bid_date)}</div>}
+                      </div>
+                    </div>
+                    {project.contract_value&&(
+                      <div style={{background:totalEst>(project.contract_value||0)?'rgba(239,68,68,0.04)':'rgba(16,185,129,0.04)',borderRadius:8,border:`1px solid ${totalEst>(project.contract_value||0)?'rgba(239,68,68,0.2)':'rgba(16,185,129,0.2)'}`,padding:'16px 20px'}}>
+                        <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",marginBottom:6}}>CONTRACT</div>
+                        <div style={{fontSize:16,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace",marginBottom:4}}>${Number(project.contract_value).toLocaleString()}</div>
+                        <div style={{fontSize:11,fontWeight:700,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace"}}>
+                          {totalEst>(project.contract_value||0)?'▲ Over':'▼ Under'} by ${Math.abs(totalEst-(project.contract_value||0)).toLocaleString()}
+                        </div>
+                      </div>
+                    )}
+                    <div style={{background:t.bg2,borderRadius:8,border:`1px solid ${t.border}`,padding:'14px 20px'}}>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                        <span style={{fontSize:11,color:t.text4}}>Items</span>
+                        <span style={{fontSize:12,fontWeight:600,color:t.text,fontFamily:"'DM Mono',monospace"}}>{items.length}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between',marginBottom:6}}>
+                        <span style={{fontSize:11,color:t.text4}}>Sheets</span>
+                        <span style={{fontSize:12,fontWeight:600,color:t.text,fontFamily:"'DM Mono',monospace"}}>{plans.length}</span>
+                      </div>
+                      <div style={{display:'flex',justifyContent:'space-between'}}>
+                        <span style={{fontSize:11,color:t.text4}}>Categories</span>
+                        <span style={{fontSize:12,fontWeight:600,color:t.text,fontFamily:"'DM Mono',monospace"}}>{allCatGroups.length}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                {project.contract_value&&(
-                  <div style={{padding:'12px 16px',borderRadius:8,background:totalEst>(project.contract_value||0)?'rgba(239,68,68,0.06)':'rgba(16,185,129,0.06)',border:`1px solid ${totalEst>(project.contract_value||0)?'rgba(239,68,68,0.2)':'rgba(16,185,129,0.2)'}`}}>
-                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-                      <span style={{fontSize:11,color:t.text3,fontFamily:"'DM Mono',monospace"}}>CONTRACT VALUE</span>
-                      <span style={{fontSize:14,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${Number(project.contract_value).toLocaleString()}</span>
+
+                {/* Category breakdown table */}
+                <div style={{background:t.bg2,borderRadius:8,border:`1px solid ${t.border}`,overflow:'hidden',marginBottom:24}}>
+                  <div style={{padding:'14px 20px',borderBottom:`1px solid ${t.border}`,background:t.bg3,display:'flex',alignItems:'center'}}>
+                    <span style={{fontSize:11,fontWeight:700,color:t.text4,letterSpacing:1,fontFamily:"'DM Mono',monospace",flex:1}}>BY CATEGORY</span>
+                    <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{allCatGroups.length} categories</span>
+                  </div>
+                  {allCatGroups.map(cg=>(
+                    <div key={cg.id} style={{display:'flex',alignItems:'center',padding:'10px 20px',borderBottom:`1px solid ${t.border}`}}>
+                      <div style={{width:10,height:10,borderRadius:2,background:cg.color,flexShrink:0,marginRight:12}}/>
+                      <span style={{flex:1,fontSize:12,fontWeight:500,color:t.text}}>{cg.label}</span>
+                      <span style={{fontSize:11,color:t.text4,fontFamily:"'DM Mono',monospace",width:60,textAlign:'right'}}>{cg.items.length}</span>
+                      <span style={{fontSize:12,fontWeight:600,color:t.text,fontFamily:"'DM Mono',monospace",width:100,textAlign:'right'}}>${Math.round(cg.subtotal).toLocaleString()}</span>
                     </div>
-                    <div style={{fontSize:11,fontWeight:700,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace",marginTop:4}}>
-                      {totalEst>(project.contract_value||0)?'▲ OVER':'▼ UNDER'} BY ${Math.abs(totalEst-(project.contract_value||0)).toLocaleString()}
+                  ))}
+                  <div style={{display:'flex',alignItems:'center',padding:'12px 20px',background:t.bg3}}>
+                    <span style={{flex:1,fontSize:12,fontWeight:700,color:t.text}}>Total</span>
+                    <span style={{fontSize:14,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</span>
+                  </div>
+                </div>
+
+                {/* Sheet breakdown table */}
+                {sheetBreakdown.length>0&&(
+                  <div style={{background:t.bg2,borderRadius:8,border:`1px solid ${t.border}`,overflow:'hidden'}}>
+                    <div style={{padding:'14px 20px',borderBottom:`1px solid ${t.border}`,background:t.bg3,display:'flex',alignItems:'center'}}>
+                      <span style={{fontSize:11,fontWeight:700,color:t.text4,letterSpacing:1,fontFamily:"'DM Mono',monospace",flex:1}}>BY SHEET</span>
+                      <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{sheetBreakdown.length} sheets</span>
                     </div>
+                    {sheetBreakdown.map(({plan:p,items:pItems,total:pTotal})=>(
+                      <div key={p.id} style={{display:'flex',alignItems:'center',padding:'10px 20px',borderBottom:`1px solid ${t.border}`,cursor:'pointer'}}
+                        onClick={()=>{setSelPlan(p);if(p.scale_px_per_ft)setScale(p.scale_px_per_ft);setEstSubTab('worksheet');}}
+                        onMouseEnter={e=>e.currentTarget.style.background=t.bg3}
+                        onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                        <span style={{flex:1,fontSize:12,fontWeight:500,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||'Unnamed'}</span>
+                        <span style={{fontSize:11,color:t.text4,fontFamily:"'DM Mono',monospace",width:60,textAlign:'right'}}>{pItems.length}</span>
+                        <span style={{fontSize:12,fontWeight:600,color:t.text,fontFamily:"'DM Mono',monospace",width:100,textAlign:'right'}}>${Math.round(pTotal).toLocaleString()}</span>
+                      </div>
+                    ))}
                   </div>
                 )}
               </div>
-
-              {/* Category breakdown */}
-              <div style={{background:t.bg2,borderRadius:10,padding:'20px 24px',marginBottom:20,border:`1px solid ${t.border}`}}>
-                <div style={{fontSize:12,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginBottom:16}}>BY CATEGORY</div>
-                {allCatGroups.map(cg=>(
-                  <div key={cg.id} style={{display:'flex',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${t.border}`}}>
-                    <div style={{width:12,height:12,borderRadius:3,background:cg.color,flexShrink:0,marginRight:10}}/>
-                    <span style={{flex:1,fontSize:12,fontWeight:600,color:t.text}}>{cg.label}</span>
-                    <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",marginRight:16}}>{cg.items.length} items</span>
-                    <span style={{fontSize:12,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${Math.round(cg.subtotal).toLocaleString()}</span>
-                  </div>
-                ))}
-                <div style={{display:'flex',alignItems:'center',padding:'10px 0',marginTop:4}}>
-                  <span style={{flex:1,fontSize:12,fontWeight:800,color:t.text}}>TOTAL</span>
-                  <span style={{fontSize:14,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</span>
-                </div>
-              </div>
-
-              {/* Sheet breakdown */}
-              {sheetBreakdown.length>0&&(
-                <div style={{background:t.bg2,borderRadius:10,padding:'20px 24px',border:`1px solid ${t.border}`}}>
-                  <div style={{fontSize:12,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginBottom:16}}>BY SHEET</div>
-                  {sheetBreakdown.map(({plan:p,items:pItems,total:pTotal})=>(
-                    <div key={p.id} style={{display:'flex',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${t.border}`}}>
-                      <span style={{flex:1,fontSize:12,fontWeight:600,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||'Unnamed'}</span>
-                      <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",marginRight:16}}>{pItems.length} items</span>
-                      <span style={{fontSize:12,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${Math.round(pTotal).toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
-              )}
             </div>
           )}
 
@@ -8220,11 +8279,25 @@ Return ONLY a valid JSON array, no markdown:
                   <span style={{fontSize:13,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</span>
                 </div>
                 <div style={{display:'flex',justifyContent:'space-between',marginBottom:8}}>
-                  <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace"}}>OVERHEAD (12%)</span>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}>
+                    <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace"}}>OVERHEAD</span>
+                    <div style={{display:'flex',alignItems:'center',background:t.bg,borderRadius:3,border:`1px solid ${t.border}`,padding:'1px 3px'}}>
+                      <input type="number" value={overheadPct} onChange={e=>setOverheadPct(Math.max(0,Number(e.target.value)||0))}
+                        style={{width:28,background:'none',border:'none',color:t.text,fontSize:10,fontFamily:"'DM Mono',monospace",textAlign:'right',outline:'none',padding:0}}/>
+                      <span style={{fontSize:9,color:t.text4}}>%</span>
+                    </div>
+                  </div>
                   <span style={{fontSize:11,color:t.text3,fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*GC_OVERHEAD).toLocaleString()}</span>
                 </div>
                 <div style={{display:'flex',justifyContent:'space-between',marginBottom:10,paddingBottom:10,borderBottom:`1px solid ${t.border}`}}>
-                  <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace"}}>PROFIT (8%)</span>
+                  <div style={{display:'flex',alignItems:'center',gap:4}}>
+                    <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace"}}>PROFIT</span>
+                    <div style={{display:'flex',alignItems:'center',background:t.bg,borderRadius:3,border:`1px solid ${t.border}`,padding:'1px 3px'}}>
+                      <input type="number" value={profitPct} onChange={e=>setProfitPct(Math.max(0,Number(e.target.value)||0))}
+                        style={{width:28,background:'none',border:'none',color:t.text,fontSize:10,fontFamily:"'DM Mono',monospace",textAlign:'right',outline:'none',padding:0}}/>
+                      <span style={{fontSize:9,color:t.text4}}>%</span>
+                    </div>
+                  </div>
                   <span style={{fontSize:11,color:t.text3,fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*PROFIT).toLocaleString()}</span>
                 </div>
                 <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
