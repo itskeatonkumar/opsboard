@@ -4257,6 +4257,7 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [mainView, setMainView] = useState('workspace'); // 'workspace' | 'reports'
   const [reportSort, setReportSort] = useState({col:'description',asc:true});
   const [reportSearch, setReportSearch] = useState('');
+  const [estSubTab, setEstSubTab] = useState('worksheet'); // 'summary' | 'worksheet'
   const [zoom, setZoom] = useState(1);
   const [showScalePicker, setShowScalePicker] = useState(false);
   const [presetScale, setPresetScale] = useState('');
@@ -7907,34 +7908,160 @@ Return ONLY a valid JSON array, no markdown:
         return(
         <div style={{position:'absolute',inset:0,background:t.bg,zIndex:100,display:'flex',flexDirection:'column',overflow:'hidden'}}>
 
-          {/* Header */}
-          <div style={{display:'flex',alignItems:'center',gap:12,padding:'0 20px',height:50,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
-            <button onClick={()=>setRightTab('items')}
+          {/* Header row 1: project info + key metrics */}
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'0 20px',height:48,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0}}>
+            <button onClick={()=>{setRightTab('items');setMainView('workspace');}}
               style={{background:'none',border:`1px solid ${t.border2}`,color:t.text3,padding:'5px 12px',borderRadius:5,cursor:'pointer',fontSize:11,display:'flex',alignItems:'center',gap:5}}>
-              ← Back to Takeoff
+              ← Back
             </button>
             <div style={{width:1,height:20,background:t.border}}/>
-            <div style={{flex:1}}>
-              <div style={{fontSize:14,fontWeight:700,color:t.text}}>{project.name}</div>
-              <div style={{fontSize:9,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{plans.length} SHEETS · {items.length} CONDITIONS · ESTIMATE REVIEW</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:700,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{project.name}</div>
             </div>
-            {project.contract_value&&(
-              <div style={{padding:'5px 12px',borderRadius:5,background:totalEst>(project.contract_value||0)?'rgba(239,68,68,0.1)':'rgba(16,185,129,0.1)',border:`1px solid ${totalEst>(project.contract_value||0)?'rgba(239,68,68,0.3)':'rgba(16,185,129,0.3)'}`}}>
-                <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace",textAlign:'center'}}>CONTRACT</div>
-                <div style={{fontSize:12,fontWeight:700,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace"}}>${Number(project.contract_value).toLocaleString()}</div>
+            {/* Key metrics — STACK style */}
+            <div style={{display:'flex',gap:16,alignItems:'center'}}>
+              <div style={{textAlign:'center'}}>
+                <div style={{fontSize:14,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</div>
+                <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>DIRECT COST</div>
               </div>
-            )}
-            <button onClick={()=>setShowBidSummary(true)}
-              style={{background:'linear-gradient(135deg,#10B981,#059669)',border:'none',color:'#000',padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700}}>
-              📋 Bid Summary & Print
-            </button>
-            {project.apm_project_id&&<button onClick={pushToSOV}
-              style={{background:'linear-gradient(135deg,#3b82f6,#1d4ed8)',border:'none',color:'#fff',padding:'8px 18px',borderRadius:6,cursor:'pointer',fontSize:11,fontWeight:700}}>
-              ⇒ Push to APM SOV
-            </button>}
+              {project.contract_value&&<div style={{textAlign:'center'}}>
+                <div style={{fontSize:14,fontWeight:800,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace"}}>
+                  {Math.round(((totalEst/(project.contract_value||1))-1)*10000)/100}%
+                </div>
+                <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>MARGIN</div>
+              </div>}
+              <div style={{textAlign:'center'}}>
+                <div style={{fontSize:14,fontWeight:800,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*(1+GC_OVERHEAD+PROFIT)).toLocaleString()}</div>
+                <div style={{fontSize:8,color:t.text4,fontFamily:"'DM Mono',monospace"}}>BID TOTAL</div>
+              </div>
+            </div>
           </div>
 
-          {/* Body — two columns */}
+          {/* Header row 2: sub-tabs + actions — STACK style */}
+          <div style={{display:'flex',alignItems:'stretch',height:38,borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0,padding:'0 20px',gap:0}}>
+            {[{id:'summary',label:'Summary'},{id:'worksheet',label:'Worksheet'}].map(tab=>(
+              <button key={tab.id} onClick={()=>setEstSubTab(tab.id)}
+                style={{padding:'0 16px',border:'none',background:'none',cursor:'pointer',
+                  fontSize:12,fontWeight:estSubTab===tab.id?700:500,
+                  color:estSubTab===tab.id?'#10B981':t.text3,
+                  borderBottom:estSubTab===tab.id?'2px solid #10B981':'2px solid transparent',
+                  boxSizing:'border-box',transition:'color 0.15s'}}>
+                {tab.label}
+              </button>
+            ))}
+            <div style={{flex:1}}/>
+            <div style={{display:'flex',alignItems:'center',gap:8}}>
+              <button onClick={()=>{
+                // Download proposal as CSV
+                const header = ['Category','Description','Qty','Unit','Unit Cost','Total Cost'].join(',');
+                const rows = items.filter(i=>i.plan_id!=null).map(it=>[
+                  `"${TAKEOFF_CATS.find(c=>c.id===it.category)?.label||''}"`,
+                  `"${(it.description||'').replace(/"/g,'""')}"`,
+                  it.quantity||0, it.unit||'',
+                  it.unit_cost||0, it.total_cost||0
+                ].join(','));
+                rows.push('');
+                rows.push(`,,,,DIRECT COST,$${totalEst.toLocaleString()}`);
+                rows.push(`,,,,OVERHEAD (12%),$${Math.round(totalEst*GC_OVERHEAD).toLocaleString()}`);
+                rows.push(`,,,,PROFIT (8%),$${Math.round(totalEst*PROFIT).toLocaleString()}`);
+                rows.push(`,,,,BID TOTAL,$${Math.round(totalEst*(1+GC_OVERHEAD+PROFIT)).toLocaleString()}`);
+                const csv = [header,...rows].join('\n');
+                const blob = new Blob([csv],{type:'text/csv'});
+                const a = document.createElement('a');
+                a.href=URL.createObjectURL(blob);
+                a.download=`${project.name}_estimate_proposal.csv`;
+                a.click();
+              }}
+                style={{background:'#3B82F6',border:'none',color:'#fff',padding:'6px 14px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:5}}>
+                ↓ Download Proposal
+              </button>
+              <button onClick={()=>setShowBidSummary(true)}
+                style={{background:'#10B981',border:'none',color:'#fff',padding:'6px 14px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700}}>
+                📋 Print Summary
+              </button>
+              {project.apm_project_id&&<button onClick={pushToSOV}
+                style={{background:'#8B5CF6',border:'none',color:'#fff',padding:'6px 14px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700}}>
+                ⇒ Push to SOV
+              </button>}
+            </div>
+          </div>
+
+          {/* ── SUMMARY SUB-TAB ── */}
+          {estSubTab==='summary'&&(
+            <div style={{flex:1,overflowY:'auto',padding:'24px 32px',maxWidth:900,margin:'0 auto',width:'100%'}}>
+              {/* Project info card */}
+              <div style={{background:t.bg2,borderRadius:10,padding:'20px 24px',marginBottom:20,border:`1px solid ${t.border}`}}>
+                <div style={{fontSize:18,fontWeight:800,color:t.text,marginBottom:4,fontFamily:"'Syne',sans-serif"}}>{project.name}</div>
+                {project.gc_name&&<div style={{fontSize:12,color:t.text3,marginBottom:2}}>GC / Owner: {project.gc_name}</div>}
+                {project.address&&<div style={{fontSize:12,color:t.text3,marginBottom:2}}>{project.address}</div>}
+                {project.bid_date&&<div style={{fontSize:12,color:t.text3}}>Bid Date: {fmtDate(project.bid_date)}</div>}
+              </div>
+
+              {/* Cost summary card */}
+              <div style={{background:t.bg2,borderRadius:10,padding:'20px 24px',marginBottom:20,border:`1px solid ${t.border}`}}>
+                <div style={{fontSize:12,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginBottom:16}}>COST SUMMARY</div>
+                <div style={{display:'grid',gridTemplateColumns:'1fr 1fr 1fr',gap:16,marginBottom:20}}>
+                  <div style={{background:t.bg3,borderRadius:8,padding:'14px 16px',textAlign:'center'}}>
+                    <div style={{fontSize:24,fontWeight:800,color:t.text,fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</div>
+                    <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:4}}>DIRECT COST</div>
+                  </div>
+                  <div style={{background:t.bg3,borderRadius:8,padding:'14px 16px',textAlign:'center'}}>
+                    <div style={{fontSize:24,fontWeight:800,color:'#F97316',fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*(GC_OVERHEAD+PROFIT)).toLocaleString()}</div>
+                    <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:4}}>MARKUP (20%)</div>
+                  </div>
+                  <div style={{background:'rgba(16,185,129,0.08)',borderRadius:8,padding:'14px 16px',textAlign:'center',border:'1px solid rgba(16,185,129,0.3)'}}>
+                    <div style={{fontSize:24,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${Math.round(totalEst*(1+GC_OVERHEAD+PROFIT)).toLocaleString()}</div>
+                    <div style={{fontSize:10,color:'#10B981',fontFamily:"'DM Mono',monospace",marginTop:4}}>BID TOTAL</div>
+                  </div>
+                </div>
+                {project.contract_value&&(
+                  <div style={{padding:'12px 16px',borderRadius:8,background:totalEst>(project.contract_value||0)?'rgba(239,68,68,0.06)':'rgba(16,185,129,0.06)',border:`1px solid ${totalEst>(project.contract_value||0)?'rgba(239,68,68,0.2)':'rgba(16,185,129,0.2)'}`}}>
+                    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                      <span style={{fontSize:11,color:t.text3,fontFamily:"'DM Mono',monospace"}}>CONTRACT VALUE</span>
+                      <span style={{fontSize:14,fontWeight:700,color:t.text,fontFamily:"'DM Mono',monospace"}}>${Number(project.contract_value).toLocaleString()}</span>
+                    </div>
+                    <div style={{fontSize:11,fontWeight:700,color:totalEst>(project.contract_value||0)?'#EF4444':'#10B981',fontFamily:"'DM Mono',monospace",marginTop:4}}>
+                      {totalEst>(project.contract_value||0)?'▲ OVER':'▼ UNDER'} BY ${Math.abs(totalEst-(project.contract_value||0)).toLocaleString()}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Category breakdown */}
+              <div style={{background:t.bg2,borderRadius:10,padding:'20px 24px',marginBottom:20,border:`1px solid ${t.border}`}}>
+                <div style={{fontSize:12,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginBottom:16}}>BY CATEGORY</div>
+                {allCatGroups.map(cg=>(
+                  <div key={cg.id} style={{display:'flex',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${t.border}`}}>
+                    <div style={{width:12,height:12,borderRadius:3,background:cg.color,flexShrink:0,marginRight:10}}/>
+                    <span style={{flex:1,fontSize:12,fontWeight:600,color:t.text}}>{cg.label}</span>
+                    <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",marginRight:16}}>{cg.items.length} items</span>
+                    <span style={{fontSize:12,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${Math.round(cg.subtotal).toLocaleString()}</span>
+                  </div>
+                ))}
+                <div style={{display:'flex',alignItems:'center',padding:'10px 0',marginTop:4}}>
+                  <span style={{flex:1,fontSize:12,fontWeight:800,color:t.text}}>TOTAL</span>
+                  <span style={{fontSize:14,fontWeight:800,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${totalEst.toLocaleString()}</span>
+                </div>
+              </div>
+
+              {/* Sheet breakdown */}
+              {sheetBreakdown.length>0&&(
+                <div style={{background:t.bg2,borderRadius:10,padding:'20px 24px',border:`1px solid ${t.border}`}}>
+                  <div style={{fontSize:12,fontWeight:700,color:t.text4,fontFamily:"'DM Mono',monospace",letterSpacing:1,marginBottom:16}}>BY SHEET</div>
+                  {sheetBreakdown.map(({plan:p,items:pItems,total:pTotal})=>(
+                    <div key={p.id} style={{display:'flex',alignItems:'center',padding:'8px 0',borderBottom:`1px solid ${t.border}`}}>
+                      <span style={{flex:1,fontSize:12,fontWeight:600,color:t.text,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{p.name||'Unnamed'}</span>
+                      <span style={{fontSize:10,color:t.text3,fontFamily:"'DM Mono',monospace",marginRight:16}}>{pItems.length} items</span>
+                      <span style={{fontSize:12,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>${Math.round(pTotal).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── WORKSHEET SUB-TAB (existing editable grid) ── */}
+          {estSubTab==='worksheet'&&(
           <div style={{flex:1,overflow:'hidden',display:'flex',gap:0}}>
 
             {/* Left — Spreadsheet-style editable estimate */}
@@ -8135,11 +8262,10 @@ Return ONLY a valid JSON array, no markdown:
               )}
             </div>
           </div>
+          )}
         </div>
         );
       })()}
-
-      {/* Modals */}
       {editItem&&<TakeoffItemModal item={editItem} onSave={(data,type)=>{
         if(type==='delete'){setItems(prev=>prev.filter(i=>i.id!==editItem.id));}
         else if(type===true){setItems(prev=>[...prev.filter(i=>i.id!==data.id),data]);}
