@@ -4531,22 +4531,28 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
         pasteOffsetRef.current = (pasteOffsetRef.current || 0) + 40;
         const OFF = pasteOffsetRef.current;
         const shift = (sh) => sh.map(p=>({...p, x:p.x+OFF, y:p.y+OFF}));
-        // Each clipboard entry creates a new item with only the copied shapes
-        const inserts = src.map(({item, shapes})=>({
-          project_id:item.project_id, plan_id:selPlanRef.current?.id||item.plan_id,
-          category:item.category, description:item.description,
-          quantity:0, unit:item.unit, unit_cost:item.unit_cost,
-          total_cost:0, measurement_type:item.measurement_type,
-          color:item.color, points:shapes.map(shift), ai_generated:false,
-          sort_order:itemsRef.current.length,
-        }));
-        supabase.from('takeoff_items').insert(inserts).select().then(({data})=>{
-          if(data){
-            setItems(prev=>[...prev,...data]);
-            // Auto-select all shape 0 of each pasted item
-            setSelectedShapes(new Set(data.map(i=>`${i.id}::0`)));
-          }
+        // Append pasted shapes to the SAME item they were copied from
+        const newSelKeys = [];
+        src.forEach(({item, shapes})=>{
+          const existing = itemsRef.current.find(i=>String(i.id)===String(item.id));
+          if(!existing) return;
+          const existingShapes = normalizeShapes(existing.points);
+          const shiftedShapes = shapes.map(shift);
+          const newPoints = [...existingShapes, ...shiftedShapes];
+          // Recompute quantity
+          const mt = existing.measurement_type;
+          let qty = 0;
+          if(mt==='area') qty = newPoints.reduce((s,sh)=>s+calcShapeNetArea(sh),0);
+          else if(mt==='linear') qty = newPoints.reduce((s,sh)=>{let t=0;for(let i=1;i<sh.length;i++)t+=calcLinear(sh[i-1],sh[i]);return s+t;},0);
+          else if(mt==='count') qty = newPoints.length;
+          qty = Math.round(qty*10)/10;
+          const total_cost = qty*(existing.unit_cost||0);
+          setItems(prev=>prev.map(i=>String(i.id)===String(item.id)?{...i,points:newPoints,quantity:qty,total_cost}:i));
+          supabase.from('takeoff_items').update({points:newPoints,quantity:qty,total_cost}).eq('id',item.id);
+          // Select the newly pasted shapes
+          shiftedShapes.forEach((_,si)=>newSelKeys.push(`${item.id}::${existingShapes.length+si}`));
         });
+        if(newSelKeys.length) setSelectedShapes(new Set(newSelKeys));
       }
     };
     const handleKeyUp=(e)=>{ if(e.key===' ') setSpaceHeld(false); };
@@ -7341,22 +7347,26 @@ Return ONLY a valid JSON array, no markdown:
                 if(!keys.length) return;
                 const byItem={};
                 keys.forEach(k=>{const parts=k.split('::');const id=parts[0];const si=Number(parts[1]);if(!byItem[id])byItem[id]=[];byItem[id].push(si);});
-                const inserts=Object.entries(byItem).map(([id,idxs])=>{
-                  const item=itemsRef.current.find(i=>String(i.id)===String(id)); if(!item) return null;
-                  const rawPts=item.points;
-                  let shapes;
-                  if(!rawPts||!rawPts.length){shapes=[];}
-                  else if(Array.isArray(rawPts[0])){shapes=rawPts;}
-                  else if(rawPts[0]&&typeof rawPts[0].x==='number'){shapes=[rawPts];}
-                  else{shapes=rawPts;}
-                  const picked=idxs.map(i=>shapes[i]).filter(Boolean);
-                  if(!picked.length) return null;
-                  return {project_id:item.project_id,plan_id:selPlan?.id||item.plan_id,category:item.category,description:item.description,quantity:0,unit:item.unit,unit_cost:item.unit_cost,total_cost:0,measurement_type:item.measurement_type,color:item.color,points:picked.map(shift),ai_generated:false,sort_order:itemsRef.current.length};
-                }).filter(Boolean);
-                if(!inserts.length) return;
-                supabase.from('takeoff_items').insert(inserts).select().then(({data,error})=>{
-                  if(error){console.error('dup error',error); return;}
-                  if(data) setItems(prev=>[...prev,...data]);
+                // Append duplicated shapes to the same item they came from
+                Object.entries(byItem).forEach(([id,idxs])=>{
+                  const item=itemsRef.current.find(i=>String(i.id)===String(id)); if(!item) return;
+                  const existingShapes = normalizeShapes(item.points);
+                  const picked=idxs.map(i=>existingShapes[i]).filter(Boolean);
+                  if(!picked.length) return;
+                  const shiftedShapes = picked.map(shift);
+                  const newPoints = [...existingShapes, ...shiftedShapes];
+                  const mt = item.measurement_type;
+                  let qty = 0;
+                  if(mt==='area') qty = newPoints.reduce((s,sh)=>s+calcShapeNetArea(sh),0);
+                  else if(mt==='linear') qty = newPoints.reduce((s,sh)=>{let t=0;for(let i=1;i<sh.length;i++)t+=calcLinear(sh[i-1],sh[i]);return s+t;},0);
+                  else if(mt==='count') qty = newPoints.length;
+                  qty = Math.round(qty*10)/10;
+                  const total_cost = qty*(item.unit_cost||0);
+                  setItems(prev=>prev.map(i=>String(i.id)===String(id)?{...i,points:newPoints,quantity:qty,total_cost}:i));
+                  supabase.from('takeoff_items').update({points:newPoints,quantity:qty,total_cost}).eq('id',item.id);
+                  // Select the new shapes
+                  const newKeys = shiftedShapes.map((_,si)=>`${id}::${existingShapes.length+si}`);
+                  setSelectedShapes(new Set(newKeys));
                 });
               }} title="Duplicate"
                 style={{background:'none',border:'none',color:'#6EE7B7',cursor:'pointer',fontSize:11,fontWeight:600,padding:'2px 6px',borderRadius:4,display:'flex',alignItems:'center',gap:4}}
