@@ -4254,6 +4254,9 @@ function TakeoffWorkspace({ project, onBack, apmProjects, onExitToOps }) {
   const [planB64, setPlanB64] = useState(null);
   const [planMime, setPlanMime] = useState('image/png');
   const [rightTab, setRightTab] = useState('items');
+  const [mainView, setMainView] = useState('workspace'); // 'workspace' | 'reports'
+  const [reportSort, setReportSort] = useState({col:'description',asc:true});
+  const [reportSearch, setReportSearch] = useState('');
   const [zoom, setZoom] = useState(1);
   const [showScalePicker, setShowScalePicker] = useState(false);
   const [presetScale, setPresetScale] = useState('');
@@ -6398,8 +6401,212 @@ Return ONLY a valid JSON array, no markdown:
         </button>
       </div>
 
-      {/* ── Main Body ── */}
-      <div style={{display:'flex',flex:1,overflow:'hidden'}}>
+      {/* ── STACK-style Navigation Bar ── */}
+      <div style={{display:'flex',alignItems:'stretch',height:36,borderBottom:`1px solid ${t.border}`,background:t.bg2,flexShrink:0,paddingLeft:12,gap:0}}>
+        {[
+          {id:'workspace',label:'Plans',icon:'📐'},
+          {id:'workspace',label:'Takeoffs',icon:'⬡',leftTab:'takeoffs'},
+          {id:'reports',label:'Reports',icon:'📊'},
+          {id:'estimate',label:'Estimates',icon:'$'},
+        ].map((tab,i)=>{
+          const isActive = tab.id==='estimate'
+            ? (mainView==='workspace'&&rightTab==='estimate')
+            : tab.label==='Plans' ? (mainView==='workspace'&&rightTab!=='estimate'&&leftTab==='plans')
+            : tab.label==='Takeoffs' ? (mainView==='workspace'&&rightTab!=='estimate'&&leftTab==='takeoffs')
+            : mainView===tab.id;
+          return(
+            <button key={i} onClick={()=>{
+              if(tab.id==='estimate'){
+                setMainView('workspace');
+                setRightTab('estimate');
+              } else if(tab.id==='workspace'){
+                setMainView('workspace');
+                setRightTab('items');
+                if(tab.leftTab) setLeftTab(tab.leftTab);
+                else setLeftTab('plans');
+              } else {
+                setMainView(tab.id);
+              }
+            }}
+              style={{padding:'0 16px',border:'none',background:'none',cursor:'pointer',
+                fontSize:12,fontWeight:isActive?700:500,
+                color:isActive?'#10B981':t.text3,
+                borderBottom:isActive?'2px solid #10B981':'2px solid transparent',
+                boxSizing:'border-box',transition:'color 0.15s',
+                display:'flex',alignItems:'center',gap:5}}>
+              {tab.label}
+            </button>
+          );
+        })}
+        <div style={{flex:1}}/>
+        <div style={{display:'flex',alignItems:'center',paddingRight:12,gap:8}}>
+          <span style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace"}}>{items.length} conditions · {plans.length} sheets</span>
+        </div>
+      </div>
+
+      {/* ── Reports View ── */}
+      {mainView==='reports'&&(()=>{
+        const searchL = reportSearch.toLowerCase();
+        const reportItems = items.filter(it=>!reportSearch || it.description?.toLowerCase().includes(searchL) || TAKEOFF_CATS.find(c=>c.id===it.category)?.label.toLowerCase().includes(searchL));
+        // Sort
+        const sorted = [...reportItems].sort((a,b)=>{
+          const col = reportSort.col;
+          let av, bv;
+          if(col==='description'){ av=a.description||''; bv=b.description||''; }
+          else if(col==='category'){ av=TAKEOFF_CATS.find(c=>c.id===a.category)?.label||''; bv=TAKEOFF_CATS.find(c=>c.id===b.category)?.label||''; }
+          else if(col==='sheet'){ av=plans.find(p=>p.id===a.plan_id)?.name||''; bv=plans.find(p=>p.id===b.plan_id)?.name||''; }
+          else if(col==='quantity'){ av=a.quantity||0; bv=b.quantity||0; }
+          else if(col==='unit_cost'){ av=a.unit_cost||0; bv=b.unit_cost||0; }
+          else if(col==='total_cost'){ av=a.total_cost||0; bv=b.total_cost||0; }
+          else { av=a[col]||''; bv=b[col]||''; }
+          if(typeof av==='string') return reportSort.asc ? av.localeCompare(bv) : bv.localeCompare(av);
+          return reportSort.asc ? av-bv : bv-av;
+        });
+        // Summary stats
+        const totalSF = items.filter(i=>i.unit==='SF').reduce((s,i)=>s+(i.quantity||0),0);
+        const totalLF = items.filter(i=>i.unit==='LF').reduce((s,i)=>s+(i.quantity||0),0);
+        const totalEA = items.filter(i=>i.unit==='EA').reduce((s,i)=>s+(i.quantity||0),0);
+        const totalCY = items.filter(i=>i.unit==='CY').reduce((s,i)=>s+(i.quantity||0),0);
+        const grandTotal = items.reduce((s,i)=>s+(i.total_cost||0),0);
+
+        const sortCol = (col) => setReportSort(prev=>({col,asc:prev.col===col?!prev.asc:true}));
+        const sortArrow = (col) => reportSort.col===col ? (reportSort.asc?' ↑':' ↓') : '';
+        const hdrStyle = {fontSize:10,fontWeight:700,color:t.text3,cursor:'pointer',userSelect:'none',padding:'8px 10px',textAlign:'left',fontFamily:"'DM Mono',monospace",letterSpacing:0.5,whiteSpace:'nowrap',borderBottom:`2px solid ${t.border2}`};
+        const cellStyle = {fontSize:11,color:t.text,padding:'7px 10px',borderBottom:`1px solid ${t.border}`,fontFamily:"'DM Mono',monospace",whiteSpace:'nowrap'};
+
+        return(
+        <div style={{flex:1,display:'flex',flexDirection:'column',overflow:'hidden'}}>
+          {/* Report Header */}
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 20px',borderBottom:`1px solid ${t.border}`,background:t.bg,flexShrink:0}}>
+            <div style={{flex:1}}>
+              <div style={{fontSize:16,fontWeight:800,color:t.text,fontFamily:"'Syne',sans-serif"}}>Takeoff Summary</div>
+              <div style={{fontSize:10,color:t.text4,fontFamily:"'DM Mono',monospace",marginTop:2}}>Generated {new Date().toLocaleString()}</div>
+            </div>
+            {/* Summary badges */}
+            <div style={{display:'flex',gap:8}}>
+              {totalSF>0&&<div style={{background:'rgba(245,158,11,0.1)',border:'1px solid rgba(245,158,11,0.3)',borderRadius:6,padding:'4px 10px'}}>
+                <div style={{fontSize:8,color:'#F59E0B',fontWeight:700,fontFamily:"'DM Mono',monospace"}}>SQ FT</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#F59E0B',fontFamily:"'DM Mono',monospace"}}>{Math.round(totalSF).toLocaleString()}</div>
+              </div>}
+              {totalLF>0&&<div style={{background:'rgba(6,182,212,0.1)',border:'1px solid rgba(6,182,212,0.3)',borderRadius:6,padding:'4px 10px'}}>
+                <div style={{fontSize:8,color:'#06B6D4',fontWeight:700,fontFamily:"'DM Mono',monospace"}}>LN FT</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#06B6D4',fontFamily:"'DM Mono',monospace"}}>{Math.round(totalLF).toLocaleString()}</div>
+              </div>}
+              {totalEA>0&&<div style={{background:'rgba(16,185,129,0.1)',border:'1px solid rgba(16,185,129,0.3)',borderRadius:6,padding:'4px 10px'}}>
+                <div style={{fontSize:8,color:'#10B981',fontWeight:700,fontFamily:"'DM Mono',monospace"}}>EA</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#10B981',fontFamily:"'DM Mono',monospace"}}>{Math.round(totalEA).toLocaleString()}</div>
+              </div>}
+              {totalCY>0&&<div style={{background:'rgba(139,92,246,0.1)',border:'1px solid rgba(139,92,246,0.3)',borderRadius:6,padding:'4px 10px'}}>
+                <div style={{fontSize:8,color:'#8B5CF6',fontWeight:700,fontFamily:"'DM Mono',monospace"}}>CU YD</div>
+                <div style={{fontSize:13,fontWeight:700,color:'#8B5CF6',fontFamily:"'DM Mono',monospace"}}>{Math.round(totalCY).toLocaleString()}</div>
+              </div>}
+            </div>
+            <div style={{display:'flex',gap:6}}>
+              <div style={{position:'relative'}}>
+                <span style={{position:'absolute',left:7,top:'50%',transform:'translateY(-50%)',color:t.text4,fontSize:11}}>⌕</span>
+                <input value={reportSearch} onChange={e=>setReportSearch(e.target.value)}
+                  placeholder="Search..."
+                  style={{padding:'6px 8px 6px 22px',border:`1px solid ${t.border}`,borderRadius:5,
+                    fontSize:11,color:t.text,background:t.bg3,outline:'none',width:160}}/>
+              </div>
+              <button onClick={()=>{
+                // CSV export
+                const header = ['Takeoff Name','Category','Sheet','Qty','Unit','Unit Cost','Total Cost'].join(',');
+                const rows = sorted.map(it=>[
+                  `"${(it.description||'').replace(/"/g,'""')}"`,
+                  `"${TAKEOFF_CATS.find(c=>c.id===it.category)?.label||''}"`,
+                  `"${plans.find(p=>p.id===it.plan_id)?.name||''}"`,
+                  it.quantity||0, it.unit||'',
+                  it.unit_cost||0, it.total_cost||0
+                ].join(','));
+                const csv = [header,...rows].join('\n');
+                const blob = new Blob([csv],{type:'text/csv'});
+                const a = document.createElement('a');
+                a.href=URL.createObjectURL(blob);
+                a.download=`${project.name}_takeoff_report.csv`;
+                a.click();
+              }}
+                style={{background:'#10B981',border:'none',color:'#fff',padding:'6px 14px',borderRadius:5,cursor:'pointer',fontSize:11,fontWeight:700,display:'flex',alignItems:'center',gap:4}}>
+                ↓ Export CSV
+              </button>
+            </div>
+          </div>
+
+          {/* Report Table */}
+          <div style={{flex:1,overflowY:'auto',overflowX:'auto'}}>
+            <table style={{width:'100%',borderCollapse:'collapse',minWidth:900}}>
+              <thead style={{position:'sticky',top:0,background:t.bg2,zIndex:2}}>
+                <tr>
+                  <th style={{...hdrStyle,width:30}}>#</th>
+                  <th onClick={()=>sortCol('description')} style={{...hdrStyle}}>TAKEOFF NAME{sortArrow('description')}</th>
+                  <th onClick={()=>sortCol('category')} style={{...hdrStyle}}>CATEGORY{sortArrow('category')}</th>
+                  <th onClick={()=>sortCol('sheet')} style={{...hdrStyle}}>SHEET{sortArrow('sheet')}</th>
+                  <th onClick={()=>sortCol('quantity')} style={{...hdrStyle,textAlign:'right'}}>QTY{sortArrow('quantity')}</th>
+                  <th style={{...hdrStyle,textAlign:'center'}}>UNIT</th>
+                  <th onClick={()=>sortCol('unit_cost')} style={{...hdrStyle,textAlign:'right'}}>UNIT COST{sortArrow('unit_cost')}</th>
+                  <th onClick={()=>sortCol('total_cost')} style={{...hdrStyle,textAlign:'right'}}>TOTAL{sortArrow('total_cost')}</th>
+                  <th style={{...hdrStyle,width:40}}/>
+                </tr>
+              </thead>
+              <tbody>
+                {sorted.map((it,idx)=>{
+                  const cat = TAKEOFF_CATS.find(c=>c.id===it.category);
+                  const sheetName = plans.find(p=>p.id===it.plan_id)?.name||'—';
+                  return(
+                    <tr key={it.id}
+                      onMouseEnter={e=>e.currentTarget.style.background=t.bg3}
+                      onMouseLeave={e=>e.currentTarget.style.background='transparent'}>
+                      <td style={{...cellStyle,color:t.text4,fontSize:9,textAlign:'center'}}>{idx+1}</td>
+                      <td style={{...cellStyle}}>
+                        <div style={{display:'flex',alignItems:'center',gap:8}}>
+                          <div style={{width:10,height:10,borderRadius:2,background:it.color||cat?.color||'#888',flexShrink:0}}/>
+                          <span style={{fontFamily:"'Syne',sans-serif",fontWeight:600,fontSize:12,color:t.text}}>{it.description||'Unnamed'}</span>
+                        </div>
+                      </td>
+                      <td style={{...cellStyle,color:cat?.color||t.text3,fontWeight:600,fontSize:10}}>{cat?.label||it.category}</td>
+                      <td style={{...cellStyle,color:t.text3,fontSize:10,maxWidth:140,overflow:'hidden',textOverflow:'ellipsis'}}>{sheetName}</td>
+                      <td style={{...cellStyle,textAlign:'right',fontWeight:700,color:(it.quantity||0)>0?t.text:t.text4}}>{(it.quantity||0)>0?Math.round((it.quantity||0)*10)/10:'—'}</td>
+                      <td style={{...cellStyle,textAlign:'center',color:t.text3,fontSize:10}}>{it.unit||'—'}</td>
+                      <td style={{...cellStyle,textAlign:'right',color:t.text3}}>{(it.unit_cost||0)>0?`$${Number(it.unit_cost).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}`:'—'}</td>
+                      <td style={{...cellStyle,textAlign:'right',fontWeight:700,color:(it.total_cost||0)>0?'#10B981':t.text4}}>{(it.total_cost||0)>0?`$${Math.round(it.total_cost).toLocaleString()}`:'—'}</td>
+                      <td style={{...cellStyle,textAlign:'center'}}>
+                        <button onClick={()=>{setEditItem(it);setMainView('workspace');}} style={{background:'none',border:'none',color:t.text4,cursor:'pointer',fontSize:10,opacity:0.5}} title="Edit">✎</button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+              {sorted.length>0&&(
+                <tfoot>
+                  <tr style={{background:t.bg2}}>
+                    <td style={{...cellStyle,borderBottom:'none'}} colSpan={4}>
+                      <span style={{fontSize:11,fontWeight:800,color:t.text}}>TOTALS ({sorted.length} items)</span>
+                    </td>
+                    <td style={{...cellStyle,textAlign:'right',borderBottom:'none'}}>
+                      <span style={{fontWeight:700,color:t.text,fontSize:11}}>{Math.round(sorted.reduce((s,i)=>s+(i.quantity||0),0)*10)/10}</span>
+                    </td>
+                    <td style={{...cellStyle,borderBottom:'none'}}/>
+                    <td style={{...cellStyle,borderBottom:'none'}}/>
+                    <td style={{...cellStyle,textAlign:'right',borderBottom:'none'}}>
+                      <span style={{fontWeight:800,color:'#10B981',fontSize:13}}>${Math.round(sorted.reduce((s,i)=>s+(i.total_cost||0),0)).toLocaleString()}</span>
+                    </td>
+                    <td style={{...cellStyle,borderBottom:'none'}}/>
+                  </tr>
+                </tfoot>
+              )}
+            </table>
+            {sorted.length===0&&(
+              <div style={{textAlign:'center',padding:'60px 20px',color:t.text4,fontSize:12}}>
+                {reportSearch?'No takeoffs match your search.':'No takeoff items yet. Draw measurements on plans to populate this report.'}
+              </div>
+            )}
+          </div>
+        </div>
+        );
+      })()}
+
+      {/* ── Main Body (Workspace) ── */}
+      {mainView==='workspace'&&<div style={{display:'flex',flex:1,overflow:'hidden'}}>
 
         {/* ── Left Panel — Stack-style ── */}
         <div style={{width:280,flexShrink:0,display:'flex',flexDirection:'column',borderRight:`1px solid ${t.border}`,background:t.bg2,overflow:'hidden'}}>
@@ -7678,7 +7885,7 @@ Return ONLY a valid JSON array, no markdown:
           )}
         </div>
 
-      </div>
+      </div>}
 
       {/* ── Full-screen Estimate Page ── */}
       {rightTab==='estimate'&&(()=>{
